@@ -26,6 +26,22 @@ def enrichr_pathway_analysis(llm_results):
     # Add actual Enrichr pathway analysis code here
     return "enrichr_results"
 
+def run_sarek(sra_file_path, output_dir):
+    # sarek 파이프라인 실행 코드 추가
+    pass
+
+def run_naseq(sra_file_path, output_dir):
+    # naseq 파이프라인 실행 코드 추가
+    pass
+
+def run_scrnaseq(sra_file_path, output_dir):
+    # scrnaseq 파이프라인 실행 코드 추가
+    pass
+
+def run_metagenome(sra_file_path, output_dir):
+    # metagenome 파이프라인 실행 코드 추가
+    pass
+
 def main(pmid, llm_url="http://localhost:11434"):
     try:
         sra_file_path = download_sra_data(pmid)
