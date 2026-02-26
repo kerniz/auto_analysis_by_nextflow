@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "OpenCode Team"}
+    {name = "bioauto"}
 ]
 keywords = ["bioinformatics", "nextflow", "rna-seq", "scrna-seq", "llm", "multi-agent"]
 
