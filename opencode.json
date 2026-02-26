@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/qwen3-coder:30b",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://host.docker.internal:11434/v1"
+      },
+      "models": {
+        "qwen3-coder:30b": {
+          "name": "Qwen3 Coder 30B"
+        },
+        "devstral-small-2:24b": {
+          "name": "Devstral Small 2 24B"
+        },
+        "phi4-reasoning:14b": {
+          "name": "Phi4 Reasoning 14B"
+        },
+        "qwen3-vl:32b": {
+          "name": "Qwen3 VL 32B"
+        },
+        "gpt-oss:20b": {
+          "name": "GPT OSS 20B"
+	}
+      }
+    }
+  }
+}

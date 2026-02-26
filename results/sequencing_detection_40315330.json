@@ -1,0 +1,18 @@
+{
+  "pmid": "40315330",
+  "predicted_type": "scRNA-seq",
+  "confidence": 1.0,
+  "scrna_score": 1.0,
+  "bulk_score": 0.2,
+  "sra_scrna_score": 0.0,
+  "sra_bulk_score": 0.0,
+  "evidence": [
+    "scRNA-seq 키워드: 'single-cell'",
+    "scRNA-seq 키워드: 'single-cell rna sequencing'",
+    "scRNA-seq 키워드: '10x genomics'",
+    "bulk RNA-seq 키워드: 'rna-seq'",
+    "bulk RNA-seq 키워드: 'rna sequencing'",
+    "SRA SRR123456 라이브러리 전략: SINGLE_CELL"
+  ],
+  "recommended_pipeline": "nf-core/scrnaseq"
+}

@@ -1,0 +1,17 @@
+{
+  "pmid": "32416070",
+  "model": "backup_algorithm",
+  "analysis_timestamp": "2026-01-11T09:42:58.427841",
+  "sequencing_type": "bulk RNA-seq",
+  "pipeline_status": "completed",
+  "consistency_score": 0.6,
+  "consistency_rating": "WARN",
+  "technical_assessment": "파이프라인 성공적으로 완료됨 (bulk RNA-seq), 신뢰도 1.0",
+  "code_quality_notes": "",
+  "data_quality_assessment": "",
+  "recommendations": [
+    "LLM 서버 상태 확인",
+    "수동 분석 수행"
+  ],
+  "error_message": "LLM 서버 접속 실패"
+}

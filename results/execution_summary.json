@@ -1,0 +1,32 @@
+{
+  "execution_summary": {
+    "total_pmids": 2,
+    "successful_analyses": 0,
+    "partial_successes": 2,
+    "failures": 0
+  },
+  "sequencing_type_distribution": {
+    "scRNA-seq": 1,
+    "bulk RNA-seq": 1
+  },
+  "consistency_rating_distribution": {
+    "WARN": 2
+  },
+  "pipeline_success_rate": 1.0,
+  "total_execution_time_minutes": 64.0,
+  "total_data_downloaded_gb": 34.0,
+  "pmid_details": {
+    "40315330": {
+      "title": "Single-cell RNA sequencing reveals cellular heterogeneity in tumor microenvironment",
+      "sequencing_type": "scRNA-seq",
+      "overall_status": "PARTIAL_SUCCESS",
+      "consistency_rating": "WARN"
+    },
+    "32416070": {
+      "title": "Bulk RNA-seq analysis of gene expression changes in response to immunotherapy",
+      "sequencing_type": "bulk RNA-seq",
+      "overall_status": "PARTIAL_SUCCESS",
+      "consistency_rating": "WARN"
+    }
+  }
+}

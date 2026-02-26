@@ -1,0 +1,10 @@
+# docker-compose.yml
+version: '3.8'
+services:
+  opencode:
+    image: opencode:latest
+    build: .
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true

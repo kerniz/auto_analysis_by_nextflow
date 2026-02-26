@@ -1,0 +1,27 @@
+{
+  "pmid": "32416070",
+  "sra_links": [
+    "SRR25872670",
+    "SRR25872671"
+  ],
+  "public_sra_ids": [
+    "SRR25872670",
+    "SRR25872671"
+  ],
+  "controlled_sra_ids": [],
+  "metadata": {
+    "SRR25872670": {
+      "LibStrategy": "RNA-SEQ",
+      "LibSource": "TRANSCRIPTOMIC",
+      "LibSelection": "POLY_A"
+    },
+    "SRR25872671": {
+      "LibStrategy": "RNA-SEQ",
+      "LibSource": "TRANSCRIPTOMIC",
+      "LibSelection": "POLY_A"
+    }
+  },
+  "downloadable": true,
+  "total_size_gb": 17.0,
+  "samplesheet": "/workspace/results/samplesheet_32416070.csv"
+}

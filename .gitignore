@@ -1,1 +1,16 @@
-.aider*
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+*.log
+.DS_Store
+@eaDir/
+work/
+.nextflow/
+.nextflow.log*
+*.deb

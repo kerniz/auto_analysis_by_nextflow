@@ -1,0 +1,118 @@
+{
+  "pipeline_config": {
+    "test_pmids": ["40315330", "32416070"],
+    "llm_server": {
+      "url": "http://localhost:11434",
+      "model": "deepseek-coder:33b",
+      "timeout": 60,
+      "max_retries": 3
+    },
+    "container_runtime": {
+      "preferred": "apptainer",
+      "fallback": "singularity"
+    },
+    "nextflow": {
+      "work_dir": "/workspace/nextflow_work",
+      "cache_dir": "/workspace/containers",
+      "timeout_hours": {
+        "scrnaseq": 4,
+        "rnaseq": 3
+      }
+    },
+    "sra_download": {
+      "max_parallel": 4,
+      "timeout_minutes": 30,
+      "max_samples": 50
+    }
+  },
+  "data_sources": {
+    "semantic_scholar": {
+      "base_url": "https://api.semanticscholar.org",
+      "api_key": null,
+      "timeout": 30,
+      "rate_limit_delay": 1.0
+    },
+    "europe_pmc": {
+      "base_url": "https://www.ebi.ac.uk/europepmc/webservices/rest",
+      "timeout": 30,
+      "rate_limit_delay": 0.5
+    },
+    "annotation": {
+      "ensembl_base": "https://rest.ensembl.org",
+      "quickgo_base": "https://www.ebi.ac.uk/QuickGO/services",
+      "kegg_base": "https://rest.kegg.jp",
+      "timeout": 30,
+      "rate_limit_delay": 0.35
+    },
+    "tcga_gdc": {
+      "base_url": "https://api.gdc.cancer.gov",
+      "timeout": 60,
+      "rate_limit_delay": 0.5
+    }
+  },
+  "debate": {
+    "num_rounds": 3,
+    "consensus_threshold": 0.7,
+    "enable_cross_examination": true,
+    "timeout_per_agent": 120,
+    "parallel_assessment": true,
+    "agent_weights": {
+      "phd_expert": 0.5,
+      "undergraduate": 0.3,
+      "layperson": 0.2
+    }
+  },
+  "enrichment": {
+    "gsea_gene_set_db": "KEGG_2021_Human",
+    "organism": "human",
+    "deg_fc_threshold": 1.5,
+    "deg_padj_threshold": 0.05,
+    "top_pathways_count": 10,
+    "top_genes_count": 50
+  },
+  "directories": {
+    "raw_data": "/workspace/raw_data",
+    "processed_data": "/workspace/processed_data",
+    "nextflow_work": "/workspace/nextflow_work",
+    "containers": "/workspace/containers",
+    "results": "/workspace/results",
+    "logs": "/workspace/logs",
+    "charts": "/workspace/charts"
+  },
+  "execution": {
+    "resume_enabled": true,
+    "progress_file": "/workspace/progress.json",
+    "log_level": "ERROR",
+    "dry_run_first": true,
+    "max_concurrent": 5,
+    "enable_debate": true,
+    "enable_enrichment": true,
+    "enable_data_aggregation": true
+  },
+  "sequencing_detection": {
+    "scrna_keywords": [
+      "single-cell", "single cell", "singlecell",
+      "scrna-seq", "single-cell rna sequencing",
+      "10x genomics", "drop-seq", "smart-seq",
+      "cell ranger", "cellranger",
+      "droplet", "microfluidic", "cell barcoding",
+      "umis", "unique molecular identifiers"
+    ],
+    "bulk_keywords": [
+      "bulk rna-seq", "bulk rna sequencing",
+      "rna-seq", "rna sequencing",
+      "transcriptome", "gene expression",
+      "polya", "poly-a selection"
+    ]
+  },
+  "expected_results": {
+    "40315330": {
+      "expected_type": "scRNA-seq",
+      "expected_pipeline": "nf-core/scrnaseq"
+    },
+    "32416070": {
+      "expected_type": "bulk RNA-seq",
+      "expected_pipeline": "nf-core/rnaseq"
+    }
+  }
+}
