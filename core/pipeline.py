@@ -23,7 +23,7 @@ from backends import LLMRouter, OllamaBackend, OpenAIBackend, LLMConfig
 from backends.base import BackendStatus
 from backends.router import RouterConfig
 from plugins import PluginRegistry, register_default_plugins
-from progress_manager import ProgressManager
+from core.progress_manager import ProgressManager
 
 
 class PipelineStatus(Enum):
@@ -498,7 +498,7 @@ class AsyncPipeline:
                 return json.load(f)
 
         try:
-            from pubmed_client import PubMedClient
+            from core.pubmed_client import PubMedClient
             client = PubMedClient()
             metadata = client.fetch_paper_metadata(pmid)
             if metadata:
@@ -521,7 +521,7 @@ class AsyncPipeline:
                 return json.load(f)
 
         try:
-            from sra_explorer import SRAExplorer
+            from core.sra_explorer import SRAExplorer
             explorer = SRAExplorer()
             sra_links = pubmed_metadata.get("sra_links", [])
             result = explorer.explore_sra_datasets(pmid, sra_links)

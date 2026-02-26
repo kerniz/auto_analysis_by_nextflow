@@ -49,7 +49,7 @@ jobs:
           pytest tests/ -v \
             --cov=backends --cov=plugins --cov=clients --cov=agents --cov=enrichment \
             --cov=search --cov=mcp --cov=rag --cov=nextflow --cov=analysis \
-            --cov=async_pipeline --cov=cli \
+            --cov=core \
             --cov-report=xml --cov-report=term-missing || true
       
       - name: Upload coverage

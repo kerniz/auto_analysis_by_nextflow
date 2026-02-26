@@ -284,120 +284,59 @@ v3.1.0까지는 논문 메타데이터 분석만 수행했다. 실제 시퀀싱 
 
 ---
 
-## 프로젝트 구조
+## v4.0.1 — 프로젝트 구조 리팩토링
 
-```
-nextflow_automation/
-├── cli.py                    # Click CLI 진입점
-├── async_pipeline.py         # 비동기 파이프라인 (9+ stages)
-├── pubmed_client.py          # PubMed API (Biopython Entrez)
-├── sra_client.py             # SRA metadata 조회
-├── config.json               # 전역 설정
-├── pyproject.toml            # 프로젝트 메타데이터
-├── requirements.txt          # 의존성
-│
-├── backends/                 # LLM 백엔드
-│   ├── base.py               # LLMResponse, LLMRouter
-│   ├── ollama_backend.py     # Ollama (로컬)
-│   ├── openai_backend.py     # OpenAI API
-│   └── anthropic_backend.py  # Anthropic API
-│
-├── clients/                  # 외부 API 클라이언트
-│   ├── base.py               # ClientResponse 모델
-│   ├── semantic_scholar.py   # Semantic Scholar
-│   ├── europe_pmc.py         # Europe PMC
-│   ├── tcga_gdc.py           # TCGA/GDC
-│   └── data_aggregator.py    # 다중 소스 집계
-│
-├── agents/                   # 다중 에이전트 토론
-│   ├── base.py               # AgentRole, AgentResponse, DebateRound
-│   ├── debate_agents.py      # 5개 역할 에이전트
-│   └── debate_manager.py     # 토론 진행 관리
-│
-├── enrichment/               # 유전자 경로 분석
-│   ├── gsea_analyzer.py      # Enrichr GSEA
-│   └── pathway_visualizer.py # 시각화
-│
-├── search/                   # 주제어 검색 (v3.1.0)
-│   ├── topic_searcher.py     # 4소스 팬아웃 검색
-│   └── result_ranker.py      # 점수/중복제거/정렬
-│
-├── mcp/                      # MCP 통합 (v3.1.0)
-│   └── brave_client.py       # Brave Search REST 클라이언트
-│
-├── rag/                      # RAG 벡터 DB (v3.1.0)
-│   ├── document_store.py     # ChromaDB 저장소
-│   └── rag_context.py        # 컨텍스트 빌더
-│
-├── nextflow/                 # Nextflow 실행 레이어 (v4.0.0)
-│   ├── config.py             # NextflowExecutionConfig
-│   ├── samplesheet.py        # SamplesheetGenerator (5개 파이프라인)
-│   ├── fetchngs.py           # FetchNGSRunner (SRA 다운로드)
-│   ├── executor.py           # NextflowExecutor (파이프라인 실행)
-│   ├── monitor.py            # PipelineMonitor (로그 파싱)
-│   └── output_parser.py      # OutputParser (출력 탐색)
-│
-├── analysis/                 # R/Python 다운스트림 분석 (v4.0.0)
-│   ├── orchestrator.py       # AnalysisOrchestrator (라우팅)
-│   ├── script_runner.py      # RScriptRunner, PythonScriptRunner
-│   ├── r_scripts/            # R 분석 스크립트
-│   │   ├── deseq2_analysis.R # Bulk RNA-seq DESeq2
-│   │   ├── seurat_analysis.R # scRNA-seq Seurat
-│   │   └── peak_analysis.R   # ATAC/ChIP peak 분석
-│   └── python_scripts/       # Python 분석 스크립트
-│       └── scanpy_analysis.py # scRNA-seq scanpy 대안
-│
-├── sequencing/               # 시퀀싱 타입 감지
-│   ├── detector.py           # 메인 감지기
-│   ├── registry.py           # 플러그인 레지스트리
-│   └── plugins/              # 감지 플러그인
-│
-├── tests/                    # 테스트 (204개)
-│   ├── conftest.py           # 공통 fixture
-│   ├── test_cli.py           # CLI 테스트
-│   ├── test_clients.py       # API 클라이언트 테스트
-│   ├── test_agents.py        # 에이전트 테스트
-│   ├── test_enrichment.py    # 경로 분석 테스트
-│   ├── test_search.py        # 검색 테스트 (v3.1.0)
-│   ├── test_mcp.py           # MCP 테스트 (v3.1.0)
-│   ├── test_rag.py           # RAG 테스트 (v3.1.0)
-│   ├── test_samplesheet.py   # Samplesheet 테스트 (v4.0.0)
-│   ├── test_nextflow.py      # Nextflow 실행 테스트 (v4.0.0)
-│   ├── test_output_parser.py # 출력 파서 테스트 (v4.0.0)
-│   └── test_analysis.py      # 분석 오케스트레이터 테스트 (v4.0.0)
-│
-├── docs/                     # 문서
-│   └── DEVELOPMENT_HISTORY.md
-│
-└── .github/workflows/ci.yml  # CI/CD
-```
+**릴리스일**: 2026-02-27
+
+### 변경 사항
+
+1. **core/ 패키지 생성** — 루트 Python 파일을 `core/`로 이동
+   - `cli.py` → `core/cli.py`
+   - `async_pipeline.py` → `core/pipeline.py`
+   - `pubmed_client.py` → `core/pubmed_client.py`
+   - `sra_explorer.py` → `core/sra_explorer.py`
+   - `progress_manager.py` → `core/progress_manager.py`
+
+2. **레거시 삭제** — 미사용 파일 제거
+   - `deepseek_analyzer.py`, `sequencing_detector.py`, `report_generator.py`, `nextflow_manager.py`
+   - `Dockerfile`, `docker-compose.yml` (opencode 전용)
+   - `opencode.json`, `pytest.ini`, `requirements.txt`, `requirements-dev.txt`
+
+3. **파일 정리**
+   - 개발 문서 → `docs/` (AGENTS.md, DEVELOPMENT_PLAN.md)
+   - 유틸리티 스크립트 → `scripts/`
+   - 런타임 아티팩트 `.gitignore` 추가 (`results/`, `charts/`, `progress.json`)
+
+4. **docs/ARCHITECTURE.md** 신규 — 전체 아키텍처 문서
 
 ---
 
-## 의존성
+## 프로젝트 구조 (현재)
 
-### 필수
-```
-biopython>=1.80
-httpx>=0.24.0
-click>=8.0
-pydantic>=2.0
-rich>=13.0
-```
+> 상세: [docs/ARCHITECTURE.md](ARCHITECTURE.md)
 
-### 선택 (RAG)
 ```
-chromadb>=0.4.0
-sentence-transformers>=2.2.0
+bioauto/
+├── main.nf                 # Nextflow DSL2 워크플로우
+├── nextflow.config         # Nextflow 설정
+├── config.json             # 전역 설정
+├── pyproject.toml          # 프로젝트 메타데이터 + 의존성
+│
+├── core/                   # 핵심 오케스트레이션
+├── backends/               # LLM 백엔드 (Ollama, OpenAI, Anthropic)
+├── clients/                # 외부 API 클라이언트
+├── plugins/                # 시퀀싱 감지 플러그인
+├── agents/                 # 멀티 에이전트 토론
+├── enrichment/             # GSEA 경로 분석
+├── search/                 # 논문 검색 (4소스)
+├── mcp/                    # Brave Search
+├── rag/                    # RAG 벡터 DB
+├── nextflow/               # Nextflow 실행 레이어
+├── analysis/               # R/Python 다운스트림 분석
+├── scripts/                # 유틸리티 스크립트
+├── tests/                  # 테스트 (204개)
+└── docs/                   # 개발 문서
 ```
-
-### LLM 백엔드 (하나 이상 필요)
-- Ollama (로컬, 무료)
-- OpenAI API (`OPENAI_API_KEY`)
-- Anthropic API (`ANTHROPIC_API_KEY`)
-
-### 검색 (선택)
-- Brave Search API (`BRAVE_API_KEY`)
 
 ---
 
@@ -410,4 +349,6 @@ sentence-transformers>=2.2.0
 | `7a2ba8b` | 기존 파일 삭제 |
 | `5939291` | Update README.md |
 | `df312fc` | feat: bioauto v3.0.0 — 올인원 플랫폼 |
-| *(next)* | feat: bioauto v3.1.0 — 검색/상담/Brave/RAG |
+| `32ac6d1` | feat: bioauto v3.1.0 — 검색/상담/Brave/RAG |
+| `117d4f6` | feat: bioauto v4.0.0 — Nextflow 실행 + R/Python 분석 |
+| `c992053` | chore: opencode 관련 파일 삭제 |

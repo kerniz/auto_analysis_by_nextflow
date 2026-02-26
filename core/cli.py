@@ -16,7 +16,7 @@ except ImportError:
     print("click 패키지가 필요합니다: pip install click")
     sys.exit(1)
 
-from async_pipeline import AsyncPipeline, PipelineConfig, PipelineStatus
+from core.pipeline import AsyncPipeline, PipelineConfig, PipelineStatus
 
 
 @click.group()
@@ -416,7 +416,7 @@ async def _run_search(query: str, limit: int, no_brave: bool):
     from search import TopicSearcher, ResultRanker
     from clients.semantic_scholar_client import SemanticScholarClient
     from clients.europe_pmc_client import EuropePMCClient
-    from pubmed_client import PubMedClient
+    from core.pubmed_client import PubMedClient
 
     pubmed = PubMedClient()
     ss = SemanticScholarClient()

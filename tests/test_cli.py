@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from pathlib import Path
 from click.testing import CliRunner
 
-from cli import cli
+from core.cli import cli
 
 
 @pytest.fixture
@@ -37,8 +37,8 @@ class TestRunCommand:
         assert "--enrichment" in result.output
         assert "--resume" in result.output
 
-    @patch("cli.AsyncPipeline")
-    @patch("cli.asyncio")
+    @patch("core.cli.AsyncPipeline")
+    @patch("core.cli.asyncio")
     def test_run_basic(self, mock_asyncio, mock_pipeline_cls, runner):
         mock_result = MagicMock()
         mock_result.status.value = "completed"
@@ -54,16 +54,16 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert "40315330" in result.output
 
-    @patch("cli.AsyncPipeline")
-    @patch("cli.asyncio")
+    @patch("core.cli.AsyncPipeline")
+    @patch("core.cli.asyncio")
     def test_run_no_debate(self, mock_asyncio, mock_pipeline_cls, runner):
         mock_asyncio.run.return_value = {}
         result = runner.invoke(cli, ["run", "40315330", "--no-debate"])
         assert result.exit_code == 0
         assert "Debate: OFF" in result.output
 
-    @patch("cli.AsyncPipeline")
-    @patch("cli.asyncio")
+    @patch("core.cli.AsyncPipeline")
+    @patch("core.cli.asyncio")
     def test_run_multiple_pmids(self, mock_asyncio, mock_pipeline_cls, runner):
         mock_asyncio.run.return_value = {}
         result = runner.invoke(cli, ["run", "40315330", "32416070"])
@@ -151,13 +151,13 @@ class TestSearchCommand:
         assert result.exit_code == 0
         assert "주제 기반" in result.output or "QUERY" in result.output
 
-    @patch("cli._run_search")
+    @patch("core.cli._run_search")
     def test_search_no_results(self, mock_search, runner):
         mock_search.return_value = []
         result = runner.invoke(cli, ["search", "test query"], input="q\n")
         assert "검색 결과가 없습니다" in result.output
 
-    @patch("cli._run_search")
+    @patch("core.cli._run_search")
     def test_search_with_results_quit(self, mock_search, runner):
         from search import SearchResult
         mock_search.return_value = [

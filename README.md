@@ -438,19 +438,23 @@ pytest tests/ --cov=. --cov-report=html
 
 ```
 bioauto/
-├── cli.py                  # CLI 진입점 (bioauto 명령)
-├── async_pipeline.py       # 비동기 파이프라인 오케스트레이터
-├── config.json             # 전역 설정
-├── pubmed_client.py        # PubMed API 클라이언트
-├── sra_explorer.py         # SRA 메타데이터 탐색
-├── progress_manager.py     # 실행 상태 체크포인트
 ├── main.nf                 # Nextflow DSL2 워크플로우
 ├── nextflow.config         # Nextflow 설정
+├── config.json             # 전역 설정
+├── pyproject.toml          # 프로젝트 메타데이터 + 의존성
+├── README.md
+│
+├── core/                   # 핵심 오케스트레이션
+│   ├── cli.py              #   Click CLI 진입점 (bioauto 명령)
+│   ├── pipeline.py         #   비동기 파이프라인 오케스트레이터
+│   ├── pubmed_client.py    #   PubMed API 클라이언트
+│   ├── sra_explorer.py     #   SRA 메타데이터 탐색
+│   └── progress_manager.py #   체크포인트/재시작
 │
 ├── backends/               # LLM 백엔드 (Ollama, OpenAI, Anthropic)
-├── clients/                # 외부 API 클라이언트
+├── clients/                # 외부 API 클라이언트 (SS, EPMC, TCGA)
 ├── plugins/                # 시퀀싱 타입 감지 플러그인
-├── agents/                 # 멀티 에이전트 토론
+├── agents/                 # 멀티 에이전트 토론 (PhD, 학부생, 일반인)
 ├── enrichment/             # GSEA 경로 분석
 ├── search/                 # 논문 검색 (4소스 팬아웃)
 ├── mcp/                    # Brave Search 통합
@@ -459,9 +463,10 @@ bioauto/
 ├── analysis/               # R/Python 다운스트림 분석
 │   ├── r_scripts/          #   DESeq2, Seurat, peak analysis
 │   └── python_scripts/     #   scanpy
+│
 ├── scripts/                # 유틸리티 스크립트
 ├── tests/                  # 테스트 (204개)
-└── docs/                   # 개발 문서
+└── docs/                   # 개발 문서 (아키텍처, 개발 이력)
 ```
 
 ---

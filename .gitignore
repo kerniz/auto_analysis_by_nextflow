@@ -35,3 +35,4 @@ nextflow_work/
 .vscode/
 *.swp
 *.swo
+.claude/

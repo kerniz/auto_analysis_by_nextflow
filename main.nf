@@ -16,7 +16,7 @@ process pubmed_search {
     script:
     """
     python3 -c "
-from pubmed_client import PubMedClient
+from core.pubmed_client import PubMedClient
 client = PubMedClient()
 metadata = client.fetch_paper_metadata('${pmid}')
 geo_links = metadata.get('geo_links', []) if metadata else []
@@ -38,12 +38,12 @@ process type_detection {
     script:
     """
     python3 -c "
-from pubmed_client import PubMedClient
-from sequencing_detector import SequencingDetector
+from core.pubmed_client import PubMedClient
+from plugins import register_default_plugins
 client = PubMedClient()
 metadata = client.fetch_paper_metadata('${pmid}')
-detector = SequencingDetector()
-result = detector.detect_sequencing_type(metadata or {})
+registry = register_default_plugins()
+result = registry.detect(metadata or {})
 print(result.get('sequencing_type', 'unknown'))
 " > analysis_type.txt
     """
@@ -62,7 +62,7 @@ process data_download {
     script:
     """
     python3 -c "
-from sra_explorer import SRAExplorer
+from core.sra_explorer import SRAExplorer
 explorer = SRAExplorer()
 with open('${datasets}') as f:
     sra_links = [line.strip() for line in f if line.strip()]

@@ -54,7 +54,7 @@ dev = [
 ]
 
 [project.scripts]
-bioauto = "cli:cli"
+bioauto = "core.cli:cli"
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -62,7 +62,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["backends*", "plugins*", "agents*", "enrichment*", "clients*", "search*", "mcp*", "rag*", "nextflow*", "analysis*"]
+include = ["core*", "backends*", "plugins*", "agents*", "enrichment*", "clients*", "search*", "mcp*", "rag*", "nextflow*", "analysis*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

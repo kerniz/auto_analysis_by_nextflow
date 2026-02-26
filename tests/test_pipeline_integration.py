@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 from datetime import datetime
 
-from async_pipeline import (
+from core.pipeline import (
     AsyncPipeline, PipelineConfig, PipelineStatus, PMIDResult,
 )
 
