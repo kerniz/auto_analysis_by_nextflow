@@ -41,6 +41,11 @@ class PMIDResult:
     pubmed_metadata: Dict[str, Any] = field(default_factory=dict)
     sra_results: Dict[str, Any] = field(default_factory=dict)
     sequencing_result: Dict[str, Any] = field(default_factory=dict)
+    # Pipeline execution results (v4.0)
+    fetchngs_result: Dict[str, Any] = field(default_factory=dict)
+    pipeline_execution: Dict[str, Any] = field(default_factory=dict)
+    downstream_analysis: Dict[str, Any] = field(default_factory=dict)
+    # Existing
     llm_analysis: Dict[str, Any] = field(default_factory=dict)
     aggregated_data: Dict[str, Any] = field(default_factory=dict)
     enrichment_results: Dict[str, Any] = field(default_factory=dict)
@@ -74,6 +79,10 @@ class PMIDResult:
             },
             "debate_verdict": self.debate_report.get("overall_verdict", "UNDETERMINED"),
             "debate_score": self.debate_report.get("overall_score", 0.0),
+            # Pipeline execution (v4.0)
+            "fetchngs": self.fetchngs_result if self.fetchngs_result else None,
+            "pipeline_execution": self.pipeline_execution if self.pipeline_execution else None,
+            "downstream_analysis": self.downstream_analysis if self.downstream_analysis else None,
         }
 
 
@@ -90,6 +99,9 @@ class PipelineConfig:
     debate_rounds: int = 3
     progress_file: Optional[str] = None
     rag_dir: Optional[Path] = None
+    # Pipeline execution (v4.0)
+    enable_pipeline_execution: bool = False
+    nextflow_config: Optional[Any] = None  # NextflowExecutionConfig
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
@@ -209,6 +221,37 @@ class AsyncPipeline:
             except ImportError:
                 print("[WARN] rag 패키지 없음, RAG 비활성화")
 
+        # Nextflow execution layer (v4.0, lazy, conditional)
+        self.nf_executor = None
+        self.fetchngs_runner = None
+        self.samplesheet_gen = None
+        self.analysis_orchestrator = None
+
+        if self.config.enable_pipeline_execution:
+            try:
+                from nextflow import (
+                    NextflowExecutor, FetchNGSRunner, SamplesheetGenerator,
+                )
+                from nextflow.config import NextflowExecutionConfig
+                from analysis import AnalysisOrchestrator
+
+                nf_config = self.config.nextflow_config or NextflowExecutionConfig()
+                self.nf_executor = NextflowExecutor(nf_config)
+                self.fetchngs_runner = FetchNGSRunner(nf_config)
+                self.samplesheet_gen = SamplesheetGenerator()
+                self.analysis_orchestrator = AnalysisOrchestrator(
+                    r_executable=nf_config.r_executable,
+                    scanpy_enabled=nf_config.scanpy_enabled,
+                    analysis_params=nf_config.analysis_params,
+                )
+
+                prereqs = await self.nf_executor.check_prerequisites()
+                if not prereqs.get("nextflow"):
+                    print("[WARN] Nextflow not installed, pipeline execution disabled")
+                    self.nf_executor = None
+            except ImportError as e:
+                print(f"[WARN] nextflow/analysis packages not available: {e}")
+
         # HTTP client
         if HAS_HTTPX:
             self._http_client = httpx.AsyncClient(timeout=30.0)
@@ -299,6 +342,83 @@ class AsyncPipeline:
                         ),
                     }
 
+                # Stage 3.5: SRA 데이터 다운로드 (nf-core/fetchngs)
+                if (self.fetchngs_runner
+                        and not self._is_step_done(pmid, "sra_download_done")):
+                    try:
+                        srr_ids = result.sra_results.get("public_sra_ids", [])
+                        if not srr_ids:
+                            srr_ids = result.sra_results.get("sra_ids", [])
+                        if srr_ids:
+                            fetchngs_result = await self.fetchngs_runner.run(
+                                srr_accessions=srr_ids,
+                                output_dir=self.config.results_dir / f"fetchngs_{pmid}",
+                                pmid=pmid,
+                            )
+                            result.fetchngs_result = fetchngs_result.to_dict()
+                            if fetchngs_result.success:
+                                self._mark_step_done(pmid, "sra_download_done")
+                    except Exception as e:
+                        result.fetchngs_result = {"error": str(e)}
+
+                # Stage 3.6: nf-core 파이프라인 실행
+                if (self.nf_executor
+                        and result.fetchngs_result.get("success")
+                        and not self._is_step_done(pmid, "pipeline_done")):
+                    try:
+                        pipeline_def = (
+                            detection.recommended_pipeline
+                            if self.plugin_registry and detection.recommended_pipeline
+                            else None
+                        )
+                        if pipeline_def:
+                            fastq_dir = Path(result.fetchngs_result["fastq_dir"])
+                            srr_ids = result.fetchngs_result.get(
+                                "accessions_processed",
+                                result.sra_results.get("public_sra_ids", []),
+                            )
+                            samplesheet_path = (
+                                self.config.results_dir / f"samplesheet_{pmid}.csv"
+                            )
+                            self.samplesheet_gen.generate(
+                                pipeline_name=pipeline_def.nf_core_name,
+                                srr_accessions=srr_ids,
+                                fastq_dir=fastq_dir,
+                                output_path=samplesheet_path,
+                            )
+                            exec_result = await self.nf_executor.execute_pipeline(
+                                pipeline_def=pipeline_def,
+                                samplesheet_path=samplesheet_path,
+                                output_dir=self.config.results_dir / f"nfcore_{pmid}",
+                            )
+                            result.pipeline_execution = exec_result.to_dict()
+                            if exec_result.status == "completed":
+                                self._mark_step_done(pmid, "pipeline_done")
+                    except Exception as e:
+                        result.pipeline_execution = {"error": str(e)}
+
+                # Stage 3.7: 다운스트림 R/Python 분석
+                if (self.analysis_orchestrator
+                        and result.pipeline_execution.get("status") == "completed"
+                        and not self._is_step_done(pmid, "analysis_done")):
+                    try:
+                        analysis_type = ""
+                        if self.plugin_registry and detection.recommended_pipeline:
+                            analysis_type = detection.recommended_pipeline.analysis_type
+                        if analysis_type:
+                            analysis_result = await self.analysis_orchestrator.run_analysis(
+                                analysis_type=analysis_type,
+                                pipeline_outputs=result.pipeline_execution.get(
+                                    "output_files", {}
+                                ),
+                                output_dir=self.config.results_dir / f"analysis_{pmid}",
+                            )
+                            result.downstream_analysis = analysis_result.to_dict()
+                            if analysis_result.success:
+                                self._mark_step_done(pmid, "analysis_done")
+                    except Exception as e:
+                        result.downstream_analysis = {"error": str(e)}
+
                 # Stage 4: 데이터 통합
                 if self.data_aggregator:
                     try:
@@ -321,7 +441,8 @@ class AsyncPipeline:
                 # Stage 6: LLM 멀티 합의 분석
                 if not self._is_step_done(pmid, "llm_analysis_done"):
                     llm_analysis = await self._analyze_with_llm_consensus(
-                        pmid, result.pubmed_metadata, result.sequencing_result
+                        pmid, result.pubmed_metadata, result.sequencing_result,
+                        downstream_analysis=result.downstream_analysis,
                     )
                     result.llm_analysis = llm_analysis
                     self._mark_step_done(pmid, "llm_analysis_done")
@@ -417,7 +538,8 @@ class AsyncPipeline:
         self,
         pmid: str,
         pubmed_metadata: Dict[str, Any],
-        sequencing_result: Dict[str, Any]
+        sequencing_result: Dict[str, Any],
+        downstream_analysis: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """LLM 멀티 합의: 모든 건강한 백엔드에 동시 쿼리 후 가중 합의"""
         cached_file = self.config.results_dir / f"deepseek_analysis_{pmid}.json"
@@ -628,21 +750,38 @@ class AsyncPipeline:
     def _build_analysis_prompt(
         self,
         pubmed_metadata: Dict[str, Any],
-        sequencing_result: Dict[str, Any]
+        sequencing_result: Dict[str, Any],
+        downstream_analysis: Optional[Dict[str, Any]] = None,
     ) -> str:
         title = pubmed_metadata.get("title", "")
         abstract = pubmed_metadata.get("abstract", "")[:1000]
         seq_type = sequencing_result.get("sequencing_type", "unknown")
 
-        return f"""Analyze this bioinformatics paper and sequencing data:
+        prompt = f"""Analyze this bioinformatics paper and sequencing data:
 
 Title: {title}
 Abstract: {abstract[:500]}
 Detected Sequencing Type: {seq_type}
+"""
 
+        # Inject actual downstream analysis results if available
+        if downstream_analysis and downstream_analysis.get("success"):
+            summary = downstream_analysis.get("summary", {})
+            if summary:
+                prompt += "\nActual Analysis Results:\n"
+                for key, val in summary.items():
+                    if key in ("success", "qc_params"):
+                        continue
+                    if isinstance(val, (list, dict)):
+                        prompt += f"- {key}: {json.dumps(val, default=str)[:200]}\n"
+                    else:
+                        prompt += f"- {key}: {val}\n"
+
+        prompt += f"""
 Provide a JSON response with:
 {{"consistency_score": 0.0-1.0, "consistency_rating": "PASS|WARN|FAIL", "technical_assessment": "...", "recommendations": []}}
 """
+        return prompt
 
     def _parse_llm_response(self, content: str) -> Dict[str, Any]:
         try:

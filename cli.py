@@ -20,7 +20,7 @@ from async_pipeline import AsyncPipeline, PipelineConfig, PipelineStatus
 
 
 @click.group()
-@click.version_option(version="3.0.0", prog_name="bioauto")
+@click.version_option(version="4.0.0", prog_name="bioauto")
 def cli():
     """Bioinformatics Research Automation Platform
 
@@ -47,8 +47,20 @@ def cli():
               help="체크포인트 기반 재시작")
 @click.option("--debate-rounds", type=int, default=3,
               help="토론 라운드 수")
+@click.option("--execute-pipeline/--no-execute-pipeline", default=False,
+              help="실제 nf-core 파이프라인 실행 (Nextflow + 컨테이너 필요)")
+@click.option("--genome", type=str, default="GRCh38",
+              help="Reference genome for nf-core pipelines")
+@click.option("--container-runtime",
+              type=click.Choice(["docker", "singularity", "apptainer"]),
+              default="docker", help="Container runtime for Nextflow")
+@click.option("--max-memory", type=str, default="16.GB",
+              help="Max memory for Nextflow processes")
+@click.option("--max-cpus", type=int, default=4,
+              help="Max CPUs for Nextflow processes")
 def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
-        aggregate, resume, debate_rounds):
+        aggregate, resume, debate_rounds, execute_pipeline, genome,
+        container_runtime, max_memory, max_cpus):
     """주어진 PMID에 대해 전체 파이프라인을 실행합니다.
 
     예시: bioauto run 40315330 32416070
@@ -68,13 +80,35 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
             debate_rounds=debate_rounds,
         )
 
-    click.echo(f"=== Bioinformatics Research Automation Platform ===")
+    # Pipeline execution config
+    if execute_pipeline:
+        try:
+            from nextflow.config import NextflowExecutionConfig, ContainerRuntime
+            nf_config = NextflowExecutionConfig(
+                enabled=True,
+                genome=genome,
+                container_runtime=ContainerRuntime(container_runtime),
+                profile=container_runtime,
+                max_memory=max_memory,
+                max_cpus=max_cpus,
+            )
+            pipeline_config.enable_pipeline_execution = True
+            pipeline_config.nextflow_config = nf_config
+        except ImportError:
+            click.echo(click.style(
+                "[WARN] nextflow package not available, --execute-pipeline disabled",
+                fg="yellow"
+            ))
+
+    click.echo(f"=== Bioinformatics Research Automation Platform v4.0 ===")
     click.echo(f"PMIDs: {', '.join(pipeline_config.pmids)}")
     click.echo(f"Results: {pipeline_config.results_dir}")
     click.echo(f"Debate: {'ON' if debate else 'OFF'} ({debate_rounds} rounds)")
     click.echo(f"Enrichment: {'ON' if enrichment else 'OFF'}")
     click.echo(f"Data Aggregation: {'ON' if aggregate else 'OFF'}")
     click.echo(f"Resume: {'ON' if resume else 'OFF'}")
+    if execute_pipeline:
+        click.echo(f"Pipeline Execution: ON ({genome}, {container_runtime})")
     click.echo()
 
     pipeline = AsyncPipeline(pipeline_config)
@@ -114,6 +148,23 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
                 f"  Debate Verdict: {verdict} (score: {result.debate_report.get('overall_score', 0):.2f})",
                 fg=verdict_color
             ))
+
+        if result.pipeline_execution and result.pipeline_execution.get("status"):
+            pe_status = result.pipeline_execution["status"]
+            pe_color = {"completed": "green", "failed": "red"}.get(pe_status, "yellow")
+            click.echo(click.style(
+                f"  Pipeline: {result.pipeline_execution.get('pipeline_name', '?')} ({pe_status})",
+                fg=pe_color
+            ))
+
+        if result.downstream_analysis and result.downstream_analysis.get("success"):
+            da = result.downstream_analysis.get("summary", {})
+            da_type = result.downstream_analysis.get("analysis_type", "?")
+            click.echo(f"  Analysis: {da_type}")
+            if "significant_degs" in da:
+                click.echo(f"    DEGs: {da['significant_degs']} (up: {da.get('upregulated', 0)}, down: {da.get('downregulated', 0)})")
+            if "n_clusters" in da:
+                click.echo(f"    Clusters: {da['n_clusters']}, Cells: {da.get('filtered_cells', '?')}")
 
         if result.error:
             click.echo(click.style(f"  Error: {result.error}", fg="red"))
@@ -213,6 +264,78 @@ def plugins():
         click.echo(f"    Pipeline: {plugin.pipeline.nf_core_name}")
         click.echo(f"    Keywords: {', '.join(plugin.keywords[:5])}...")
         click.echo()
+
+
+@cli.command()
+def prereqs():
+    """파이프라인 실행을 위한 사전 요구사항을 확인합니다."""
+    import shutil
+
+    click.echo("=== Pipeline Execution Prerequisites ===\n")
+
+    # Nextflow
+    nf = shutil.which("nextflow")
+    _show_check("Nextflow", nf is not None, nf or "not found")
+
+    # Java
+    java = shutil.which("java")
+    _show_check("Java", java is not None, java or "not found")
+
+    # Container runtimes
+    for rt in ["docker", "singularity", "apptainer"]:
+        found = shutil.which(rt)
+        _show_check(f"  {rt}", found is not None, found or "not found")
+
+    # R
+    r = shutil.which("Rscript")
+    _show_check("Rscript", r is not None, r or "not found")
+
+    if r:
+        click.echo("\n  R Packages:")
+        r_packages = [
+            "DESeq2", "tximport", "Seurat", "ggplot2",
+            "pheatmap", "optparse", "jsonlite",
+        ]
+        for pkg in r_packages:
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [r, "-e", f'cat(requireNamespace("{pkg}", quietly=TRUE))'],
+                    capture_output=True, text=True, timeout=10,
+                )
+                installed = result.stdout.strip() == "TRUE"
+                _show_check(f"    {pkg}", installed)
+            except Exception:
+                _show_check(f"    {pkg}", False, "check failed")
+
+    # Python packages
+    click.echo("\n  Python Packages (optional):")
+    for pkg in ["scanpy", "anndata", "matplotlib"]:
+        try:
+            __import__(pkg)
+            _show_check(f"    {pkg}", True)
+        except ImportError:
+            _show_check(f"    {pkg}", False, "not installed")
+
+    # Disk space
+    try:
+        import os
+        stat = os.statvfs(".")
+        free_gb = (stat.f_bavail * stat.f_frsize) / (1024**3)
+        _show_check(f"\nDisk Space", free_gb > 10, f"{free_gb:.1f} GB free")
+    except Exception:
+        pass
+
+    click.echo()
+
+
+def _show_check(name: str, ok: bool, detail: str = ""):
+    """Display a prerequisite check result."""
+    symbol = click.style("[OK]", fg="green") if ok else click.style("[--]", fg="red")
+    msg = f"  {symbol} {name}"
+    if detail:
+        msg += f" ({detail})"
+    click.echo(msg)
 
 
 @cli.command()

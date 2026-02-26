@@ -55,7 +55,8 @@ class ChIPSeqPlugin(SequencingTypePlugin):
                 "narrow_peak", "broad_peak",
                 "control"
             ],
-            container_image="nfcore/chipseq:latest"
+            container_image="nfcore/chipseq:latest",
+            analysis_type="peak_diff",
         )
     
     @property

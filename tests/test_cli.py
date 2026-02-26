@@ -20,7 +20,7 @@ class TestCLIGroup:
     def test_version(self, runner):
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "3.0.0" in result.output
+        assert "4.0.0" in result.output
 
     def test_help(self, runner):
         result = runner.invoke(cli, ["--help"])

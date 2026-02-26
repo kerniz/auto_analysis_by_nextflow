@@ -51,7 +51,8 @@ class AtacSeqPlugin(SequencingTypePlugin):
                 "skip_fastqc", "skip_multiqc",
                 "narrow_peak", "broad_peak"
             ],
-            container_image="nfcore/atacseq:latest"
+            container_image="nfcore/atacseq:latest",
+            analysis_type="peak_diff",
         )
     
     @property

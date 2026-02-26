@@ -53,7 +53,8 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
                 "skip_fastqc", "skip_multiqc",
                 "trimmer", "aligner", "pseudo_aligner"
             ],
-            container_image="nfcore/rnaseq:latest"
+            container_image="nfcore/rnaseq:latest",
+            analysis_type="deseq2",
         )
     
     @property

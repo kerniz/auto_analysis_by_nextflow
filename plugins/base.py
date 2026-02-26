@@ -20,6 +20,7 @@ class PipelineDefinition:
     required_params: List[str] = field(default_factory=list)
     optional_params: List[str] = field(default_factory=list)
     container_image: str = ""
+    analysis_type: str = ""  # "deseq2", "seurat", "peak_diff", "variant"
 
 
 @dataclass

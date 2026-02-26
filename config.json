@@ -98,6 +98,45 @@
     "europe_pmc_enabled": true,
     "brave_enabled": false
   },
+  "nextflow_execution": {
+    "enabled": false,
+    "work_dir": "./nextflow_work",
+    "outdir": "./results/nfcore",
+    "container_runtime": "docker",
+    "profile": "docker",
+    "genome": "GRCh38",
+    "max_memory": "16.GB",
+    "max_cpus": 4,
+    "max_time": "24.h",
+    "resume": true,
+    "fetchngs": {
+      "enabled": true,
+      "download_method": "sratools"
+    },
+    "pipeline_params": {
+      "nf-core/rnaseq": {
+        "pseudo_aligner": "salmon"
+      },
+      "nf-core/scrnaseq": {
+        "protocol": "10XV3"
+      }
+    }
+  },
+  "analysis": {
+    "r_executable": "Rscript",
+    "r_scripts_dir": null,
+    "scanpy_enabled": false,
+    "deseq2": {
+      "fc_threshold": "1.5",
+      "padj_threshold": "0.05"
+    },
+    "seurat": {
+      "min_features": "200",
+      "max_features": "5000",
+      "max_mt_percent": "20",
+      "resolution": "0.8"
+    }
+  },
   "execution": {
     "resume_enabled": true,
     "progress_file": "/workspace/progress.json",

@@ -50,10 +50,11 @@ class ScRnaSeqPlugin(SequencingTypePlugin):
             timeout_hours=4,
             required_params=["input", "outdir"],
             optional_params=[
-                "skip_fastqc", "skip_multiqc", 
+                "skip_fastqc", "skip_multiqc",
                 "barcode_whitelist", "genome"
             ],
-            container_image="nfcore/scrnaseq:latest"
+            container_image="nfcore/scrnaseq:latest",
+            analysis_type="seurat",
         )
     
     @property

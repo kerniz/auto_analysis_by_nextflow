@@ -175,12 +175,121 @@ bioauto consult
 
 ---
 
+## v4.0.0 — Nextflow 파이프라인 실행 + R/Python 다운스트림 분석
+
+**릴리스일**: 2026-02-26
+
+### 배경
+
+v3.1.0까지는 논문 메타데이터 분석만 수행했다. 실제 시퀀싱 데이터를 다운로드하고 nf-core 파이프라인을 실행하여 R/Python으로 다운스트림 분석까지 수행하는 **실행 레이어**가 없었다.
+
+### 새로운 기능
+
+#### 1. SRA 데이터 다운로드 (`nextflow/fetchngs.py`)
+- `nf-core/fetchngs` 파이프라인으로 SRR accession → FASTQ 자동 다운로드
+- accession 목록 → CSV → `nextflow run nf-core/fetchngs`
+- 비동기 실행 (`asyncio.create_subprocess_exec`)
+
+#### 2. nf-core 파이프라인 실행 (`nextflow/executor.py`)
+- 4개 nf-core 파이프라인 지원: rnaseq, scrnaseq, atacseq, chipseq
+- prerequisite 체크: Nextflow, Java, Docker/Singularity, 디스크 공간
+- 자동 samplesheet 생성 (`nextflow/samplesheet.py`)
+  - 5개 파이프라인별 CSV 포맷 (rnaseq, scrnaseq, atacseq, chipseq, sarek)
+  - FASTQ 경로 자동 해석 (flat + subdirectory)
+- 출력 파싱 (`nextflow/output_parser.py`)
+  - 파이프라인별 glob 패턴으로 핵심 출력 파일 탐색
+
+#### 3. 실행 모니터링 (`nextflow/monitor.py`)
+- `.nextflow.log` 실시간 파싱 → 프로세스 진행률
+- `trace.txt` 파싱 → 리소스 사용량
+
+#### 4. R/Python 다운스트림 분석 (`analysis/`)
+| 분석 타입 | 스크립트 | 용도 |
+|-----------|---------|------|
+| `deseq2` | `r_scripts/deseq2_analysis.R` | Bulk RNA-seq 차등발현 |
+| `seurat` | `r_scripts/seurat_analysis.R` | scRNA-seq 클러스터링 |
+| `peak_diff` | `r_scripts/peak_analysis.R` | ATAC/ChIP-seq 피크 분석 |
+| `scanpy` | `python_scripts/scanpy_analysis.py` | scRNA-seq (R 없이) |
+
+- `AnalysisOrchestrator`: nf-core 출력 → 분석 스크립트 인자 자동 매핑
+- Seurat → scanpy 자동 폴백 (R 미설치 + scanpy_enabled=True)
+- 모든 스크립트 `summary.json` 출력 → Python에서 파싱
+
+#### 5. 파이프라인 통합
+- `--execute-pipeline` 플래그 (기본 OFF, 안전)
+- 3개 새 스테이지 삽입: Stage 3.5 (fetchngs) → 3.6 (nf-core) → 3.7 (다운스트림 분석)
+- LLM 분석 프롬프트에 실제 분석 결과 주입
+- `bioauto prereqs` 명령으로 환경 검증
+
+### 구현 (6 Phase)
+
+#### Phase 1: Config + Samplesheet + Plugin
+| 파일 | 설명 |
+|------|------|
+| `nextflow/__init__.py` | 패키지 초기화 |
+| `nextflow/config.py` | `NextflowExecutionConfig`, `ContainerRuntime` |
+| `nextflow/samplesheet.py` | `SamplesheetGenerator` — 5개 파이프라인 CSV |
+| `plugins/base.py` | `PipelineDefinition.analysis_type` 필드 추가 |
+| `plugins/*_plugin.py` | analysis_type 설정 (deseq2, seurat, peak_diff) |
+
+#### Phase 2-3: Nextflow 실행 레이어
+| 파일 | 설명 |
+|------|------|
+| `nextflow/fetchngs.py` | `FetchNGSRunner` — SRA 다운로드 |
+| `nextflow/executor.py` | `NextflowExecutor` — 파이프라인 실행 |
+| `nextflow/monitor.py` | `PipelineMonitor` — 로그/trace 파싱 |
+| `nextflow/output_parser.py` | `OutputParser` — 출력 파일 탐색 |
+
+#### Phase 4: R/Python 분석
+| 파일 | 설명 |
+|------|------|
+| `analysis/__init__.py` | 패키지 초기화 |
+| `analysis/orchestrator.py` | `AnalysisOrchestrator` — 라우팅 + 인자 매핑 |
+| `analysis/script_runner.py` | `RScriptRunner`, `PythonScriptRunner` |
+| `analysis/r_scripts/*.R` | DESeq2, Seurat, peak analysis (3개) |
+| `analysis/python_scripts/*.py` | scanpy 분석 |
+
+#### Phase 5: 통합
+| 파일 | 변경 |
+|------|------|
+| `async_pipeline.py` | PMIDResult/PipelineConfig 확장, 3개 새 스테이지, LLM 프롬프트 강화 |
+| `cli.py` | v4.0.0, `--execute-pipeline`, `--genome`, `--container-runtime`, `prereqs` 명령 |
+| `config.json` | `nextflow_execution`, `analysis` 섹션 |
+| `pyproject.toml` | v4.0.0, analysis optional deps |
+
+#### Phase 6: 테스트
+| 파일 | 테스트 |
+|------|--------|
+| `tests/test_samplesheet.py` | 16개 — samplesheet 생성 검증 |
+| `tests/test_nextflow.py` | 19개 — config, fetchngs, executor, monitor |
+| `tests/test_output_parser.py` | 9개 — 출력 파서 패턴 매칭 |
+| `tests/test_analysis.py` | 21개 — 오케스트레이터, 스크립트 러너 |
+
+### 테스트 결과
+```
+204 passed, 10 skipped (chromadb not installed), 0 failed
+```
+
+### 파이프라인 흐름 (After v4.0.0)
+```
+사용법 1: bioauto run <PMIDs>                    → 기존 메타데이터 분석
+사용법 2: bioauto run <PMIDs> --execute-pipeline  → 메타데이터 + 실제 파이프라인 실행
+           Stage 1-3: PubMed → SRA → 시퀀싱 감지
+           Stage 3.5: [NEW] nf-core/fetchngs → FASTQ 다운로드
+           Stage 3.6: [NEW] nf-core 파이프라인 실행
+           Stage 3.7: [NEW] R/Python 다운스트림 분석
+           Stage 4-8: 데이터집계 → LLM분석(+실제 결과) → 토론 → RAG
+사용법 3: bioauto prereqs                         → 환경 검증
+```
+
+---
+
 ## 프로젝트 구조
 
 ```
 nextflow_automation/
 ├── cli.py                    # Click CLI 진입점
-├── async_pipeline.py         # 비동기 파이프라인 (9 stages)
+├── async_pipeline.py         # 비동기 파이프라인 (9+ stages)
 ├── pubmed_client.py          # PubMed API (Biopython Entrez)
 ├── sra_client.py             # SRA metadata 조회
 ├── config.json               # 전역 설정
@@ -220,12 +329,30 @@ nextflow_automation/
 │   ├── document_store.py     # ChromaDB 저장소
 │   └── rag_context.py        # 컨텍스트 빌더
 │
+├── nextflow/                 # Nextflow 실행 레이어 (v4.0.0)
+│   ├── config.py             # NextflowExecutionConfig
+│   ├── samplesheet.py        # SamplesheetGenerator (5개 파이프라인)
+│   ├── fetchngs.py           # FetchNGSRunner (SRA 다운로드)
+│   ├── executor.py           # NextflowExecutor (파이프라인 실행)
+│   ├── monitor.py            # PipelineMonitor (로그 파싱)
+│   └── output_parser.py      # OutputParser (출력 탐색)
+│
+├── analysis/                 # R/Python 다운스트림 분석 (v4.0.0)
+│   ├── orchestrator.py       # AnalysisOrchestrator (라우팅)
+│   ├── script_runner.py      # RScriptRunner, PythonScriptRunner
+│   ├── r_scripts/            # R 분석 스크립트
+│   │   ├── deseq2_analysis.R # Bulk RNA-seq DESeq2
+│   │   ├── seurat_analysis.R # scRNA-seq Seurat
+│   │   └── peak_analysis.R   # ATAC/ChIP peak 분석
+│   └── python_scripts/       # Python 분석 스크립트
+│       └── scanpy_analysis.py # scRNA-seq scanpy 대안
+│
 ├── sequencing/               # 시퀀싱 타입 감지
 │   ├── detector.py           # 메인 감지기
 │   ├── registry.py           # 플러그인 레지스트리
 │   └── plugins/              # 감지 플러그인
 │
-├── tests/                    # 테스트
+├── tests/                    # 테스트 (204개)
 │   ├── conftest.py           # 공통 fixture
 │   ├── test_cli.py           # CLI 테스트
 │   ├── test_clients.py       # API 클라이언트 테스트
@@ -234,7 +361,10 @@ nextflow_automation/
 │   ├── test_search.py        # 검색 테스트 (v3.1.0)
 │   ├── test_mcp.py           # MCP 테스트 (v3.1.0)
 │   ├── test_rag.py           # RAG 테스트 (v3.1.0)
-│   └── ...
+│   ├── test_samplesheet.py   # Samplesheet 테스트 (v4.0.0)
+│   ├── test_nextflow.py      # Nextflow 실행 테스트 (v4.0.0)
+│   ├── test_output_parser.py # 출력 파서 테스트 (v4.0.0)
+│   └── test_analysis.py      # 분석 오케스트레이터 테스트 (v4.0.0)
 │
 ├── docs/                     # 문서
 │   └── DEVELOPMENT_HISTORY.md
