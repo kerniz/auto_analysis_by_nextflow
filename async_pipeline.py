@@ -89,6 +89,7 @@ class PipelineConfig:
     enable_debate: bool = True
     debate_rounds: int = 3
     progress_file: Optional[str] = None
+    rag_dir: Optional[Path] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
@@ -133,6 +134,7 @@ class AsyncPipeline:
         self.progress: Optional[ProgressManager] = None
         self.data_aggregator = None
         self.debate_manager = None
+        self.doc_store = None
         self._semaphore = asyncio.Semaphore(config.max_concurrent)
         self._http_client: Optional[Any] = None
 
@@ -198,6 +200,14 @@ class AsyncPipeline:
                 )
             except ImportError:
                 print("[WARN] agents 패키지 없음, 토론 비활성화")
+
+        # RAG document store (lazy import)
+        if self.config.rag_dir:
+            try:
+                from rag.document_store import DocumentStore
+                self.doc_store = DocumentStore(self.config.rag_dir)
+            except ImportError:
+                print("[WARN] rag 패키지 없음, RAG 비활성화")
 
         # HTTP client
         if HAS_HTTPX:
@@ -335,7 +345,14 @@ class AsyncPipeline:
                     except Exception as e:
                         result.debate_report = {"error": str(e)}
 
-                # Stage 8: 완료
+                # Stage 8: RAG 인덱싱 (옵션)
+                if self.doc_store:
+                    try:
+                        self._index_result_in_rag(result)
+                    except Exception as e:
+                        print(f"[WARN] RAG 인덱싱 실패: {e}")
+
+                # Stage 9: 완료
                 result.status = PipelineStatus.COMPLETED
                 self._mark_step_done(pmid, "final_report_done")
 
@@ -413,6 +430,20 @@ class AsyncPipeline:
             return {"pmid": pmid, "consistency_rating": "WARN", "error": "No LLM router"}
 
         prompt = self._build_analysis_prompt(pubmed_metadata, sequencing_result)
+
+        # RAG 컨텍스트 주입 (기존 분석 결과 참조)
+        if self.doc_store:
+            try:
+                from rag.rag_context import RAGContext
+                rag_ctx = RAGContext(self.doc_store)
+                context_block = rag_ctx.build_context(
+                    pubmed_metadata.get("title", "bioinformatics"),
+                    n_results=3,
+                )
+                if context_block:
+                    prompt = f"[Related prior analyses]\n{context_block}\n\n{prompt}"
+            except Exception:
+                pass
 
         # 모든 건강한 백엔드에 동시 쿼리
         healthy_backends = [
@@ -552,6 +583,47 @@ class AsyncPipeline:
             if kw.isupper() and len(kw) <= 10:
                 genes.append(kw)
         return list(set(g for g in genes if g))
+
+    def _index_result_in_rag(self, result: PMIDResult):
+        """파이프라인 결과를 RAG 벡터 DB에 인덱싱"""
+        pmid = result.pmid
+        meta = result.pubmed_metadata
+
+        if meta.get("title") and meta.get("abstract"):
+            year = None
+            pub_date = meta.get("pub_date", "")
+            if pub_date:
+                try:
+                    year = int(pub_date[:4])
+                except (ValueError, IndexError):
+                    pass
+            self.doc_store.add_paper(
+                pmid=pmid,
+                title=meta["title"],
+                abstract=meta["abstract"],
+                year=year,
+            )
+
+        if result.llm_analysis and not result.llm_analysis.get("error"):
+            self.doc_store.add_analysis(
+                pmid=pmid,
+                analysis_text=json.dumps(
+                    result.llm_analysis, ensure_ascii=False
+                ),
+                rating=result.llm_analysis.get(
+                    "consistency_rating", "UNKNOWN"
+                ),
+            )
+
+        if result.debate_report and result.debate_report.get("overall_verdict"):
+            self.doc_store.add_debate_report(
+                pmid=pmid,
+                report_text=json.dumps(
+                    result.debate_report, ensure_ascii=False
+                ),
+                verdict=result.debate_report["overall_verdict"],
+                score=result.debate_report.get("overall_score", 0.0),
+            )
 
     def _build_analysis_prompt(
         self,

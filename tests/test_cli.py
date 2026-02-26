@@ -143,3 +143,37 @@ class TestPluginsCommand:
         # plugins command may fail if list_plugins returns list instead of dict
         # but it should at least show the header
         assert "Sequencing Detection Plugins" in result.output
+
+
+class TestSearchCommand:
+    def test_search_help(self, runner):
+        result = runner.invoke(cli, ["search", "--help"])
+        assert result.exit_code == 0
+        assert "주제 기반" in result.output or "QUERY" in result.output
+
+    @patch("cli._run_search")
+    def test_search_no_results(self, mock_search, runner):
+        mock_search.return_value = []
+        result = runner.invoke(cli, ["search", "test query"], input="q\n")
+        assert "검색 결과가 없습니다" in result.output
+
+    @patch("cli._run_search")
+    def test_search_with_results_quit(self, mock_search, runner):
+        from search import SearchResult
+        mock_search.return_value = [
+            SearchResult(
+                pmid="12345", title="Test Paper", abstract="Abs",
+                year=2024, citation_count=10, sources=["pubmed"],
+                relevance_score=0.8,
+            ),
+        ]
+        result = runner.invoke(cli, ["search", "test"], input="q\n")
+        assert "12345" in result.output
+        assert "Test Paper" in result.output
+
+
+class TestConsultCommand:
+    def test_consult_help(self, runner):
+        result = runner.invoke(cli, ["consult", "--help"])
+        assert result.exit_code == 0
+        assert "상담" in result.output or "consult" in result.output

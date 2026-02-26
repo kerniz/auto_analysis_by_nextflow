@@ -163,6 +163,47 @@ class PubMedClient:
         
         return list(set(keywords))  # 중복 제거
     
+    def search_by_topic(self, query: str, max_results: int = 20) -> List[Dict]:
+        """
+        키워드로 PubMed 논문 검색
+        Search PubMed by keyword using Entrez.esearch.
+
+        Args:
+            query: 검색 쿼리 (예: "spatial transcriptomics cancer")
+            max_results: 최대 결과 수
+
+        Returns:
+            논문 메타데이터 목록
+        """
+        print(f"PubMed 주제 검색: '{query}' (최대 {max_results}건)")
+        try:
+            handle = Entrez.esearch(
+                db="pubmed", term=query, retmax=max_results,
+                sort="relevance", retmode="xml",
+            )
+            record = Entrez.read(handle)
+            handle.close()
+
+            pmid_list = record.get("IdList", [])
+            if not pmid_list:
+                print("검색 결과 없음")
+                return []
+
+            print(f"  {len(pmid_list)}건 발견, 메타데이터 수집 중...")
+            results = []
+            for pmid in pmid_list:
+                meta = self.fetch_paper_metadata(pmid)
+                if meta:
+                    results.append(meta)
+                time.sleep(0.34)  # NCBI rate limit (3 req/s)
+
+            print(f"  {len(results)}건 메타데이터 수집 완료")
+            return results
+
+        except Exception as e:
+            print(f"PubMed 주제 검색 실패: {e}")
+            return []
+
     def save_metadata(self, metadata: Dict, filename: str = None) -> str:
         """메타데이터 저장"""
         if not filename:

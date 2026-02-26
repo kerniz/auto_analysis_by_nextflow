@@ -11,3 +11,7 @@ gseapy>=1.0.0
 scipy>=1.10.0
 numpy>=1.24.0
 pandas>=2.0.0
+
+# RAG (optional)
+chromadb>=0.4.0
+sentence-transformers>=2.2.0

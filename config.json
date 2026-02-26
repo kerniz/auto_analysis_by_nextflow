@@ -79,6 +79,25 @@
     "logs": "/workspace/logs",
     "charts": "/workspace/charts"
   },
+  "brave_search": {
+    "api_key_env": "BRAVE_API_KEY",
+    "timeout": 15,
+    "results_per_query": 10,
+    "enabled": false
+  },
+  "rag": {
+    "enabled": true,
+    "persist_dir": "./results/rag_db",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "max_context_tokens": 1500
+  },
+  "search": {
+    "limit_per_source": 20,
+    "pubmed_enabled": true,
+    "semantic_scholar_enabled": true,
+    "europe_pmc_enabled": true,
+    "brave_enabled": false
+  },
   "execution": {
     "resume_enabled": true,
     "progress_file": "/workspace/progress.json",

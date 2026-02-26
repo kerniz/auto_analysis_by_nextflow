@@ -161,3 +161,30 @@ def sample_enrichment_result():
             "finding_novelty": 0.6,
         },
     }
+
+
+# ===== Search Fixtures =====
+
+@pytest.fixture
+def sample_search_results():
+    from search import SearchResult
+    return [
+        SearchResult(
+            pmid="40315330",
+            title="Single-cell RNA sequencing reveals cellular heterogeneity",
+            abstract="We performed single-cell RNA sequencing...",
+            year=2024,
+            citation_count=15,
+            sources=["pubmed", "semantic_scholar"],
+            relevance_score=0.85,
+        ),
+        SearchResult(
+            pmid="32416070",
+            title="Bulk RNA-seq analysis of gene expression",
+            abstract="Bulk RNA sequencing with polyA selection...",
+            year=2020,
+            citation_count=45,
+            sources=["europe_pmc"],
+            relevance_score=0.62,
+        ),
+    ]
