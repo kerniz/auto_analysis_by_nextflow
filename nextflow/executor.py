@@ -71,6 +71,16 @@ class NextflowExecutor:
         # Check java (required by nextflow)
         results["java"] = shutil.which("java") is not None
 
+        # Check Slurm tools if Slurm is enabled
+        if self.config.slurm.enabled:
+            for tool in ("sbatch", "squeue", "sinfo"):
+                results[tool] = shutil.which(tool) is not None
+            if not results.get("sbatch"):
+                logger.warning(
+                    "Slurm enabled but sbatch not found; "
+                    "pipeline will fall back to local executor"
+                )
+
         # Check disk space (basic check)
         try:
             import os
@@ -105,9 +115,16 @@ class NextflowExecutor:
         output_dir.mkdir(parents=True, exist_ok=True)
         log_file = output_dir / "pipeline.log"
 
+        # Generate dynamic Slurm config if enabled
+        slurm_config_path = self._generate_slurm_config(output_dir)
+
         cmd = self._build_command(
             pipeline_def, samplesheet_path, output_dir, extra_params
         )
+
+        # Include generated Slurm config file
+        if slurm_config_path:
+            cmd.extend(["-c", str(slurm_config_path)])
 
         logger.info(
             f"Executing {pipeline_def.nf_core_name}: {' '.join(cmd)}"
@@ -224,3 +241,67 @@ class NextflowExecutor:
                 cmd.extend([f"--{key}", str(val)])
 
         return cmd
+
+    @staticmethod
+    def _escape_groovy_string(value: str) -> str:
+        """Escape a string for safe inclusion in a Groovy/Nextflow config."""
+        return value.replace("\\", "\\\\").replace("'", "\\'")
+
+    def _generate_slurm_config(self, output_dir: Path) -> Optional[Path]:
+        """Generate a dynamic nextflow.config with Slurm settings.
+
+        Returns the path to the generated config file, or None if Slurm
+        is not enabled. All string values are validated at SlurmConfig
+        creation time and escaped here for safe Groovy string inclusion.
+        """
+        slurm = self.config.slurm
+        if not slurm.enabled:
+            return None
+
+        esc = self._escape_groovy_string
+
+        lines = [
+            "// Auto-generated Slurm configuration",
+            "process {",
+            "    executor = 'slurm'",
+        ]
+
+        if slurm.queue:
+            lines.append(f"    queue = '{esc(slurm.queue)}'")
+        if slurm.time_limit:
+            lines.append(f"    time = '{esc(slurm.time_limit)}'")
+        if slurm.memory:
+            lines.append(f"    memory = '{esc(slurm.memory)}'")
+        lines.append(f"    cpus = {slurm.cpus_per_task}")
+
+        # Build clusterOptions combining account, qos, nodes, extra_args
+        cluster_parts = []
+        if slurm.account:
+            cluster_parts.append(f"--account={esc(slurm.account)}")
+        if slurm.qos:
+            cluster_parts.append(f"--qos={esc(slurm.qos)}")
+        if slurm.nodes > 1:
+            cluster_parts.append(f"--nodes={slurm.nodes}")
+        if slurm.extra_args:
+            cluster_parts.append(esc(slurm.extra_args))
+        if slurm.cluster_options:
+            cluster_parts.append(esc(slurm.cluster_options))
+
+        if cluster_parts:
+            combined = " ".join(cluster_parts)
+            lines.append(f"    clusterOptions = '{combined}'")
+
+        lines.append("}")
+        lines.append("")
+
+        # Executor-level settings
+        lines.append("executor {")
+        lines.append(f"    submitRateLimit = '{esc(slurm.submit_rate_limit)}'")
+        lines.append(f"    queueSize = {slurm.queue_size}")
+        lines.append("}")
+        lines.append("")
+
+        config_path = output_dir / "slurm.config"
+        config_path.write_text("\n".join(lines))
+        logger.info(f"Generated Slurm config: {config_path}")
+        return config_path

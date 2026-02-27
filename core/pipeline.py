@@ -102,6 +102,8 @@ class PipelineConfig:
     # Pipeline execution (v4.0)
     enable_pipeline_execution: bool = False
     nextflow_config: Optional[Any] = None  # NextflowExecutionConfig
+    # Project isolation (v4.1)
+    project_slug: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
@@ -114,6 +116,7 @@ class PipelineConfig:
             enable_enrichment=data.get("enable_enrichment", True),
             enable_debate=data.get("enable_debate", True),
             debate_rounds=data.get("debate_rounds", 3),
+            project_slug=data.get("project_slug"),
         )
 
     @classmethod
@@ -149,6 +152,12 @@ class AsyncPipeline:
         self.doc_store = None
         self._semaphore = asyncio.Semaphore(config.max_concurrent)
         self._http_client: Optional[Any] = None
+
+        # Project isolation: redirect results_dir if project_slug is set
+        if config.project_slug:
+            from core.project_manager import ProjectManager
+            pm = ProjectManager()
+            self.config.results_dir = pm.get_results_dir(config.project_slug)
 
         self.config.results_dir.mkdir(parents=True, exist_ok=True)
 

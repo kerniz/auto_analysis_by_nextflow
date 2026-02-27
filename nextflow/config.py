@@ -16,6 +16,81 @@ class ContainerRuntime(Enum):
     CONDA = "conda"
 
 
+import re
+
+# Whitelist pattern for Slurm string fields: alphanumeric, dash, underscore, colon, dot, slash, comma, equals, space
+_SLURM_SAFE_PATTERN = re.compile(r'^[a-zA-Z0-9\-_:./,= ]*$')
+_SLURM_TIME_PATTERN = re.compile(r'^\d{1,3}:\d{2}:\d{2}$')
+_SLURM_MEMORY_PATTERN = re.compile(r'^\d+[KMGT]?[Bb]?$', re.IGNORECASE)
+
+
+def _validate_slurm_field(value: str, field_name: str) -> str:
+    """Validate a Slurm config string field against a safe character whitelist."""
+    if not value:
+        return value
+    if not _SLURM_SAFE_PATTERN.match(value):
+        raise ValueError(
+            f"SlurmConfig.{field_name} contains unsafe characters: {value!r}. "
+            f"Only alphanumeric, dash, underscore, colon, dot, slash, comma, equals, and space are allowed."
+        )
+    return value
+
+
+@dataclass
+class SlurmConfig:
+    """Configuration for Slurm HPC executor."""
+
+    enabled: bool = False
+    queue: str = ""              # --partition
+    account: str = ""            # --account
+    qos: str = ""                # Quality of Service
+    time_limit: str = "24:00:00" # --time
+    memory: str = "16G"          # --mem
+    cpus_per_task: int = 4       # --cpus-per-task
+    nodes: int = 1               # --nodes
+    extra_args: str = ""         # additional sbatch options
+    submit_rate_limit: str = "50/2min"  # Nextflow submitRateLimit
+    queue_size: int = 100        # Nextflow queueSize
+    cluster_options: str = ""    # Nextflow clusterOptions
+
+    def __post_init__(self):
+        """Validate all string fields against injection."""
+        for fname in ("queue", "account", "qos", "extra_args", "cluster_options"):
+            _validate_slurm_field(getattr(self, fname), fname)
+        if self.time_limit and not _SLURM_TIME_PATTERN.match(self.time_limit):
+            raise ValueError(
+                f"SlurmConfig.time_limit must be HH:MM:SS format, got: {self.time_limit!r}"
+            )
+        if self.memory and not _SLURM_MEMORY_PATTERN.match(self.memory):
+            raise ValueError(
+                f"SlurmConfig.memory must be like 16G, 4096M, etc., got: {self.memory!r}"
+            )
+        if self.cpus_per_task < 1 or self.cpus_per_task > 1024:
+            raise ValueError(f"SlurmConfig.cpus_per_task out of range: {self.cpus_per_task}")
+        if self.nodes < 1 or self.nodes > 1024:
+            raise ValueError(f"SlurmConfig.nodes out of range: {self.nodes}")
+        if self.queue_size < 1 or self.queue_size > 100000:
+            raise ValueError(f"SlurmConfig.queue_size out of range: {self.queue_size}")
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "SlurmConfig":
+        """Load SlurmConfig from a dict."""
+        return cls(
+            enabled=data.get("enabled", False),
+            queue=data.get("queue", ""),
+            account=data.get("account", ""),
+            qos=data.get("qos", ""),
+            time_limit=data.get("time_limit", "24:00:00"),
+            memory=data.get("memory", "16G"),
+            cpus_per_task=data.get("cpus_per_task", 4),
+            nodes=data.get("nodes", 1),
+            extra_args=data.get("extra_args", ""),
+            submit_rate_limit=data.get("submit_rate_limit", "50/2min"),
+            queue_size=data.get("queue_size", 100),
+            cluster_options=data.get("cluster_options", ""),
+        )
+
+
 @dataclass
 class NextflowExecutionConfig:
     """Configuration for Nextflow pipeline execution."""
@@ -42,6 +117,9 @@ class NextflowExecutionConfig:
 
     # Python analysis
     scanpy_enabled: bool = False
+
+    # Slurm HPC executor
+    slurm: SlurmConfig = field(default_factory=SlurmConfig)
 
     # Pipeline-specific parameter overrides
     pipeline_params: Dict[str, Dict[str, str]] = field(default_factory=dict)
@@ -74,6 +152,9 @@ class NextflowExecutionConfig:
             resume=nf.get("resume", True),
             pipeline_params=nf.get("pipeline_params", {}),
         )
+
+        slurm_data = nf.get("slurm", {})
+        config.slurm = SlurmConfig.from_dict(slurm_data)
 
         fetchngs = nf.get("fetchngs", {})
         config.fetchngs_enabled = fetchngs.get("enabled", True)

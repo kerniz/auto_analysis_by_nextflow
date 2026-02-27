@@ -77,7 +77,8 @@
     "containers": "/workspace/containers",
     "results": "/workspace/results",
     "logs": "/workspace/logs",
-    "charts": "/workspace/charts"
+    "charts": "/workspace/charts",
+    "research_projects": "./research_projects"
   },
   "brave_search": {
     "api_key_env": "BRAVE_API_KEY",
@@ -112,6 +113,20 @@
     "fetchngs": {
       "enabled": true,
       "download_method": "sratools"
+    },
+    "slurm": {
+      "enabled": false,
+      "queue": "",
+      "account": "",
+      "qos": "",
+      "time_limit": "24:00:00",
+      "memory": "16G",
+      "cpus_per_task": 4,
+      "nodes": 1,
+      "extra_args": "",
+      "submit_rate_limit": "50/2min",
+      "queue_size": 100,
+      "cluster_options": ""
     },
     "pipeline_params": {
       "nf-core/rnaseq": {

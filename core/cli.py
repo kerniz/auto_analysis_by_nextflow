@@ -17,6 +17,7 @@ except ImportError:
     sys.exit(1)
 
 from core.pipeline import AsyncPipeline, PipelineConfig, PipelineStatus
+from core.project_manager import ProjectManager, ResearchProject
 
 
 @click.group()
@@ -58,12 +59,15 @@ def cli():
               help="Max memory for Nextflow processes")
 @click.option("--max-cpus", type=int, default=4,
               help="Max CPUs for Nextflow processes")
+@click.option("--project", "-p", type=str, default=None,
+              help="프로젝트 slug (결과를 프로젝트 디렉토리에 저장)")
 def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
         aggregate, resume, debate_rounds, execute_pipeline, genome,
-        container_runtime, max_memory, max_cpus):
+        container_runtime, max_memory, max_cpus, project):
     """주어진 PMID에 대해 전체 파이프라인을 실행합니다.
 
     예시: bioauto run 40315330 32416070
+    예시: bioauto run 40315330 --project ra_bee_venom
     """
     if config:
         pipeline_config = PipelineConfig.from_json(config)
@@ -78,6 +82,7 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
             enable_enrichment=enrichment,
             enable_debate=debate,
             debate_rounds=debate_rounds,
+            project_slug=project,
         )
 
     # Pipeline execution config
@@ -102,6 +107,8 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
 
     click.echo(f"=== Bioinformatics Research Automation Platform v4.0 ===")
     click.echo(f"PMIDs: {', '.join(pipeline_config.pmids)}")
+    if project:
+        click.echo(f"Project: {project}")
     click.echo(f"Results: {pipeline_config.results_dir}")
     click.echo(f"Debate: {'ON' if debate else 'OFF'} ({debate_rounds} rounds)")
     click.echo(f"Enrichment: {'ON' if enrichment else 'OFF'}")
@@ -633,6 +640,97 @@ Keep responses concise. Respond in the same language the user uses (Korean or En
         pipeline = AsyncPipeline(pipeline_config)
         await pipeline.run()
         click.echo("파이프라인 실행 완료!")
+
+
+@cli.group()
+def project():
+    """연구 프로젝트 관리 (생성, 조회, PMID 추가)"""
+    pass
+
+
+@project.command("create")
+@click.argument("name")
+@click.option("--description", "-d", type=str, default="", help="프로젝트 설명")
+@click.option("--keywords", "-k", type=str, default="", help="키워드 (쉼표 구분)")
+@click.option("--pmids", type=str, default="", help="초기 PMID 목록 (쉼표 구분)")
+def project_create(name, description, keywords, pmids):
+    """새 연구 프로젝트를 생성합니다.
+
+    예시: bioauto project create "ra_bee_venom" -d "RA와 봉독 유전체 연관 탐색"
+    """
+    pm = ProjectManager()
+    kw_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
+    pmid_list = [p.strip() for p in pmids.split(",") if p.strip()] if pmids else []
+
+    proj = pm.create_project(name=name, description=description,
+                             keywords=kw_list, pmids=pmid_list)
+
+    click.echo(f"Project created: {proj.name}")
+    click.echo(f"  Slug: {proj.slug}")
+    click.echo(f"  Directory: {pm.get_project_dir(proj.slug)}")
+    click.echo(f"  Subdirs: {', '.join(proj.subdirs)}")
+    if proj.keywords:
+        click.echo(f"  Keywords: {', '.join(proj.keywords)}")
+    if proj.pmids:
+        click.echo(f"  PMIDs: {', '.join(proj.pmids)}")
+
+
+@project.command("list")
+def project_list():
+    """모든 연구 프로젝트 목록을 표시합니다."""
+    pm = ProjectManager()
+    projects = pm.list_projects()
+
+    if not projects:
+        click.echo("등록된 프로젝트가 없습니다.")
+        return
+
+    click.echo(f"{'Slug':25} {'Name':30} {'PMIDs':6} {'Created'}")
+    click.echo(f"{'─'*25} {'─'*30} {'─'*6} {'─'*20}")
+    for proj in projects:
+        created = proj.created_at[:19] if proj.created_at else "?"
+        click.echo(f"{proj.slug:25} {proj.name[:30]:30} {len(proj.pmids):6} {created}")
+
+
+@project.command("info")
+@click.argument("slug")
+def project_info(slug):
+    """프로젝트 상세 정보를 표시합니다."""
+    pm = ProjectManager()
+    proj = pm.get_project(slug)
+
+    if not proj:
+        click.echo(f"프로젝트 '{slug}'을 찾을 수 없습니다.")
+        return
+
+    click.echo(f"Name: {proj.name}")
+    click.echo(f"Slug: {proj.slug}")
+    click.echo(f"Description: {proj.description}")
+    click.echo(f"Keywords: {', '.join(proj.keywords)}")
+    click.echo(f"PMIDs ({len(proj.pmids)}): {', '.join(proj.pmids) if proj.pmids else '(none)'}")
+    click.echo(f"Created: {proj.created_at}")
+    click.echo(f"Updated: {proj.updated_at}")
+    click.echo(f"Directory: {pm.get_project_dir(slug)}")
+
+
+@project.command("add-pmids")
+@click.argument("slug")
+@click.argument("pmids", nargs=-1, required=True)
+def project_add_pmids(slug, pmids):
+    """프로젝트에 PMID를 추가합니다.
+
+    예시: bioauto project add-pmids ra_bee_venom 40315330 32416070
+    """
+    pm = ProjectManager()
+    proj = pm.add_pmids(slug, list(pmids))
+
+    if not proj:
+        click.echo(f"프로젝트 '{slug}'을 찾을 수 없습니다.")
+        return
+
+    click.echo(f"PMIDs updated for '{proj.name}':")
+    click.echo(f"  Total: {len(proj.pmids)}")
+    click.echo(f"  List: {', '.join(proj.pmids)}")
 
 
 if __name__ == "__main__":
