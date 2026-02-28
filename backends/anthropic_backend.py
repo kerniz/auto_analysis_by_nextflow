@@ -25,6 +25,9 @@ class AnthropicBackend(LLMBackend):
         "claude-3-haiku-20240307": 4096,
         "claude-3-5-sonnet-20241022": 8192,
         "claude-3-5-sonnet-20240620": 8192,
+        "claude-sonnet-4-20250514": 16384,
+        "claude-opus-4-20250514": 16384,
+        "claude-haiku-4-20250414": 8192,
     }
     
     def __init__(
