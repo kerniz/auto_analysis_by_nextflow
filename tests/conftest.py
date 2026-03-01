@@ -4,13 +4,12 @@ pytest 설정 및 공통 픽스처
 """
 
 import asyncio
-import pytest
-from typing import AsyncGenerator, Generator
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
-
 import sys
+from collections.abc import Generator
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

@@ -6,12 +6,11 @@ Async Pipeline Module - Main Orchestrator
 import asyncio
 import json
 import os
-import sys
-from datetime import datetime
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 try:
     import httpx
@@ -19,11 +18,11 @@ try:
 except ImportError:
     HAS_HTTPX = False
 
-from backends import LLMRouter, OllamaBackend, OpenAIBackend, LLMConfig
+from backends import LLMConfig, LLMRouter, OllamaBackend, OpenAIBackend
 from backends.base import BackendStatus
 from backends.router import RouterConfig
-from plugins import PluginRegistry, register_default_plugins
 from core.progress_manager import ProgressManager
+from plugins import PluginRegistry, register_default_plugins
 
 
 class PipelineStatus(Enum):
@@ -38,21 +37,21 @@ class PipelineStatus(Enum):
 class PMIDResult:
     pmid: str
     status: PipelineStatus
-    pubmed_metadata: Dict[str, Any] = field(default_factory=dict)
-    sra_results: Dict[str, Any] = field(default_factory=dict)
-    sequencing_result: Dict[str, Any] = field(default_factory=dict)
+    pubmed_metadata: dict[str, Any] = field(default_factory=dict)
+    sra_results: dict[str, Any] = field(default_factory=dict)
+    sequencing_result: dict[str, Any] = field(default_factory=dict)
     # Pipeline execution results (v4.0)
-    fetchngs_result: Dict[str, Any] = field(default_factory=dict)
-    pipeline_execution: Dict[str, Any] = field(default_factory=dict)
-    downstream_analysis: Dict[str, Any] = field(default_factory=dict)
+    fetchngs_result: dict[str, Any] = field(default_factory=dict)
+    pipeline_execution: dict[str, Any] = field(default_factory=dict)
+    downstream_analysis: dict[str, Any] = field(default_factory=dict)
     # Existing
-    llm_analysis: Dict[str, Any] = field(default_factory=dict)
-    aggregated_data: Dict[str, Any] = field(default_factory=dict)
-    enrichment_results: Dict[str, Any] = field(default_factory=dict)
-    debate_report: Dict[str, Any] = field(default_factory=dict)
+    llm_analysis: dict[str, Any] = field(default_factory=dict)
+    aggregated_data: dict[str, Any] = field(default_factory=dict)
+    enrichment_results: dict[str, Any] = field(default_factory=dict)
+    debate_report: dict[str, Any] = field(default_factory=dict)
     error: str = ""
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     @property
     def duration_seconds(self) -> float:
@@ -60,7 +59,7 @@ class PMIDResult:
             return (self.end_time - self.start_time).total_seconds()
         return 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "pmid": self.pmid,
             "status": self.status.value,
@@ -87,41 +86,301 @@ class PMIDResult:
 
 
 @dataclass
+class LLMServerConfig:
+    """LLM server settings from config.json pipeline_config.llm_server"""
+    url: str = "http://localhost:11434"
+    model: str = "deepseek-coder:33b"
+    timeout: int = 60
+    max_retries: int = 3
+
+
+@dataclass
+class ContainerRuntimeConfig:
+    """Container runtime settings from config.json pipeline_config.container_runtime"""
+    preferred: str = "docker"
+    fallback: str = "singularity"
+
+
+@dataclass
+class SRADownloadConfig:
+    """SRA download settings from config.json pipeline_config.sra_download"""
+    max_parallel: int = 4
+    timeout_minutes: int = 30
+    max_samples: int = 50
+
+
+@dataclass
+class DebateSettings:
+    """Debate settings from config.json debate section"""
+    num_rounds: int = 3
+    consensus_threshold: float = 0.7
+    enable_cross_examination: bool = True
+    timeout_per_agent: int = 120
+    parallel_assessment: bool = True
+    agent_weights: dict[str, float] = field(default_factory=lambda: {
+        "phd_expert": 0.5,
+        "undergraduate": 0.3,
+        "layperson": 0.2,
+    })
+
+
+@dataclass
+class EnrichmentSettings:
+    """Enrichment settings from config.json enrichment section"""
+    gsea_gene_set_db: str = "KEGG_2021_Human"
+    organism: str = "human"
+    deg_fc_threshold: float = 1.5
+    deg_padj_threshold: float = 0.05
+    top_pathways_count: int = 10
+    top_genes_count: int = 50
+
+
+@dataclass
+class DirectoriesConfig:
+    """Directory paths from config.json directories section"""
+    raw_data: str = "/workspace/raw_data"
+    processed_data: str = "/workspace/processed_data"
+    nextflow_work: str = "/workspace/nextflow_work"
+    containers: str = "/workspace/containers"
+    results: str = "/workspace/results"
+    logs: str = "/workspace/logs"
+    charts: str = "/workspace/charts"
+    research_projects: str = "./research_projects"
+
+
+@dataclass
+class BraveSearchConfig:
+    """Brave search settings from config.json brave_search section"""
+    api_key_env: str = "BRAVE_API_KEY"
+    timeout: int = 15
+    results_per_query: int = 10
+    enabled: bool = False
+
+
+@dataclass
+class RAGConfig:
+    """RAG settings from config.json rag section"""
+    enabled: bool = True
+    persist_dir: str = "./results/rag_db"
+    embedding_model: str = "all-MiniLM-L6-v2"
+    max_context_tokens: int = 1500
+
+
+@dataclass
+class SearchConfig:
+    """Search settings from config.json search section"""
+    limit_per_source: int = 20
+    pubmed_enabled: bool = True
+    semantic_scholar_enabled: bool = True
+    europe_pmc_enabled: bool = True
+    brave_enabled: bool = False
+
+
+@dataclass
+class ExecutionConfig:
+    """Execution settings from config.json execution section"""
+    resume_enabled: bool = True
+    progress_file: str = "/workspace/progress.json"
+    log_level: str = "ERROR"
+    dry_run_first: bool = True
+    max_concurrent: int = 5
+    enable_debate: bool = True
+    enable_enrichment: bool = True
+    enable_data_aggregation: bool = True
+
+
+@dataclass
 class PipelineConfig:
-    pmids: List[str]
+    pmids: list[str]
     results_dir: Path = Path("./results")
     max_concurrent: int = 5
-    llm_router_config: Optional[RouterConfig] = None
+    llm_router_config: RouterConfig | None = None
     enable_resume: bool = True
     enable_data_aggregation: bool = True
     enable_enrichment: bool = True
     enable_debate: bool = True
     debate_rounds: int = 3
-    progress_file: Optional[str] = None
-    rag_dir: Optional[Path] = None
+    progress_file: str | None = None
+    rag_dir: Path | None = None
     # Pipeline execution (v4.0)
     enable_pipeline_execution: bool = False
-    nextflow_config: Optional[Any] = None  # NextflowExecutionConfig
+    nextflow_config: Any | None = None  # NextflowExecutionConfig
     # Project isolation (v4.1)
-    project_slug: Optional[str] = None
+    project_slug: str | None = None
+
+    # Config sections from config.json
+    llm_server: LLMServerConfig = field(default_factory=LLMServerConfig)
+    container_runtime: ContainerRuntimeConfig = field(default_factory=ContainerRuntimeConfig)
+    sra_download: SRADownloadConfig = field(default_factory=SRADownloadConfig)
+    debate_settings: DebateSettings = field(default_factory=DebateSettings)
+    enrichment_settings: EnrichmentSettings = field(default_factory=EnrichmentSettings)
+    directories: DirectoriesConfig = field(default_factory=DirectoriesConfig)
+    brave_search: BraveSearchConfig = field(default_factory=BraveSearchConfig)
+    rag_config: RAGConfig = field(default_factory=RAGConfig)
+    search_config: SearchConfig = field(default_factory=SearchConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "PipelineConfig":
+        pipeline_cfg = data.get("pipeline_config", {})
+        debate_data = data.get("debate", {})
+        enrichment_data = data.get("enrichment", {})
+        directories_data = data.get("directories", {})
+        brave_data = data.get("brave_search", {})
+        rag_data = data.get("rag", {})
+        search_data = data.get("search", {})
+        execution_data = data.get("execution", {})
+
+        # LLM server config
+        llm_srv_data = pipeline_cfg.get("llm_server", {})
+        llm_server = LLMServerConfig(
+            url=llm_srv_data.get("url", "http://localhost:11434"),
+            model=llm_srv_data.get("model", "deepseek-coder:33b"),
+            timeout=llm_srv_data.get("timeout", 60),
+            max_retries=llm_srv_data.get("max_retries", 3),
+        )
+
+        # Container runtime config
+        cr_data = pipeline_cfg.get("container_runtime", {})
+        container_runtime = ContainerRuntimeConfig(
+            preferred=cr_data.get("preferred", "docker"),
+            fallback=cr_data.get("fallback", "singularity"),
+        )
+
+        # SRA download config
+        sra_data = pipeline_cfg.get("sra_download", {})
+        sra_download = SRADownloadConfig(
+            max_parallel=sra_data.get("max_parallel", 4),
+            timeout_minutes=sra_data.get("timeout_minutes", 30),
+            max_samples=sra_data.get("max_samples", 50),
+        )
+
+        # Debate settings
+        debate_settings = DebateSettings(
+            num_rounds=debate_data.get("num_rounds", 3),
+            consensus_threshold=debate_data.get("consensus_threshold", 0.7),
+            enable_cross_examination=debate_data.get("enable_cross_examination", True),
+            timeout_per_agent=debate_data.get("timeout_per_agent", 120),
+            parallel_assessment=debate_data.get("parallel_assessment", True),
+            agent_weights=debate_data.get("agent_weights", {
+                "phd_expert": 0.5, "undergraduate": 0.3, "layperson": 0.2,
+            }),
+        )
+
+        # Enrichment settings
+        enrichment_settings = EnrichmentSettings(
+            gsea_gene_set_db=enrichment_data.get("gsea_gene_set_db", "KEGG_2021_Human"),
+            organism=enrichment_data.get("organism", "human"),
+            deg_fc_threshold=enrichment_data.get("deg_fc_threshold", 1.5),
+            deg_padj_threshold=enrichment_data.get("deg_padj_threshold", 0.05),
+            top_pathways_count=enrichment_data.get("top_pathways_count", 10),
+            top_genes_count=enrichment_data.get("top_genes_count", 50),
+        )
+
+        # Directories config
+        directories = DirectoriesConfig(
+            raw_data=directories_data.get("raw_data", "/workspace/raw_data"),
+            processed_data=directories_data.get("processed_data", "/workspace/processed_data"),
+            nextflow_work=directories_data.get("nextflow_work", "/workspace/nextflow_work"),
+            containers=directories_data.get("containers", "/workspace/containers"),
+            results=directories_data.get("results", "/workspace/results"),
+            logs=directories_data.get("logs", "/workspace/logs"),
+            charts=directories_data.get("charts", "/workspace/charts"),
+            research_projects=directories_data.get("research_projects", "./research_projects"),
+        )
+
+        # Brave search config
+        brave_search = BraveSearchConfig(
+            api_key_env=brave_data.get("api_key_env", "BRAVE_API_KEY"),
+            timeout=brave_data.get("timeout", 15),
+            results_per_query=brave_data.get("results_per_query", 10),
+            enabled=brave_data.get("enabled", False),
+        )
+
+        # RAG config
+        rag_config = RAGConfig(
+            enabled=rag_data.get("enabled", True),
+            persist_dir=rag_data.get("persist_dir", "./results/rag_db"),
+            embedding_model=rag_data.get("embedding_model", "all-MiniLM-L6-v2"),
+            max_context_tokens=rag_data.get("max_context_tokens", 1500),
+        )
+
+        # Search config
+        search_config = SearchConfig(
+            limit_per_source=search_data.get("limit_per_source", 20),
+            pubmed_enabled=search_data.get("pubmed_enabled", True),
+            semantic_scholar_enabled=search_data.get("semantic_scholar_enabled", True),
+            europe_pmc_enabled=search_data.get("europe_pmc_enabled", True),
+            brave_enabled=search_data.get("brave_enabled", False),
+        )
+
+        # Execution config (nested section values)
+        exec_cfg = ExecutionConfig(
+            resume_enabled=execution_data.get("resume_enabled", True),
+            progress_file=execution_data.get("progress_file", "/workspace/progress.json"),
+            log_level=execution_data.get("log_level", "ERROR"),
+            dry_run_first=execution_data.get("dry_run_first", True),
+            max_concurrent=execution_data.get("max_concurrent", 5),
+            enable_debate=execution_data.get("enable_debate", True),
+            enable_enrichment=execution_data.get("enable_enrichment", True),
+            enable_data_aggregation=execution_data.get("enable_data_aggregation", True),
+        )
+
+        # Top-level flat keys override nested section values (backward compat)
+        max_concurrent = data.get("max_concurrent", exec_cfg.max_concurrent)
+        enable_resume = data.get("enable_resume", exec_cfg.resume_enabled)
+        enable_data_aggregation = data.get(
+            "enable_data_aggregation", exec_cfg.enable_data_aggregation,
+        )
+        enable_enrichment = data.get("enable_enrichment", exec_cfg.enable_enrichment)
+        enable_debate = data.get("enable_debate", exec_cfg.enable_debate)
+        debate_rounds = data.get("debate_rounds", debate_settings.num_rounds)
+
+        # Determine results_dir: top-level first, then directories section
+        if "results_dir" in data:
+            results_dir_str = data["results_dir"]
+        elif "results" in directories_data:
+            results_dir_str = directories_data["results"]
+        else:
+            results_dir_str = "./results"
+
+        # Determine rag_dir: top-level rag_dir, or from RAG config
+        if "rag_dir" in data:
+            rag_dir = Path(data["rag_dir"]) if data["rag_dir"] else None
+        elif rag_config.enabled:
+            rag_dir = Path(rag_config.persist_dir)
+        else:
+            rag_dir = None
+
         return cls(
-            pmids=data.get("pmids", []),
-            results_dir=Path(data.get("results_dir", "./results")),
-            max_concurrent=data.get("max_concurrent", 5),
-            enable_resume=data.get("enable_resume", True),
-            enable_data_aggregation=data.get("enable_data_aggregation", True),
-            enable_enrichment=data.get("enable_enrichment", True),
-            enable_debate=data.get("enable_debate", True),
-            debate_rounds=data.get("debate_rounds", 3),
+            pmids=data.get("pmids", pipeline_cfg.get("test_pmids", [])),
+            results_dir=Path(results_dir_str),
+            max_concurrent=max_concurrent,
+            enable_resume=enable_resume,
+            enable_data_aggregation=enable_data_aggregation,
+            enable_enrichment=enable_enrichment,
+            enable_debate=enable_debate,
+            debate_rounds=debate_rounds,
+            progress_file=data.get(
+                "progress_file", execution_data.get("progress_file"),
+            ),
+            rag_dir=rag_dir,
             project_slug=data.get("project_slug"),
+            llm_server=llm_server,
+            container_runtime=container_runtime,
+            sra_download=sra_download,
+            debate_settings=debate_settings,
+            enrichment_settings=enrichment_settings,
+            directories=directories,
+            brave_search=brave_search,
+            rag_config=rag_config,
+            search_config=search_config,
+            execution=exec_cfg,
         )
 
     @classmethod
     def from_json(cls, config_path: str) -> "PipelineConfig":
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             data = json.load(f)
         return cls.from_dict(data)
 
@@ -143,15 +402,15 @@ class AsyncPipeline:
 
     def __init__(self, config: PipelineConfig):
         self.config = config
-        self.results: Dict[str, PMIDResult] = {}
-        self.llm_router: Optional[LLMRouter] = None
-        self.plugin_registry: Optional[PluginRegistry] = None
-        self.progress: Optional[ProgressManager] = None
+        self.results: dict[str, PMIDResult] = {}
+        self.llm_router: LLMRouter | None = None
+        self.plugin_registry: PluginRegistry | None = None
+        self.progress: ProgressManager | None = None
         self.data_aggregator = None
         self.debate_manager = None
         self.doc_store = None
         self._semaphore = asyncio.Semaphore(config.max_concurrent)
-        self._http_client: Optional[Any] = None
+        self._http_client: Any | None = None
 
         # Project isolation: redirect results_dir if project_slug is set
         if config.project_slug:
@@ -173,23 +432,36 @@ class AsyncPipeline:
             )
             self.progress = ProgressManager(progress_file)
 
-        # LLM backends
+        # LLM backends (use config values instead of hardcoded)
         backends = []
+        llm_srv = self.config.llm_server
 
-        ollama_config = LLMConfig(model="deepseek-coder:33b", timeout=60)
+        ollama_config = LLMConfig(
+            model=llm_srv.model,
+            timeout=llm_srv.timeout,
+            max_retries=llm_srv.max_retries,
+        )
         backends.append(OllamaBackend(
-            base_url="http://localhost:11434",
+            base_url=llm_srv.url,
             config=ollama_config
         ))
 
         if os.environ.get("OPENAI_API_KEY"):
-            openai_config = LLMConfig(model="gpt-4", timeout=30)
+            openai_config = LLMConfig(
+                model="gpt-4",
+                timeout=llm_srv.timeout,
+                max_retries=llm_srv.max_retries,
+            )
             backends.append(OpenAIBackend(config=openai_config))
 
         try:
             from backends import AnthropicBackend
             if os.environ.get("ANTHROPIC_API_KEY"):
-                anthropic_config = LLMConfig(model="claude-sonnet-4-20250514", timeout=30)
+                anthropic_config = LLMConfig(
+                    model="claude-sonnet-4-20250514",
+                    timeout=llm_srv.timeout,
+                    max_retries=llm_srv.max_retries,
+                )
                 backends.append(AnthropicBackend(config=anthropic_config))
         except ImportError:
             pass
@@ -214,8 +486,15 @@ class AsyncPipeline:
         # Debate manager (lazy import)
         if self.config.enable_debate and self.llm_router:
             try:
-                from agents.debate_manager import DebateManager, DebateConfig
-                debate_config = DebateConfig(num_rounds=self.config.debate_rounds)
+                from agents.debate_manager import DebateConfig, DebateManager
+                ds = self.config.debate_settings
+                debate_config = DebateConfig(
+                    num_rounds=self.config.debate_rounds,
+                    consensus_threshold=ds.consensus_threshold,
+                    enable_cross_examination=ds.enable_cross_examination,
+                    timeout_per_agent=ds.timeout_per_agent,
+                    parallel_assessment=ds.parallel_assessment,
+                )
                 self.debate_manager = DebateManager.create_default_panel(
                     self.llm_router, config=debate_config
                 )
@@ -238,11 +517,13 @@ class AsyncPipeline:
 
         if self.config.enable_pipeline_execution:
             try:
+                from analysis import AnalysisOrchestrator
                 from nextflow import (
-                    NextflowExecutor, FetchNGSRunner, SamplesheetGenerator,
+                    FetchNGSRunner,
+                    NextflowExecutor,
+                    SamplesheetGenerator,
                 )
                 from nextflow.config import NextflowExecutionConfig
-                from analysis import AnalysisOrchestrator
 
                 nf_config = self.config.nextflow_config or NextflowExecutionConfig()
                 self.nf_executor = NextflowExecutor(nf_config)
@@ -263,7 +544,9 @@ class AsyncPipeline:
 
         # HTTP client
         if HAS_HTTPX:
-            self._http_client = httpx.AsyncClient(timeout=30.0)
+            self._http_client = httpx.AsyncClient(
+                timeout=float(self.config.llm_server.timeout),
+            )
 
     async def shutdown(self):
         """리소스 정리"""
@@ -274,7 +557,7 @@ class AsyncPipeline:
         if self.data_aggregator:
             await self.data_aggregator.close()
 
-    async def run(self) -> Dict[str, PMIDResult]:
+    async def run(self) -> dict[str, PMIDResult]:
         """전체 파이프라인 실행"""
         await self.initialize()
 
@@ -498,12 +781,12 @@ class AsyncPipeline:
             await self._save_pmid_result(result)
             return result
 
-    async def _fetch_pubmed(self, pmid: str) -> Dict[str, Any]:
+    async def _fetch_pubmed(self, pmid: str) -> dict[str, Any]:
         """PubMed 메타데이터 수집 (캐시 지원)"""
         cached_file = self.config.results_dir / f"pubmed_{pmid}.json"
 
         if cached_file.exists():
-            with open(cached_file, "r") as f:
+            with open(cached_file) as f:
                 return json.load(f)
 
         try:
@@ -520,13 +803,13 @@ class AsyncPipeline:
         return {"pmid": pmid, "title": "", "abstract": "", "source": "unavailable"}
 
     async def _explore_sra(
-        self, pmid: str, pubmed_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, pmid: str, pubmed_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """SRA 데이터 탐색 (캐시 지원)"""
         cached_file = self.config.results_dir / f"sra_exploration_{pmid}.json"
 
         if cached_file.exists():
-            with open(cached_file, "r") as f:
+            with open(cached_file) as f:
                 return json.load(f)
 
         try:
@@ -546,15 +829,15 @@ class AsyncPipeline:
     async def _analyze_with_llm_consensus(
         self,
         pmid: str,
-        pubmed_metadata: Dict[str, Any],
-        sequencing_result: Dict[str, Any],
-        downstream_analysis: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        pubmed_metadata: dict[str, Any],
+        sequencing_result: dict[str, Any],
+        downstream_analysis: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """LLM 멀티 합의: 모든 건강한 백엔드에 동시 쿼리 후 가중 합의"""
         cached_file = self.config.results_dir / f"deepseek_analysis_{pmid}.json"
 
         if cached_file.exists():
-            with open(cached_file, "r") as f:
+            with open(cached_file) as f:
                 return json.load(f)
 
         if not self.llm_router:
@@ -621,7 +904,7 @@ class AsyncPipeline:
         # 가중 합의
         return self._merge_consensus(valid_results)
 
-    def _merge_consensus(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _merge_consensus(self, results: list[dict[str, Any]]) -> dict[str, Any]:
         """여러 LLM 결과를 가중 합의로 병합"""
         total_weight = sum(r.get("health_score", 1.0) for r in results)
 
@@ -632,7 +915,7 @@ class AsyncPipeline:
         ) / max(total_weight, 0.001)
 
         # 등급 투표 (가중)
-        rating_votes: Dict[str, float] = {}
+        rating_votes: dict[str, float] = {}
         for r in results:
             rating = r.get("consistency_rating", "WARN")
             weight = r.get("health_score", 1.0)
@@ -662,11 +945,11 @@ class AsyncPipeline:
             },
         }
 
-    async def _run_enrichment(self, result: PMIDResult) -> Dict[str, Any]:
+    async def _run_enrichment(self, result: PMIDResult) -> dict[str, Any]:
         """농축 분석 실행 (GSEA, DEG, Pathway)"""
         try:
-            from enrichment import GSEAAnalyzer, PathwayAnalyzer, NoveltyScorer
-            enrichment_data: Dict[str, Any] = {}
+            from enrichment import GSEAAnalyzer, NoveltyScorer, PathwayAnalyzer
+            enrichment_data: dict[str, Any] = {}
 
             # 논문에서 유전자 목록 추출 시도
             gene_list = self._extract_genes_from_metadata(result)
@@ -700,7 +983,7 @@ class AsyncPipeline:
         except ImportError:
             return {"error": "enrichment 패키지 없음"}
 
-    def _extract_genes_from_metadata(self, result: PMIDResult) -> List[str]:
+    def _extract_genes_from_metadata(self, result: PMIDResult) -> list[str]:
         """메타데이터/집계 데이터에서 유전자 목록 추출"""
         genes = []
         # text-mined terms에서 추출
@@ -758,9 +1041,9 @@ class AsyncPipeline:
 
     def _build_analysis_prompt(
         self,
-        pubmed_metadata: Dict[str, Any],
-        sequencing_result: Dict[str, Any],
-        downstream_analysis: Optional[Dict[str, Any]] = None,
+        pubmed_metadata: dict[str, Any],
+        sequencing_result: dict[str, Any],
+        downstream_analysis: dict[str, Any] | None = None,
     ) -> str:
         title = pubmed_metadata.get("title", "")
         abstract = pubmed_metadata.get("abstract", "")[:1000]
@@ -786,13 +1069,13 @@ Detected Sequencing Type: {seq_type}
                     else:
                         prompt += f"- {key}: {val}\n"
 
-        prompt += f"""
+        prompt += """
 Provide a JSON response with:
-{{"consistency_score": 0.0-1.0, "consistency_rating": "PASS|WARN|FAIL", "technical_assessment": "...", "recommendations": []}}
+{"consistency_score": 0.0-1.0, "consistency_rating": "PASS|WARN|FAIL", "technical_assessment": "...", "recommendations": []}
 """
         return prompt
 
-    def _parse_llm_response(self, content: str) -> Dict[str, Any]:
+    def _parse_llm_response(self, content: str) -> dict[str, Any]:
         try:
             start = content.find("{")
             end = content.rfind("}") + 1
@@ -805,10 +1088,10 @@ Provide a JSON response with:
             "technical_assessment": content[:500]
         }
 
-    async def _load_cached(self, filename: str) -> Dict[str, Any]:
+    async def _load_cached(self, filename: str) -> dict[str, Any]:
         cached_file = self.config.results_dir / filename
         if cached_file.exists():
-            with open(cached_file, "r") as f:
+            with open(cached_file) as f:
                 return json.load(f)
         return {}
 
@@ -864,7 +1147,7 @@ async def main():
     pipeline = AsyncPipeline(config)
     results = await pipeline.run()
 
-    print(f"\n=== Pipeline Complete ===")
+    print("\n=== Pipeline Complete ===")
     for pmid, result in results.items():
         print(f"PMID {pmid}: {result.status.value} ({result.duration_seconds:.1f}s)")
         if result.debate_report.get("overall_verdict"):

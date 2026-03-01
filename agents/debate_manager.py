@@ -7,26 +7,27 @@ Debate Manager
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from backends.router import LLMRouter
+
 from .base import (
-    AgentRole,
     AgentResponse,
+    AgentRole,
     DebateAgent,
     DebateRound,
 )
 from .layperson import LaypersonAgent
-from .undergraduate import UndergraduateAgent
 from .phd_expert import PhDExpertAgent
+from .undergraduate import UndergraduateAgent
 
 logger = logging.getLogger(__name__)
 
 
 # 에이전트 역할별 가중치 (PhD가 가장 높은 가중치)
-ROLE_WEIGHTS: Dict[AgentRole, float] = {
+ROLE_WEIGHTS: dict[AgentRole, float] = {
     AgentRole.PHD_EXPERT: 0.5,
     AgentRole.UNDERGRADUATE: 0.3,
     AgentRole.LAYPERSON: 0.2,
@@ -65,14 +66,14 @@ class DebateResult:
         overall_score: 종합 점수 (0.0~1.0)
         dissenting_opinions: 소수 의견 목록
     """
-    rounds: List[DebateRound]
-    final_consensus: Dict[str, Any]
-    per_agent_scores: Dict[str, float]
+    rounds: list[DebateRound]
+    final_consensus: dict[str, Any]
+    per_agent_scores: dict[str, float]
     overall_verdict: str
     overall_score: float
-    dissenting_opinions: List[str]
+    dissenting_opinions: list[str]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 / Convert to dictionary."""
         return {
             "rounds": [r.to_dict() for r in self.rounds],
@@ -103,8 +104,8 @@ class DebateManager:
 
     def __init__(
         self,
-        agents: List[DebateAgent],
-        config: Optional[DebateConfig] = None,
+        agents: list[DebateAgent],
+        config: DebateConfig | None = None,
     ):
         """
         토론 관리자 초기화 / Initialize the debate manager.
@@ -120,7 +121,7 @@ class DebateManager:
     def create_default_panel(
         cls,
         llm_router: LLMRouter,
-        config: Optional[DebateConfig] = None,
+        config: DebateConfig | None = None,
     ) -> "DebateManager":
         """
         기본 토론 패널 생성 / Create a default debate panel with all three agents.
@@ -134,7 +135,7 @@ class DebateManager:
         Returns:
             DebateManager: 기본 패널이 구성된 토론 관리자
         """
-        agents: List[DebateAgent] = [
+        agents: list[DebateAgent] = [
             LaypersonAgent(llm_router),
             UndergraduateAgent(llm_router),
             PhDExpertAgent(llm_router),
@@ -143,7 +144,7 @@ class DebateManager:
 
     async def run_debate(
         self,
-        research_data: Dict[str, Any],
+        research_data: dict[str, Any],
     ) -> DebateResult:
         """
         토론 실행 / Run the full multi-round debate.
@@ -162,8 +163,8 @@ class DebateManager:
             len(self.agents), self.config.num_rounds,
         )
 
-        rounds: List[DebateRound] = []
-        all_previous_responses: Optional[List[AgentResponse]] = None
+        rounds: list[DebateRound] = []
+        all_previous_responses: list[AgentResponse] | None = None
 
         for round_num in range(1, self.config.num_rounds + 1):
             logger.info("라운드 %d 시작", round_num)
@@ -228,9 +229,9 @@ class DebateManager:
 
     async def _run_round(
         self,
-        research_data: Dict[str, Any],
+        research_data: dict[str, Any],
         round_number: int,
-        previous_responses: Optional[List[AgentResponse]] = None,
+        previous_responses: list[AgentResponse] | None = None,
     ) -> DebateRound:
         """
         단일 토론 라운드 실행 / Execute a single round of debate.
@@ -245,7 +246,7 @@ class DebateManager:
         Returns:
             DebateRound: 라운드 결과
         """
-        responses: List[AgentResponse] = []
+        responses: list[AgentResponse] = []
 
         if self.config.parallel_assessment:
             # 병렬 평가: asyncio.gather로 모든 에이전트 동시 실행
@@ -303,9 +304,9 @@ class DebateManager:
     async def _assess_with_timeout(
         self,
         agent: DebateAgent,
-        research_data: Dict[str, Any],
+        research_data: dict[str, Any],
         round_number: int,
-        previous_responses: Optional[List[AgentResponse]] = None,
+        previous_responses: list[AgentResponse] | None = None,
     ) -> AgentResponse:
         """
         타임아웃이 적용된 에이전트 평가 실행 / Run agent assessment with timeout.
@@ -333,8 +334,8 @@ class DebateManager:
 
     def _calculate_round_consensus(
         self,
-        responses: List[AgentResponse],
-    ) -> Optional[float]:
+        responses: list[AgentResponse],
+    ) -> float | None:
         """
         라운드 합의 점수 계산 / Calculate consensus score for a round.
 
@@ -368,8 +369,8 @@ class DebateManager:
 
     def _synthesize_consensus(
         self,
-        rounds: List[DebateRound],
-    ) -> Dict[str, Any]:
+        rounds: list[DebateRound],
+    ) -> dict[str, Any]:
         """
         최종 합의 종합 / Synthesize final consensus from all rounds.
 
@@ -390,9 +391,9 @@ class DebateManager:
             }
 
         last_round = rounds[-1]
-        all_scores: List[float] = []
-        all_key_points: List[str] = []
-        all_concerns: List[str] = []
+        all_scores: list[float] = []
+        all_key_points: list[str] = []
+        all_concerns: list[str] = []
 
         # 마지막 라운드의 응답에서 정보 수집
         for response in last_round.responses:
@@ -424,8 +425,8 @@ class DebateManager:
 
     def _calculate_per_agent_scores(
         self,
-        rounds: List[DebateRound],
-    ) -> Dict[str, float]:
+        rounds: list[DebateRound],
+    ) -> dict[str, float]:
         """
         에이전트별 최종 점수 계산 / Calculate per-agent final scores.
 
@@ -440,7 +441,7 @@ class DebateManager:
         if not rounds:
             return {}
 
-        agent_scores: Dict[str, List[tuple]] = {}  # name -> [(round_num, score)]
+        agent_scores: dict[str, list[tuple]] = {}  # name -> [(round_num, score)]
 
         for debate_round in rounds:
             for response in debate_round.responses:
@@ -452,7 +453,7 @@ class DebateManager:
 
         # 최신 라운드 가중치 적용
         total_rounds = len(rounds)
-        per_agent_final: Dict[str, float] = {}
+        per_agent_final: dict[str, float] = {}
 
         for agent_name, score_list in agent_scores.items():
             weighted_sum = 0.0
@@ -475,7 +476,7 @@ class DebateManager:
 
     def _calculate_overall_score(
         self,
-        per_agent_scores: Dict[str, float],
+        per_agent_scores: dict[str, float],
     ) -> float:
         """
         종합 점수 계산 / Calculate weighted overall score.
@@ -493,7 +494,7 @@ class DebateManager:
             return 0.0
 
         # 에이전트 이름에서 역할 매핑
-        role_map: Dict[str, AgentRole] = {}
+        role_map: dict[str, AgentRole] = {}
         for agent in self.agents:
             role_map[agent.name] = agent.role
 
@@ -534,8 +535,8 @@ class DebateManager:
 
     def _find_dissenting_opinions(
         self,
-        rounds: List[DebateRound],
-    ) -> List[str]:
+        rounds: list[DebateRound],
+    ) -> list[str]:
         """
         소수 의견 식별 / Find dissenting opinions across rounds.
 
@@ -560,7 +561,7 @@ class DebateManager:
             return []
 
         mean_score = sum(scores) / len(scores)
-        dissenting: List[str] = []
+        dissenting: list[str] = []
 
         for response in last_round.responses:
             if response.confidence <= 0.0:

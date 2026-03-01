@@ -3,14 +3,20 @@ Tests for Multi-Agent Debate System
 멀티 에이전트 토론 시스템 테스트
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from agents import (
-    AgentRole, AgentResponse, DebateRound,
-    LaypersonAgent, UndergraduateAgent, PhDExpertAgent,
-    DebateManager, DebateConfig,
+    AgentResponse,
+    AgentRole,
+    DebateConfig,
+    DebateManager,
+    DebateRound,
+    LaypersonAgent,
+    PhDExpertAgent,
+    UndergraduateAgent,
 )
 from agents.debate_manager import DebateResult
 from backends.base import LLMResponse

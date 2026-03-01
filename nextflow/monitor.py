@@ -3,10 +3,9 @@ Pipeline Monitor
 Nextflow 파이프라인 실행 모니터링
 """
 
-import re
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -70,7 +69,7 @@ class PipelineMonitor:
         for match in process_pattern.finditer(content):
             process_name = match.group(2)
             pct = int(match.group(4))
-            done = int(match.group(5))
+            _ = int(match.group(5))
             total = int(match.group(6))
 
             current = process_name
@@ -109,7 +108,7 @@ class PipelineMonitor:
 
         return progress
 
-    def parse_trace_file(self, trace_file: Path) -> Dict:
+    def parse_trace_file(self, trace_file: Path) -> dict:
         """
         Parse Nextflow trace.txt for per-process execution metrics.
 
@@ -119,7 +118,7 @@ class PipelineMonitor:
         if not trace_file.exists():
             return {}
 
-        results: Dict[str, Dict] = {}
+        results: dict[str, dict] = {}
 
         try:
             lines = trace_file.read_text().strip().split("\n")

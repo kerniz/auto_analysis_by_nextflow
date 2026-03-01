@@ -4,7 +4,7 @@ Analysis Package
 """
 
 from .orchestrator import AnalysisOrchestrator, AnalysisResult
-from .script_runner import RScriptRunner, PythonScriptRunner
+from .script_runner import PythonScriptRunner, RScriptRunner
 
 __all__ = [
     "AnalysisOrchestrator",

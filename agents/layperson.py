@@ -7,10 +7,11 @@ Layperson Debate Agent
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from backends.router import LLMRouter
-from .base import DebateAgent, AgentRole, AgentResponse
+
+from .base import AgentResponse, AgentRole, DebateAgent
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,9 @@ Always respond in the specified JSON format."""
 
     async def assess(
         self,
-        research_data: Dict[str, Any],
+        research_data: dict[str, Any],
         round_number: int = 1,
-        previous_responses: Optional[List[AgentResponse]] = None,
+        previous_responses: list[AgentResponse] | None = None,
     ) -> AgentResponse:
         """
         연구 데이터를 일반인 관점에서 평가 / Assess research from layperson perspective.

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +97,8 @@ class DocumentStore:
         pmid: str,
         title: str,
         abstract: str,
-        year: Optional[int] = None,
-        extra_meta: Optional[Dict[str, Any]] = None,
+        year: int | None = None,
+        extra_meta: dict[str, Any] | None = None,
     ) -> None:
         """
         Add or update a paper abstract in the store.
@@ -115,7 +115,7 @@ class DocumentStore:
 
         doc_id = f"abstract_{pmid}"
         document = f"{title}\n\n{abstract}"
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "doc_type": "paper_abstract",
             "pmid": str(pmid),
             "title": title,
@@ -139,7 +139,7 @@ class DocumentStore:
         pmid: str,
         analysis_text: str,
         rating: str = "UNKNOWN",
-        extra_meta: Optional[Dict[str, Any]] = None,
+        extra_meta: dict[str, Any] | None = None,
     ) -> None:
         """
         Add or update an analysis result in the store.
@@ -154,7 +154,7 @@ class DocumentStore:
         self._ensure_initialized()
 
         doc_id = f"analysis_{pmid}"
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "doc_type": "analysis_result",
             "pmid": str(pmid),
             "rating": rating,
@@ -191,7 +191,7 @@ class DocumentStore:
         self._ensure_initialized()
 
         doc_id = f"debate_{pmid}"
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "doc_type": "debate_report",
             "pmid": str(pmid),
             "verdict": verdict,
@@ -211,8 +211,8 @@ class DocumentStore:
         self,
         query_text: str,
         n_results: int = 5,
-        doc_type: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        doc_type: str | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Query the document store for similar documents.
         유사한 문서를 문서 저장소에서 검색합니다.
@@ -241,7 +241,7 @@ class DocumentStore:
             where=where_filter,
         )
 
-        documents: List[Dict[str, Any]] = []
+        documents: list[dict[str, Any]] = []
         if results and results["ids"] and results["ids"][0]:
             for i, doc_id in enumerate(results["ids"][0]):
                 documents.append(
@@ -260,7 +260,7 @@ class DocumentStore:
         )
         return documents
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get statistics about the document store.
         문서 저장소의 통계 정보를 반환합니다.
@@ -273,7 +273,7 @@ class DocumentStore:
 
         total_count = self._collection.count()
 
-        doc_types: Dict[str, int] = {}
+        doc_types: dict[str, int] = {}
         for dtype in ("paper_abstract", "analysis_result", "debate_report"):
             try:
                 type_results = self._collection.get(

@@ -7,9 +7,8 @@ DEG 분석 결과를 구조화합니다.
 """
 
 import csv
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 
 try:
     import pandas as pd
@@ -41,7 +40,7 @@ class DEGAnalyzer:
 
     async def analyze_deseq2_output(
         self, results_path: Path
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         DESeq2 결과 파싱 (nf-core/rnaseq 출력)
 
@@ -64,7 +63,7 @@ class DEGAnalyzer:
         except Exception as e:
             return {"error": f"DESeq2 결과 파싱 실패: {str(e)}"}
 
-    def _parse_deseq2_pandas(self, path: Path) -> Dict[str, Any]:
+    def _parse_deseq2_pandas(self, path: Path) -> dict[str, Any]:
         """pandas로 DESeq2 결과 파싱"""
         sep = "\t" if path.suffix in (".tsv", ".txt") else ","
         df = pd.read_csv(path, sep=sep)
@@ -131,11 +130,11 @@ class DEGAnalyzer:
             ],
         }
 
-    def _parse_deseq2_csv(self, path: Path) -> Dict[str, Any]:
+    def _parse_deseq2_csv(self, path: Path) -> dict[str, Any]:
         """pandas 없이 CSV 파싱"""
         sep = "\t" if path.suffix in (".tsv", ".txt") else ","
 
-        with open(path, "r") as f:
+        with open(path) as f:
             reader = csv.DictReader(f, delimiter=sep)
             rows = list(reader)
 
@@ -199,7 +198,7 @@ class DEGAnalyzer:
 
     async def analyze_seurat_markers(
         self, results_path: Path
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Seurat marker gene 결과 파싱 (nf-core/scrnaseq 출력)
 
@@ -283,9 +282,9 @@ class DEGAnalyzer:
 
     def get_top_genes(
         self,
-        deg_results: Dict[str, Any],
+        deg_results: dict[str, Any],
         n: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         DEG 결과에서 상위 N개 유전자 추출
 
@@ -306,8 +305,8 @@ class DEGAnalyzer:
         return all_genes[:n]
 
     def classify_genes(
-        self, deg_results: Dict[str, Any]
-    ) -> Dict[str, List[str]]:
+        self, deg_results: dict[str, Any]
+    ) -> dict[str, list[str]]:
         """
         DEG를 상향/하향 조절로 분류하여 유전자 심볼 리스트 반환
 
@@ -322,7 +321,7 @@ class DEGAnalyzer:
             "downregulated": down_genes,
         }
 
-    def get_gene_symbols(self, deg_results: Dict[str, Any]) -> List[str]:
+    def get_gene_symbols(self, deg_results: dict[str, Any]) -> list[str]:
         """모든 유의한 DEG의 유전자 심볼 리스트 반환"""
         classified = self.classify_genes(deg_results)
         return classified["upregulated"] + classified["downregulated"]

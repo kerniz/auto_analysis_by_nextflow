@@ -3,10 +3,10 @@ Nextflow Execution Configuration
 Nextflow 파이프라인 실행 설정
 """
 
+import re
 from dataclasses import dataclass, field
-from typing import Dict, Optional
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 
 
 class ContainerRuntime(Enum):
@@ -14,9 +14,6 @@ class ContainerRuntime(Enum):
     SINGULARITY = "singularity"
     APPTAINER = "apptainer"
     CONDA = "conda"
-
-
-import re
 
 # Whitelist pattern for Slurm string fields: alphanumeric, dash, underscore, colon, dot, slash, comma, equals, space
 _SLURM_SAFE_PATTERN = re.compile(r'^[a-zA-Z0-9\-_:./,= ]*$')
@@ -73,7 +70,7 @@ class SlurmConfig:
             raise ValueError(f"SlurmConfig.queue_size out of range: {self.queue_size}")
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "SlurmConfig":
+    def from_dict(cls, data: dict) -> "SlurmConfig":
         """Load SlurmConfig from a dict."""
         return cls(
             enabled=data.get("enabled", False),
@@ -105,7 +102,7 @@ class NextflowExecutionConfig:
     max_cpus: int = 4
     max_time: str = "24.h"
     resume: bool = True
-    cache_dir: Optional[Path] = None
+    cache_dir: Path | None = None
 
     # fetchngs
     fetchngs_enabled: bool = True
@@ -113,7 +110,7 @@ class NextflowExecutionConfig:
 
     # R analysis
     r_executable: str = "Rscript"
-    r_scripts_dir: Optional[Path] = None
+    r_scripts_dir: Path | None = None
 
     # Python analysis
     scanpy_enabled: bool = False
@@ -122,13 +119,13 @@ class NextflowExecutionConfig:
     slurm: SlurmConfig = field(default_factory=SlurmConfig)
 
     # Pipeline-specific parameter overrides
-    pipeline_params: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    pipeline_params: dict[str, dict[str, str]] = field(default_factory=dict)
 
     # Analysis parameters
-    analysis_params: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    analysis_params: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "NextflowExecutionConfig":
+    def from_dict(cls, data: dict) -> "NextflowExecutionConfig":
         """Load from config.json nextflow_execution + analysis sections."""
         nf = data.get("nextflow_execution", {})
         analysis = data.get("analysis", {})

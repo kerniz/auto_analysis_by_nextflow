@@ -3,14 +3,16 @@ Tests for Nextflow Execution Layer
 Nextflow 실행 레이어 테스트
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from nextflow.config import NextflowExecutionConfig, ContainerRuntime, SlurmConfig
-from nextflow.fetchngs import FetchNGSRunner
+import pytest
+
+from nextflow.config import ContainerRuntime, NextflowExecutionConfig, SlurmConfig
 from nextflow.executor import NextflowExecutor
-from nextflow.monitor import PipelineMonitor, PipelineProgress
+from nextflow.fetchngs import FetchNGSResult, FetchNGSRunner
+from nextflow.monitor import PipelineMonitor
 from plugins.base import PipelineDefinition
 
 
@@ -61,6 +63,53 @@ class TestNextflowConfig:
         assert ContainerRuntime.SINGULARITY.value == "singularity"
         assert ContainerRuntime.APPTAINER.value == "apptainer"
 
+    def test_from_dict_invalid_container_runtime(self):
+        data = {"nextflow_execution": {"container_runtime": "invalid_runtime"}}
+        config = NextflowExecutionConfig.from_dict(data)
+        assert config.container_runtime == ContainerRuntime.DOCKER
+
+    def test_from_dict_with_cache_dir(self):
+        data = {"nextflow_execution": {"cache_dir": "/tmp/nf-cache"}}
+        config = NextflowExecutionConfig.from_dict(data)
+        assert config.cache_dir == Path("/tmp/nf-cache")
+
+    def test_from_dict_with_r_scripts_dir(self):
+        data = {"analysis": {"r_scripts_dir": "/opt/r_scripts"}}
+        config = NextflowExecutionConfig.from_dict(data)
+        assert config.r_scripts_dir == Path("/opt/r_scripts")
+
+
+class TestFetchNGSResult:
+    def test_to_dict_success(self):
+        result = FetchNGSResult(
+            success=True,
+            output_dir=Path("/tmp/out"),
+            fastq_dir=Path("/tmp/out/fastq"),
+            samplesheet_path=Path("/tmp/out/samplesheet.csv"),
+            accessions_processed=["SRR111", "SRR222"],
+            accessions_failed=[],
+            execution_time_seconds=120.5,
+        )
+        d = result.to_dict()
+        assert d["success"] is True
+        assert d["fastq_dir"] == "/tmp/out/fastq"
+        assert d["samplesheet_path"] == "/tmp/out/samplesheet.csv"
+        assert len(d["accessions_processed"]) == 2
+        assert d["accessions_failed"] == []
+        assert d["execution_time_seconds"] == 120.5
+
+    def test_to_dict_failure(self):
+        result = FetchNGSResult(
+            success=False,
+            output_dir=Path("/tmp/out"),
+            error="fetchngs exited with code 1",
+        )
+        d = result.to_dict()
+        assert d["success"] is False
+        assert d["fastq_dir"] is None
+        assert d["samplesheet_path"] is None
+        assert "exited with code" in d["error"]
+
 
 class TestFetchNGSRunner:
     def test_init(self):
@@ -86,6 +135,9 @@ class TestFetchNGSRunner:
         content = acc_file.read_text()
         assert "SRR111" in content
         assert "SRR222" in content
+        # Each accession on its own line
+        lines = content.strip().split("\n")
+        assert len(lines) == 2
 
     def test_build_command(self, tmp_path):
         config = NextflowExecutionConfig(profile="docker")
@@ -99,6 +151,40 @@ class TestFetchNGSRunner:
         assert "docker" in cmd
         assert "-resume" in cmd
 
+    def test_build_command_no_resume(self, tmp_path):
+        config = NextflowExecutionConfig(profile="docker", resume=False)
+        runner = FetchNGSRunner(config)
+        cmd = runner._build_command(
+            tmp_path / "accessions.csv", tmp_path / "output"
+        )
+        assert "-resume" not in cmd
+
+    def test_build_command_work_dir(self, tmp_path):
+        config = NextflowExecutionConfig(
+            work_dir=Path("/tmp/work"),
+            profile="docker",
+        )
+        runner = FetchNGSRunner(config)
+        cmd = runner._build_command(
+            tmp_path / "accessions.csv", tmp_path / "output"
+        )
+        assert "-w" in cmd
+        idx = cmd.index("-w")
+        assert "fetchngs" in cmd[idx + 1]
+
+    def test_build_command_download_method(self, tmp_path):
+        config = NextflowExecutionConfig(
+            fetchngs_download_method="aspera",
+            profile="docker",
+        )
+        runner = FetchNGSRunner(config)
+        cmd = runner._build_command(
+            tmp_path / "accessions.csv", tmp_path / "output"
+        )
+        assert "--download_method" in cmd
+        idx = cmd.index("--download_method")
+        assert cmd[idx + 1] == "aspera"
+
     def test_find_fastq_dir(self, tmp_path):
         config = NextflowExecutionConfig()
         runner = FetchNGSRunner(config)
@@ -106,6 +192,30 @@ class TestFetchNGSRunner:
         fq_dir = tmp_path / "fastq"
         fq_dir.mkdir()
         assert runner._find_fastq_dir(tmp_path) == fq_dir
+
+    def test_find_fastq_dir_fastqs(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+        fq_dir = tmp_path / "fastqs"
+        fq_dir.mkdir()
+        assert runner._find_fastq_dir(tmp_path) == fq_dir
+
+    def test_find_fastq_dir_sra(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+        sra_dir = tmp_path / "sra"
+        sra_dir.mkdir()
+        assert runner._find_fastq_dir(tmp_path) == sra_dir
+
+    def test_find_fastq_dir_with_glob(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+        # Create a .fastq.gz file in subdirectory
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "sample.fastq.gz").touch()
+        result = runner._find_fastq_dir(tmp_path)
+        assert result == tmp_path
 
     def test_find_fastq_dir_none(self, tmp_path):
         config = NextflowExecutionConfig()
@@ -120,6 +230,182 @@ class TestFetchNGSRunner:
         ss_file = ss_dir / "samplesheet.csv"
         ss_file.touch()
         assert runner._find_samplesheet(tmp_path) == ss_file
+
+    def test_find_samplesheet_root(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+        ss_file = tmp_path / "samplesheet.csv"
+        ss_file.touch()
+        assert runner._find_samplesheet(tmp_path) == ss_file
+
+    def test_find_samplesheet_none(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+        assert runner._find_samplesheet(tmp_path) is None
+
+    def test_find_processed_accessions(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        # Create mock fastq files
+        (tmp_path / "SRR111_1.fastq.gz").touch()
+        (tmp_path / "SRR111_2.fastq.gz").touch()
+        (tmp_path / "SRR222_1.fastq.gz").touch()
+
+        found = runner._find_processed_accessions(
+            tmp_path, ["SRR111", "SRR222", "SRR333"]
+        )
+        assert "SRR111" in found
+        assert "SRR222" in found
+        assert "SRR333" not in found
+
+    def test_find_processed_accessions_fq_gz(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        # .fq.gz format
+        (tmp_path / "SRR111_1.fq.gz").touch()
+
+        found = runner._find_processed_accessions(tmp_path, ["SRR111"])
+        assert "SRR111" in found
+
+    def test_find_processed_accessions_subdir(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        sub = tmp_path / "subdir"
+        sub.mkdir()
+        (sub / "SRR111_1.fastq.gz").touch()
+
+        found = runner._find_processed_accessions(tmp_path, ["SRR111"])
+        assert "SRR111" in found
+
+    @pytest.mark.asyncio
+    async def test_run_success(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Create expected output structure
+        fastq_dir = output_dir / "fastq"
+        fastq_dir.mkdir()
+        (fastq_dir / "SRR111_1.fastq.gz").touch()
+
+        ss_dir = output_dir / "samplesheet"
+        ss_dir.mkdir()
+        (ss_dir / "samplesheet.csv").touch()
+
+        with patch.object(runner, "_execute_nextflow", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = (0, 100.0)
+
+            result = await runner.run(
+                ["SRR111"], output_dir, pmid="12345"
+            )
+
+        assert result.success is True
+        assert result.fastq_dir == fastq_dir
+        assert result.samplesheet_path == ss_dir / "samplesheet.csv"
+        assert "SRR111" in result.accessions_processed
+
+    @pytest.mark.asyncio
+    async def test_run_nonzero_exit(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        output_dir = tmp_path / "output"
+
+        with patch.object(runner, "_execute_nextflow", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = (1, 50.0)
+
+            result = await runner.run(["SRR111"], output_dir)
+
+        assert result.success is False
+        assert "exited with code 1" in result.error
+
+    @pytest.mark.asyncio
+    async def test_run_timeout(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        output_dir = tmp_path / "output"
+
+        with patch.object(runner, "_execute_nextflow", new_callable=AsyncMock) as mock_exec:
+            mock_exec.side_effect = asyncio.TimeoutError()
+
+            result = await runner.run(["SRR111"], output_dir)
+
+        assert result.success is False
+        assert "timed out" in result.error
+
+    @pytest.mark.asyncio
+    async def test_run_exception(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        output_dir = tmp_path / "output"
+
+        with patch.object(runner, "_execute_nextflow", new_callable=AsyncMock) as mock_exec:
+            mock_exec.side_effect = RuntimeError("unexpected error")
+
+            result = await runner.run(["SRR111"], output_dir)
+
+        assert result.success is False
+        assert "unexpected error" in result.error
+
+    @pytest.mark.asyncio
+    async def test_run_no_fastq_dir(self, tmp_path):
+        """Exit code 0 but no fastq dir found."""
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        output_dir = tmp_path / "output"
+
+        with patch.object(runner, "_execute_nextflow", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = (0, 60.0)
+
+            result = await runner.run(["SRR111"], output_dir)
+
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_execute_nextflow(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        log_file = tmp_path / "test.log"
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=None)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            exit_code, duration = await runner._execute_nextflow(
+                ["echo", "hello"], log_file
+            )
+
+        assert exit_code == 0
+        assert duration >= 0
+
+    @pytest.mark.asyncio
+    async def test_execute_nextflow_timeout(self, tmp_path):
+        config = NextflowExecutionConfig()
+        runner = FetchNGSRunner(config)
+
+        log_file = tmp_path / "test.log"
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_proc.kill = MagicMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(asyncio.TimeoutError):
+                await runner._execute_nextflow(
+                    ["sleep", "9999"], log_file, timeout_seconds=1
+                )
+
+        mock_proc.kill.assert_called_once()
 
 
 class TestNextflowExecutor:
@@ -185,8 +471,8 @@ class TestPipelineMonitor:
     def test_parse_completed_log(self, tmp_path):
         log_file = tmp_path / "pipeline.log"
         log_file.write_text("""
-[ab/123456] process > NFCORE_RNASEQ:FASTQC (1) [100%] 2 of 2 ✔
-[cd/789012] process > NFCORE_RNASEQ:TRIMGALORE (1) [100%] 2 of 2 ✔
+[ab/123456] process > NFCORE_RNASEQ:FASTQC (1) [100%] 2 of 2 \u2714
+[cd/789012] process > NFCORE_RNASEQ:TRIMGALORE (1) [100%] 2 of 2 \u2714
 Execution complete -- Goodbye
 Duration : 1h 23m 45s
 """)
@@ -198,7 +484,7 @@ Duration : 1h 23m 45s
     def test_parse_failed_log(self, tmp_path):
         log_file = tmp_path / "pipeline.log"
         log_file.write_text("""
-[ab/123456] process > NFCORE_RNASEQ:FASTQC (1) [100%] 2 of 2 ✔
+[ab/123456] process > NFCORE_RNASEQ:FASTQC (1) [100%] 2 of 2 \u2714
 Error executing process > 'NFCORE_RNASEQ:ALIGN'
 """)
         monitor = PipelineMonitor(tmp_path)

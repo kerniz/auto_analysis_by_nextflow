@@ -7,8 +7,7 @@ MSigDB, KEGG, GO 유전자 세트 지원.
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any
-from pathlib import Path
+from typing import Any
 
 try:
     import gseapy as gp
@@ -45,7 +44,7 @@ class GSEAAnalyzer:
         self,
         gene_set_db: str = "KEGG_2021_Human",
         organism: str = "human",
-        output_dir: Optional[str] = None,
+        output_dir: str | None = None,
     ):
         self.gene_set_db = gene_set_db
         self.organism = organism
@@ -53,10 +52,10 @@ class GSEAAnalyzer:
 
     async def run_gsea(
         self,
-        gene_ranking: Dict[str, float],
-        gene_sets: Optional[List[str]] = None,
+        gene_ranking: dict[str, float],
+        gene_sets: list[str] | None = None,
         permutation_num: int = 1000,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Ranked gene list에 대한 GSEA 분석 실행
 
@@ -101,7 +100,7 @@ class GSEAAnalyzer:
         rnk: "pd.DataFrame",
         gene_set: str,
         permutation_num: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """gseapy prerank 실행 (동기)"""
         pre_res = gp.prerank(
             rnk=rnk,
@@ -135,9 +134,9 @@ class GSEAAnalyzer:
 
     async def run_enrichr(
         self,
-        gene_list: List[str],
-        gene_sets: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        gene_list: list[str],
+        gene_sets: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Enrichr 스타일 over-representation 분석 (ORA)
 
@@ -159,7 +158,7 @@ class GSEAAnalyzer:
             "GO_Biological_Process_2023",
         ]
 
-        all_results: Dict[str, Any] = {
+        all_results: dict[str, Any] = {
             "gene_count": len(gene_list),
             "gene_sets_queried": gene_set_names,
             "significant_terms": [],
@@ -190,8 +189,8 @@ class GSEAAnalyzer:
         return all_results
 
     def _run_enrichr_sync(
-        self, gene_list: List[str], gene_set: str
-    ) -> Dict[str, Any]:
+        self, gene_list: list[str], gene_set: str
+    ) -> dict[str, Any]:
         """Enrichr 동기 실행"""
         enr = gp.enrichr(
             gene_list=gene_list,
@@ -221,8 +220,8 @@ class GSEAAnalyzer:
         }
 
     def interpret_results(
-        self, enrichment_results: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, enrichment_results: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         농축 분석 결과 해석 요약
 
@@ -242,7 +241,7 @@ class GSEAAnalyzer:
             }
 
         # 카테고리별 분류
-        categories: Dict[str, int] = {}
+        categories: dict[str, int] = {}
         for term in significant_terms:
             db = term.get("database", "unknown")
             categories[db] = categories.get(db, 0) + 1

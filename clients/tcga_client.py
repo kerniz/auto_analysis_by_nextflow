@@ -10,14 +10,14 @@ expression, and clinical data.
 """
 
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from .base import BaseClient, ClientConfig, ClientResponse
 
 
 def _gdc_filter(
-    field: str, value: Union[str, List[str]], op: str = "="
-) -> Dict[str, Any]:
+    field: str, value: str | list[str], op: str = "="
+) -> dict[str, Any]:
     """
     GDC 필터 형식 생성 헬퍼
     Build a single GDC filter expression.
@@ -35,7 +35,7 @@ def _gdc_filter(
     return {"op": op, "content": {"field": field, "value": value}}
 
 
-def _gdc_and(*filters: Dict[str, Any]) -> Dict[str, Any]:
+def _gdc_and(*filters: dict[str, Any]) -> dict[str, Any]:
     """
     여러 GDC 필터를 AND로 결합
     Combine multiple GDC filter expressions with AND.
@@ -104,7 +104,7 @@ class TCGAClient(BaseClient):
         "cases.project.project_id",
     ]
 
-    def __init__(self, config: Optional[ClientConfig] = None):
+    def __init__(self, config: ClientConfig | None = None):
         """
         TCGA/GDC 클라이언트 초기화
         Initialize the GDC API client.
@@ -168,8 +168,8 @@ class TCGAClient(BaseClient):
 
     async def search_projects(
         self,
-        disease_type: Optional[str] = None,
-        primary_site: Optional[str] = None,
+        disease_type: str | None = None,
+        primary_site: str | None = None,
         size: int = 20,
     ) -> ClientResponse:
         """
@@ -204,7 +204,7 @@ class TCGAClient(BaseClient):
                     _gdc_filter("projects.primary_site", primary_site)
                 )
 
-            body: Dict[str, Any] = {
+            body: dict[str, Any] = {
                 "fields": ",".join(self._PROJECT_FIELDS),
                 "size": size,
             }
@@ -265,7 +265,7 @@ class TCGAClient(BaseClient):
 
         start = time.time()
         try:
-            body: Dict[str, Any] = {
+            body: dict[str, Any] = {
                 "filters": _gdc_filter(
                     "cases.project.project_id", project_id
                 ),
@@ -336,7 +336,7 @@ class TCGAClient(BaseClient):
                 _gdc_filter("files.data_category", data_category),
             )
 
-            body: Dict[str, Any] = {
+            body: dict[str, Any] = {
                 "filters": filters,
                 "fields": ",".join(self._FILE_FIELDS),
                 "size": size,
@@ -375,7 +375,7 @@ class TCGAClient(BaseClient):
     # ------------------------------------------------------------------
 
     async def get_gene_expression(
-        self, file_ids: List[str]
+        self, file_ids: list[str]
     ) -> ClientResponse:
         """
         파일 ID 목록으로 유전자 발현 데이터 다운로드 요청

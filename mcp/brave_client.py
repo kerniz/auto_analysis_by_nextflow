@@ -9,8 +9,7 @@ API 키가 없을 경우 빈 결과를 반환합니다.
 
 import logging
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +32,12 @@ class BraveSearchClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: int = 15,
     ):
         self._api_key = api_key or os.environ.get("BRAVE_API_KEY")
         self._timeout = timeout
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
 
     def _get_client(self):
         """Lazy httpx client 초기화"""
@@ -48,7 +47,7 @@ class BraveSearchClient:
 
     async def search(
         self, query: str, count: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Brave 웹 검색 실행
 
@@ -92,7 +91,7 @@ class BraveSearchClient:
             logger.warning(f"Brave Search 실패: {e}")
             return []
 
-    def _parse_results(self, raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _parse_results(self, raw: dict[str, Any]) -> list[dict[str, Any]]:
         """API 응답에서 검색 결과 추출"""
         results = []
         web_results = raw.get("web", {}).get("results", [])

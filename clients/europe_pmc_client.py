@@ -9,7 +9,6 @@ and text-mined annotation access via the Europe PMC REST API.
 """
 
 import time
-from typing import Any, Dict, List, Optional
 
 from .base import BaseClient, ClientConfig, ClientResponse
 
@@ -24,7 +23,7 @@ class EuropePMCClient(BaseClient):
     citation/reference retrieval, and text-mined annotation access.
     """
 
-    def __init__(self, config: Optional[ClientConfig] = None):
+    def __init__(self, config: ClientConfig | None = None):
         """
         Europe PMC 클라이언트 초기화
         Initialize the Europe PMC client.

@@ -4,14 +4,13 @@ nf-core 파이프라인 출력 디렉토리 파싱
 """
 
 import logging
-from typing import Dict, List
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
 # Known output file patterns per nf-core pipeline
-OUTPUT_PATTERNS: Dict[str, Dict[str, List[str]]] = {
+OUTPUT_PATTERNS: dict[str, dict[str, list[str]]] = {
     "nf-core/rnaseq": {
         "salmon_quant": [
             "star_salmon/*/quant.sf",
@@ -127,13 +126,13 @@ OUTPUT_PATTERNS: Dict[str, Dict[str, List[str]]] = {
 class OutputParser:
     """Parses nf-core pipeline output directories to find key result files."""
 
-    def get_supported_pipelines(self) -> List[str]:
+    def get_supported_pipelines(self) -> list[str]:
         """Return list of pipelines with defined output patterns."""
         return list(OUTPUT_PATTERNS.keys())
 
     def find_outputs(
         self, pipeline_name: str, output_dir: Path
-    ) -> Dict[str, List[str]]:
+    ) -> dict[str, list[str]]:
         """
         Scan the output directory for expected result files.
 
@@ -149,7 +148,7 @@ class OutputParser:
             logger.warning(f"No output patterns defined for {pipeline_name}")
             return {}
 
-        results: Dict[str, List[str]] = {}
+        results: dict[str, list[str]] = {}
 
         for category, globs in patterns.items():
             found_files = []
@@ -172,8 +171,8 @@ class OutputParser:
         return results
 
     def get_primary_output(
-        self, pipeline_name: str, output_files: Dict[str, List[str]]
-    ) -> Dict[str, str]:
+        self, pipeline_name: str, output_files: dict[str, list[str]]
+    ) -> dict[str, str]:
         """
         Get the primary output file for downstream analysis.
 

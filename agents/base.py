@@ -6,13 +6,13 @@ Multi-agent debate system의 핵심 추상 기본 클래스와 데이터 구조�
 """
 
 import json
-import re
 import logging
+import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from backends.router import LLMRouter
 
@@ -54,15 +54,15 @@ class AgentResponse:
     assessment: str
     score: float
     confidence: float
-    key_points: List[str]
-    concerns: List[str]
-    questions: List[str]
-    rebuttal_to: Optional[str]
+    key_points: list[str]
+    concerns: list[str]
+    questions: list[str]
+    rebuttal_to: str | None
     round_number: int
     timestamp: datetime
     raw_llm_response: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 / Convert to dictionary."""
         return {
             "agent_role": self.agent_role.value,
@@ -92,10 +92,10 @@ class DebateRound:
         consensus_score: 합의 점수 (에이전트 간 점수 일치도)
     """
     round_number: int
-    responses: List[AgentResponse]
-    consensus_score: Optional[float] = None
+    responses: list[AgentResponse]
+    consensus_score: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 / Convert to dictionary."""
         return {
             "round_number": self.round_number,
@@ -146,9 +146,9 @@ class DebateAgent(ABC):
     @abstractmethod
     async def assess(
         self,
-        research_data: Dict[str, Any],
+        research_data: dict[str, Any],
         round_number: int = 1,
-        previous_responses: Optional[List[AgentResponse]] = None,
+        previous_responses: list[AgentResponse] | None = None,
     ) -> AgentResponse:
         """
         연구 데이터 평가 / Assess the research data.
@@ -165,9 +165,9 @@ class DebateAgent(ABC):
 
     def _build_assessment_prompt(
         self,
-        research_data: Dict[str, Any],
+        research_data: dict[str, Any],
         round_number: int,
-        previous_responses: Optional[List[AgentResponse]] = None,
+        previous_responses: list[AgentResponse] | None = None,
     ) -> str:
         """
         평가 프롬프트 생성 / Build the assessment prompt for the LLM.
@@ -400,7 +400,7 @@ class DebateAgent(ABC):
         )
 
     @staticmethod
-    def _ensure_str_list(value: Any) -> List[str]:
+    def _ensure_str_list(value: Any) -> list[str]:
         """
         값을 문자열 리스트로 변환 / Ensure value is a list of strings.
 

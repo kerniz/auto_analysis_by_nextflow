@@ -9,7 +9,7 @@ PubMed, Semantic Scholar, Europe PMC, Brave Search를 병렬 쿼리하여
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +20,16 @@ class SearchResult:
     통합 검색 결과
     Normalized search result from any source.
     """
-    pmid: Optional[str]
+    pmid: str | None
     title: str
     abstract: str
-    authors: List[str] = field(default_factory=list)
-    year: Optional[int] = None
+    authors: list[str] = field(default_factory=list)
+    year: int | None = None
     citation_count: int = 0
-    sources: List[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
     relevance_score: float = 0.0
-    doi: Optional[str] = None
-    url: Optional[str] = None
+    doi: str | None = None
+    url: str | None = None
 
 
 class TopicSearcher:
@@ -54,7 +54,7 @@ class TopicSearcher:
         self.brave_client = brave_client
         self.limit_per_source = limit_per_source
 
-    async def search(self, query: str) -> List[SearchResult]:
+    async def search(self, query: str) -> list[SearchResult]:
         """
         모든 소스에서 병렬 검색 후 통합 결과 반환
 
@@ -83,7 +83,7 @@ class TopicSearcher:
             *tasks, return_exceptions=True
         )
 
-        all_results: List[SearchResult] = []
+        all_results: list[SearchResult] = []
         for result in results_per_source:
             if isinstance(result, Exception):
                 logger.warning(f"검색 소스 실패: {result}")
@@ -92,7 +92,7 @@ class TopicSearcher:
 
         return all_results
 
-    async def _search_pubmed(self, query: str) -> List[SearchResult]:
+    async def _search_pubmed(self, query: str) -> list[SearchResult]:
         """PubMed 검색 (동기 → asyncio.to_thread)"""
         try:
             papers = await asyncio.to_thread(
@@ -105,7 +105,7 @@ class TopicSearcher:
             logger.warning(f"PubMed 검색 실패: {e}")
             return []
 
-    async def _search_semantic_scholar(self, query: str) -> List[SearchResult]:
+    async def _search_semantic_scholar(self, query: str) -> list[SearchResult]:
         """Semantic Scholar 검색"""
         try:
             response = await self.ss_client.search(
@@ -119,7 +119,7 @@ class TopicSearcher:
             logger.warning(f"Semantic Scholar 검색 실패: {e}")
             return []
 
-    async def _search_europe_pmc(self, query: str) -> List[SearchResult]:
+    async def _search_europe_pmc(self, query: str) -> list[SearchResult]:
         """Europe PMC 검색"""
         try:
             response = await self.epmc_client.search(
@@ -133,7 +133,7 @@ class TopicSearcher:
             logger.warning(f"Europe PMC 검색 실패: {e}")
             return []
 
-    async def _search_brave(self, query: str) -> List[SearchResult]:
+    async def _search_brave(self, query: str) -> list[SearchResult]:
         """Brave Search 검색 (학술 보완)"""
         try:
             # 학술 검색어 보강
@@ -146,7 +146,7 @@ class TopicSearcher:
             logger.warning(f"Brave Search 실패: {e}")
             return []
 
-    def _normalize_pubmed(self, paper: Dict[str, Any]) -> SearchResult:
+    def _normalize_pubmed(self, paper: dict[str, Any]) -> SearchResult:
         """PubMed 결과 정규화"""
         # pub_date에서 연도 추출
         year = None
@@ -168,7 +168,7 @@ class TopicSearcher:
             doi=paper.get("doi", ""),
         )
 
-    def _normalize_ss(self, paper: Dict[str, Any]) -> SearchResult:
+    def _normalize_ss(self, paper: dict[str, Any]) -> SearchResult:
         """Semantic Scholar 결과 정규화"""
         # externalIds에서 PMID 추출
         pmid = None
@@ -193,7 +193,7 @@ class TopicSearcher:
             doi=ext_ids.get("DOI") if ext_ids else None,
         )
 
-    def _normalize_epmc(self, paper: Dict[str, Any]) -> SearchResult:
+    def _normalize_epmc(self, paper: dict[str, Any]) -> SearchResult:
         """Europe PMC 결과 정규화"""
         authors = []
         author_list = paper.get("authorList", {}).get("author", [])
@@ -221,7 +221,7 @@ class TopicSearcher:
             doi=paper.get("doi"),
         )
 
-    def _normalize_brave(self, result: Dict[str, Any]) -> SearchResult:
+    def _normalize_brave(self, result: dict[str, Any]) -> SearchResult:
         """Brave Search 결과 정규화 (웹 결과 → 학술 형식)"""
         return SearchResult(
             pmid=None,

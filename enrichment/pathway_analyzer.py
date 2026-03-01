@@ -7,8 +7,8 @@ annotation_client를 활용하여 유전자 목록에 대한
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any
 from collections import Counter
+from typing import Any
 
 
 class PathwayAnalyzer:
@@ -28,9 +28,9 @@ class PathwayAnalyzer:
 
     async def analyze_pathways(
         self,
-        gene_list: List[str],
+        gene_list: list[str],
         organism: str = "hsa",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         유전자 목록에 대한 경로 농축 분석 실행
 
@@ -44,7 +44,7 @@ class PathwayAnalyzer:
         if not gene_list:
             return {"error": "유전자 목록이 비어있음", "gene_count": 0}
 
-        results: Dict[str, Any] = {
+        results: dict[str, Any] = {
             "gene_count": len(gene_list),
             "kegg": {},
             "go": {},
@@ -67,9 +67,9 @@ class PathwayAnalyzer:
 
     async def get_kegg_enrichment(
         self,
-        gene_list: List[str],
+        gene_list: list[str],
         organism: str = "hsa",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         KEGG 경로 농축 분석
 
@@ -120,12 +120,12 @@ class PathwayAnalyzer:
 
     async def _kegg_via_annotation_client(
         self,
-        gene_list: List[str],
+        gene_list: list[str],
         organism: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """annotation_client를 통한 KEGG 경로 조회"""
         pathway_counts: Counter = Counter()
-        gene_pathway_map: Dict[str, List[str]] = {}
+        gene_pathway_map: dict[str, list[str]] = {}
 
         # 유전자별 KEGG 경로 조회 (동시 실행, rate limit 고려)
         semaphore = asyncio.Semaphore(5)
@@ -164,8 +164,8 @@ class PathwayAnalyzer:
         }
 
     async def get_reactome_enrichment(
-        self, gene_list: List[str]
-    ) -> Dict[str, Any]:
+        self, gene_list: list[str]
+    ) -> dict[str, Any]:
         """
         Reactome 경로 농축 분석
 
@@ -208,8 +208,8 @@ class PathwayAnalyzer:
             return {"error": f"Reactome 분석 실패: {str(e)}"}
 
     async def _get_go_enrichment(
-        self, gene_list: List[str]
-    ) -> Dict[str, Any]:
+        self, gene_list: list[str]
+    ) -> dict[str, Any]:
         """annotation_client를 통한 GO enrichment"""
         if not self.annotation_client:
             return {"error": "annotation_client 필요"}
@@ -224,9 +224,9 @@ class PathwayAnalyzer:
 
     def identify_key_pathways(
         self,
-        enrichment_results: Dict[str, Any],
+        enrichment_results: dict[str, Any],
         top_n: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         가장 유의한 경로 식별
 
@@ -254,8 +254,8 @@ class PathwayAnalyzer:
         return all_pathways[:top_n]
 
     def _generate_summary(
-        self, results: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, results: dict[str, Any]
+    ) -> dict[str, Any]:
         """경로 분석 결과 요약"""
         kegg_count = results.get("kegg", {}).get("significant_count", 0)
         go_count = len(results.get("go", {}).get("terms", []))

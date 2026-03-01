@@ -15,12 +15,12 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .base import ClientConfig, ClientResponse
-from .semantic_scholar_client import SemanticScholarClient
-from .europe_pmc_client import EuropePMCClient
 from .annotation_client import AnnotationClient
+from .base import ClientConfig, ClientResponse
+from .europe_pmc_client import EuropePMCClient
+from .semantic_scholar_client import SemanticScholarClient
 from .tcga_client import TCGAClient
 
 
@@ -35,37 +35,37 @@ class AggregatedResult:
     """
     # 쿼리 메타데이터 / Query metadata
     pmid: str
-    doi: Optional[str] = None
+    doi: str | None = None
     query_timestamp: datetime = field(default_factory=datetime.now)
     total_latency_ms: float = 0.0
 
     # Semantic Scholar 데이터 / Semantic Scholar data
-    semantic_scholar_paper: Dict[str, Any] = field(default_factory=dict)
-    semantic_scholar_citations: List[Dict[str, Any]] = field(default_factory=list)
-    semantic_scholar_references: List[Dict[str, Any]] = field(default_factory=list)
-    semantic_scholar_recommendations: List[Dict[str, Any]] = field(default_factory=list)
-    semantic_scholar_influence: Dict[str, Any] = field(default_factory=dict)
+    semantic_scholar_paper: dict[str, Any] = field(default_factory=dict)
+    semantic_scholar_citations: list[dict[str, Any]] = field(default_factory=list)
+    semantic_scholar_references: list[dict[str, Any]] = field(default_factory=list)
+    semantic_scholar_recommendations: list[dict[str, Any]] = field(default_factory=list)
+    semantic_scholar_influence: dict[str, Any] = field(default_factory=dict)
 
     # Europe PMC 데이터 / Europe PMC data
-    europe_pmc_article: Dict[str, Any] = field(default_factory=dict)
-    europe_pmc_citations: List[Dict[str, Any]] = field(default_factory=list)
-    europe_pmc_references: List[Dict[str, Any]] = field(default_factory=list)
-    europe_pmc_annotations: List[Dict[str, Any]] = field(default_factory=list)
+    europe_pmc_article: dict[str, Any] = field(default_factory=dict)
+    europe_pmc_citations: list[dict[str, Any]] = field(default_factory=list)
+    europe_pmc_references: list[dict[str, Any]] = field(default_factory=list)
+    europe_pmc_annotations: list[dict[str, Any]] = field(default_factory=list)
 
     # 유전자 어노테이션 데이터 / Gene annotation data
-    gene_annotations: Dict[str, Any] = field(default_factory=dict)
-    kegg_pathways: Dict[str, Any] = field(default_factory=dict)
-    ensembl_genes: Dict[str, Any] = field(default_factory=dict)
+    gene_annotations: dict[str, Any] = field(default_factory=dict)
+    kegg_pathways: dict[str, Any] = field(default_factory=dict)
+    ensembl_genes: dict[str, Any] = field(default_factory=dict)
 
     # TCGA/GDC 데이터 / TCGA/GDC data
-    tcga_projects: List[Dict[str, Any]] = field(default_factory=list)
+    tcga_projects: list[dict[str, Any]] = field(default_factory=list)
 
     # 에러 추적 / Error tracking
-    errors: Dict[str, str] = field(default_factory=dict)
-    sources_succeeded: List[str] = field(default_factory=list)
-    sources_failed: List[str] = field(default_factory=list)
+    errors: dict[str, str] = field(default_factory=dict)
+    sources_succeeded: list[str] = field(default_factory=list)
+    sources_failed: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         결과를 직렬화 가능한 딕셔너리로 변환
         Convert the aggregated result to a serializable dictionary.
@@ -117,18 +117,18 @@ class DataAggregator:
         Initialize aggregator without creating clients.
         Call initialize() to create default clients.
         """
-        self.ss_client: Optional[SemanticScholarClient] = None
-        self.epmc_client: Optional[EuropePMCClient] = None
-        self.annotation_client: Optional[AnnotationClient] = None
-        self.tcga_client: Optional[TCGAClient] = None
+        self.ss_client: SemanticScholarClient | None = None
+        self.epmc_client: EuropePMCClient | None = None
+        self.annotation_client: AnnotationClient | None = None
+        self.tcga_client: TCGAClient | None = None
         self._initialized = False
 
     async def initialize(
         self,
-        ss_config: Optional[ClientConfig] = None,
-        epmc_config: Optional[ClientConfig] = None,
-        annotation_config: Optional[ClientConfig] = None,
-        tcga_config: Optional[ClientConfig] = None,
+        ss_config: ClientConfig | None = None,
+        epmc_config: ClientConfig | None = None,
+        annotation_config: ClientConfig | None = None,
+        tcga_config: ClientConfig | None = None,
     ) -> None:
         """
         모든 클라이언트를 기본 또는 사용자 지정 설정으로 초기화
@@ -172,8 +172,8 @@ class DataAggregator:
     async def aggregate(
         self,
         pmid: str,
-        doi: Optional[str] = None,
-        gene_list: Optional[List[str]] = None,
+        doi: str | None = None,
+        gene_list: list[str] | None = None,
     ) -> AggregatedResult:
         """
         PMID 기반 통합 데이터 수집
@@ -250,7 +250,7 @@ class DataAggregator:
     # ------------------------------------------------------------------
 
     async def _query_ss_paper(
-        self, pmid: str, doi: Optional[str] = None
+        self, pmid: str, doi: str | None = None
     ) -> ClientResponse:
         """
         Semantic Scholar 논문 메타데이터 조회
@@ -361,7 +361,7 @@ class DataAggregator:
             )
 
     async def _query_gene_annotations(
-        self, gene_list: List[str]
+        self, gene_list: list[str]
     ) -> ClientResponse:
         """
         유전자 목록의 GO 어노테이션 일괄 조회
@@ -376,7 +376,7 @@ class DataAggregator:
             )
 
     async def _query_kegg_pathways(
-        self, gene_list: List[str]
+        self, gene_list: list[str]
     ) -> ClientResponse:
         """
         유전자 목록의 KEGG 경로 일괄 조회
@@ -384,7 +384,7 @@ class DataAggregator:
         """
         start = time.time()
         try:
-            all_pathways: Dict[str, Any] = {}
+            all_pathways: dict[str, Any] = {}
             for gene_id in gene_list:
                 resp = await self.annotation_client.get_kegg_pathways(gene_id)
                 if resp.success:
@@ -409,7 +409,7 @@ class DataAggregator:
             )
 
     async def _query_ensembl_genes(
-        self, gene_list: List[str]
+        self, gene_list: list[str]
     ) -> ClientResponse:
         """
         유전자 심볼 목록의 Ensembl 정보 일괄 조회
@@ -417,7 +417,7 @@ class DataAggregator:
         """
         start = time.time()
         try:
-            all_genes: Dict[str, Any] = {}
+            all_genes: dict[str, Any] = {}
             tasks = []
             for symbol in gene_list:
                 tasks.append(self.annotation_client.get_gene_by_symbol(symbol))
@@ -454,8 +454,8 @@ class DataAggregator:
     def _merge_results(
         self,
         result: AggregatedResult,
-        keys: List[str],
-        responses: List[Any],
+        keys: list[str],
+        responses: list[Any],
     ) -> AggregatedResult:
         """
         개별 소스 응답을 AggregatedResult에 병합
@@ -472,7 +472,7 @@ class DataAggregator:
         Returns:
             AggregatedResult: 병합된 결과 / Merged result
         """
-        resp_map: Dict[str, Any] = {}
+        resp_map: dict[str, Any] = {}
         for key, resp in zip(keys, responses):
             if isinstance(resp, Exception):
                 resp_map[key] = None
@@ -525,8 +525,8 @@ class DataAggregator:
     async def aggregate_with_annotations(
         self,
         pmid: str,
-        doi: Optional[str] = None,
-        gene_list: Optional[List[str]] = None,
+        doi: str | None = None,
+        gene_list: list[str] | None = None,
     ) -> AggregatedResult:
         """
         텍스트 마이닝 어노테이션을 포함한 완전한 통합 수집
@@ -569,7 +569,7 @@ class DataAggregator:
     # Metrics
     # ------------------------------------------------------------------
 
-    def get_all_metrics(self) -> Dict[str, Any]:
+    def get_all_metrics(self) -> dict[str, Any]:
         """
         모든 클라이언트의 메트릭 반환
         Return metrics from all initialized clients.
@@ -577,7 +577,7 @@ class DataAggregator:
         Returns:
             dict: 클라이언트별 메트릭 / Per-client metrics
         """
-        metrics: Dict[str, Any] = {"initialized": self._initialized}
+        metrics: dict[str, Any] = {"initialized": self._initialized}
         clients = {
             "semantic_scholar": self.ss_client,
             "europe_pmc": self.epmc_client,

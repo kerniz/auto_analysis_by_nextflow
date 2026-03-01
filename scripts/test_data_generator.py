@@ -7,9 +7,10 @@ Test Data Generator for Pipeline Testing
 import json
 from datetime import datetime
 
+
 def create_test_pubmed_data(pmid):
     """테스트용 PubMed 데이터 생성"""
-    
+
     if pmid == "40315330":
         return {
             "pmid": pmid,
@@ -65,40 +66,40 @@ def save_test_data():
     # PMID 40315330 데이터 (scRNA-seq)
     pubmed_40315330 = create_test_pubmed_data("40315330")
     sra_40315330 = create_test_sra_data("40315330", ["SRR25872668", "SRR25872669"])
-    
+
     # PMID 32416070 데이터 (bulk RNA-seq)
     pubmed_32416070 = create_test_pubmed_data("32416070")
     sra_32416070 = create_test_sra_data("32416070", ["SRR25872670", "SRR25872671"])
-    
+
     # 저장
     with open("/workspace/results/pubmed_40315330.json", 'w') as f:
         json.dump(pubmed_40315330, f, indent=2)
-    
+
     with open("/workspace/results/pubmed_32416070.json", 'w') as f:
         json.dump(pubmed_32416070, f, indent=2)
-    
+
     with open("/workspace/results/sra_exploration_40315330.json", 'w') as f:
         json.dump(sra_40315330, f, indent=2)
-    
+
     with open("/workspace/results/sra_exploration_32416070.json", 'w') as f:
         json.dump(sra_32416070, f, indent=2)
-    
+
     # samplesheet 생성
     create_samplesheet("40315330", ["SRR25872668", "SRR25872669"])
     create_samplesheet("32416070", ["SRR25872670", "SRR25872671"])
-    
+
     print("✅ 테스트 데이터 생성 완료")
 
 def create_samplesheet(pmid, sra_ids):
     """samplesheet.csv 생성"""
     import csv
-    
+
     filename = f"/workspace/results/samplesheet_{pmid}.csv"
-    
+
     with open(filename, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['sample_id', 'sra_accession', 'pmid', 'fastq_1', 'fastq_2'])
-        
+
         for sra_id in sra_ids:
             writer.writerow([
                 sra_id,
@@ -107,7 +108,7 @@ def create_samplesheet(pmid, sra_ids):
                 f"{sra_id}_1.fastq.gz",
                 f"{sra_id}_2.fastq.gz"
             ])
-    
+
     print(f"✅ Samplesheet 생성: {filename}")
 
 if __name__ == "__main__":

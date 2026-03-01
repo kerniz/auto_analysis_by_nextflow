@@ -8,14 +8,15 @@ import logging
 import shutil
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 from pathlib import Path
+from typing import Any
 
 from plugins.base import PipelineDefinition
+
 from .config import NextflowExecutionConfig
-from .samplesheet import SamplesheetGenerator
 from .monitor import PipelineMonitor
 from .output_parser import OutputParser
+from .samplesheet import SamplesheetGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,12 @@ class PipelineExecutionResult:
 
     pipeline_name: str
     status: str  # "completed", "failed", "timeout"
-    exit_code: Optional[int] = None
-    output_dir: Optional[Path] = None
+    exit_code: int | None = None
+    output_dir: Path | None = None
     execution_time_seconds: float = 0.0
-    log_file: Optional[Path] = None
-    output_files: Dict[str, List[str]] = field(default_factory=dict)
-    trace_summary: Dict[str, Any] = field(default_factory=dict)
+    log_file: Path | None = None
+    output_files: dict[str, list[str]] = field(default_factory=dict)
+    trace_summary: dict[str, Any] = field(default_factory=dict)
     error: str = ""
 
     def to_dict(self) -> dict:
@@ -57,7 +58,7 @@ class NextflowExecutor:
         self.samplesheet_gen = SamplesheetGenerator()
         self.output_parser = OutputParser()
 
-    async def check_prerequisites(self) -> Dict[str, bool]:
+    async def check_prerequisites(self) -> dict[str, bool]:
         """Check system prerequisites for pipeline execution."""
         results = {}
 
@@ -98,7 +99,7 @@ class NextflowExecutor:
         pipeline_def: PipelineDefinition,
         samplesheet_path: Path,
         output_dir: Path,
-        extra_params: Optional[Dict[str, str]] = None,
+        extra_params: dict[str, str] | None = None,
     ) -> PipelineExecutionResult:
         """
         Execute an nf-core pipeline.
@@ -207,8 +208,8 @@ class NextflowExecutor:
         pipeline_def: PipelineDefinition,
         samplesheet_path: Path,
         output_dir: Path,
-        extra_params: Optional[Dict[str, str]] = None,
-    ) -> List[str]:
+        extra_params: dict[str, str] | None = None,
+    ) -> list[str]:
         """Construct the nextflow run command."""
         cmd = [
             "nextflow", "run", pipeline_def.nf_core_name,
@@ -247,7 +248,7 @@ class NextflowExecutor:
         """Escape a string for safe inclusion in a Groovy/Nextflow config."""
         return value.replace("\\", "\\\\").replace("'", "\\'")
 
-    def _generate_slurm_config(self, output_dir: Path) -> Optional[Path]:
+    def _generate_slurm_config(self, output_dir: Path) -> Path | None:
         """Generate a dynamic nextflow.config with Slurm settings.
 
         Returns the path to the generated config file, or None if Slurm

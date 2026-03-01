@@ -10,23 +10,23 @@ from multiple perspectives (Layperson, Undergraduate, PhD Expert).
 """
 
 from .base import (
-    AgentRole,
     AgentResponse,
-    DebateRound,
+    AgentRole,
     DebateAgent,
+    DebateRound,
 )
-from .layperson import LaypersonAgent
-from .undergraduate import UndergraduateAgent
-from .phd_expert import PhDExpertAgent
 from .debate_manager import (
     DebateConfig,
-    DebateResult,
     DebateManager,
+    DebateResult,
 )
+from .layperson import LaypersonAgent
+from .phd_expert import PhDExpertAgent
 from .report import (
     DebateReport,
     DebateReportGenerator,
 )
+from .undergraduate import UndergraduateAgent
 
 __all__ = [
     # Base classes and data structures

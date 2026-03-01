@@ -2,9 +2,9 @@
   "pipeline_config": {
     "test_pmids": ["40315330", "32416070"],
     "llm_server": {
-      "url": "http://localhost:11434",
+      "url": "http://REDACTED-HOST-X86:11435",
       "model": "deepseek-coder:33b",
-      "timeout": 60,
+      "timeout": 259200,
       "max_retries": 3
     },
     "container_runtime": {
@@ -54,7 +54,7 @@
     "num_rounds": 3,
     "consensus_threshold": 0.7,
     "enable_cross_examination": true,
-    "timeout_per_agent": 120,
+    "timeout_per_agent": 259200,
     "parallel_assessment": true,
     "agent_weights": {
       "phd_expert": 0.5,

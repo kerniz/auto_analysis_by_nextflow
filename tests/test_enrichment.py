@@ -4,7 +4,8 @@ Tests for Enrichment Analysis
 """
 
 import pytest
-from enrichment import GSEAAnalyzer, DEGAnalyzer, PathwayAnalyzer, NoveltyScorer
+
+from enrichment import DEGAnalyzer, GSEAAnalyzer, NoveltyScorer, PathwayAnalyzer
 
 
 class TestGSEAAnalyzer:

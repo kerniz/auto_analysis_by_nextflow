@@ -41,9 +41,9 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        import scanpy as sc
-        import pandas as pd
         import matplotlib
+        import pandas as pd
+        import scanpy as sc
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as e:

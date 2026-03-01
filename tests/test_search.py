@@ -3,10 +3,12 @@ Tests for Search Package
 검색 패키지 테스트
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from search import TopicSearcher, SearchResult, ResultRanker
+
 from clients.base import ClientResponse
+from search import ResultRanker, SearchResult, TopicSearcher
 
 
 @pytest.fixture

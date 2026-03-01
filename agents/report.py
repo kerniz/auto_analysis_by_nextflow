@@ -6,13 +6,13 @@ Debate Report Generator
 """
 
 import json
-import os
 import logging
+import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
 from datetime import datetime
+from typing import Any
 
-from .base import AgentRole, AgentResponse, DebateRound
+from .base import AgentResponse
 from .debate_manager import DebateResult
 
 logger = logging.getLogger(__name__)
@@ -37,14 +37,14 @@ class DebateReport:
     pmid: str
     debate_result: DebateResult
     executive_summary: str
-    per_agent_summaries: Dict[str, str]
+    per_agent_summaries: dict[str, str]
     consensus_narrative: str
-    key_strengths: List[str]
-    key_weaknesses: List[str]
-    recommendations: List[str]
+    key_strengths: list[str]
+    key_weaknesses: list[str]
+    recommendations: list[str]
     generated_at: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 / Convert to dictionary."""
         return {
             "pmid": self.pmid,
@@ -66,10 +66,10 @@ class DebateReport:
             str: Markdown 형식의 보고서 문자열
         """
         result = self.debate_result
-        lines: List[str] = []
+        lines: list[str] = []
 
         # 헤더
-        lines.append(f"# 연구 논문 토론 보고서 (Research Paper Debate Report)")
+        lines.append("# 연구 논문 토론 보고서 (Research Paper Debate Report)")
         lines.append(f"**PMID:** {self.pmid}")
         lines.append(f"**생성일:** {self.generated_at.strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append("")
@@ -192,7 +192,7 @@ class DebateReportGenerator:
         self,
         pmid: str,
         debate_result: DebateResult,
-        research_data: Optional[Dict[str, Any]] = None,
+        research_data: dict[str, Any] | None = None,
     ) -> DebateReport:
         """
         토론 보고서 생성 / Generate a debate report.
@@ -208,7 +208,7 @@ class DebateReportGenerator:
         executive_summary = self._generate_executive_summary(debate_result)
 
         # 에이전트별 요약 생성
-        per_agent_summaries: Dict[str, str] = {}
+        per_agent_summaries: dict[str, str] = {}
         if debate_result.rounds:
             last_round = debate_result.rounds[-1]
             for response in last_round.responses:
@@ -283,7 +283,7 @@ class DebateReportGenerator:
 
     def _generate_agent_summary(
         self,
-        agent_responses: List[AgentResponse],
+        agent_responses: list[AgentResponse],
     ) -> str:
         """
         에이전트별 요약 생성 / Generate summary for an agent's responses.
@@ -374,7 +374,7 @@ class DebateReportGenerator:
     def _extract_key_strengths(
         self,
         debate_result: DebateResult,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         주요 강점 추출 / Extract key strengths from debate result.
 
@@ -386,7 +386,7 @@ class DebateReportGenerator:
         Returns:
             List[str]: 주요 강점 목록
         """
-        strengths: List[str] = []
+        strengths: list[str] = []
 
         if not debate_result.rounds:
             return strengths
@@ -411,7 +411,7 @@ class DebateReportGenerator:
     def _extract_key_weaknesses(
         self,
         debate_result: DebateResult,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         주요 약점 추출 / Extract key weaknesses from debate result.
 
@@ -423,7 +423,7 @@ class DebateReportGenerator:
         Returns:
             List[str]: 주요 약점 목록
         """
-        weaknesses: List[str] = []
+        weaknesses: list[str] = []
 
         if not debate_result.rounds:
             return weaknesses
@@ -440,8 +440,8 @@ class DebateReportGenerator:
     def _generate_recommendations(
         self,
         debate_result: DebateResult,
-        research_data: Optional[Dict[str, Any]] = None,
-    ) -> List[str]:
+        research_data: dict[str, Any] | None = None,
+    ) -> list[str]:
         """
         권고 사항 생성 / Generate recommendations based on debate result.
 
@@ -454,7 +454,7 @@ class DebateReportGenerator:
         Returns:
             List[str]: 권고 사항 목록
         """
-        recommendations: List[str] = []
+        recommendations: list[str] = []
         verdict = debate_result.overall_verdict
 
         if verdict == "FAIL":
@@ -488,7 +488,7 @@ class DebateReportGenerator:
         # 에이전트 질문에서 미해결 이슈 추출
         if debate_result.rounds:
             last_round = debate_result.rounds[-1]
-            unresolved_questions: List[str] = []
+            unresolved_questions: list[str] = []
             for response in last_round.responses:
                 unresolved_questions.extend(response.questions)
 

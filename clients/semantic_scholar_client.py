@@ -9,10 +9,8 @@ recommendations, and influence scoring.
 """
 
 import time
-from typing import Any, Dict, List, Optional
 
 from .base import BaseClient, ClientConfig, ClientResponse
-
 
 # Semantic Scholar Graph API 기본 필드 / Default fields for API requests
 _SEARCH_FIELDS = (
@@ -36,7 +34,7 @@ class SemanticScholarClient(BaseClient):
     citation networks, recommendations, and influence scoring.
     """
 
-    def __init__(self, config: Optional[ClientConfig] = None):
+    def __init__(self, config: ClientConfig | None = None):
         """
         Semantic Scholar 클라이언트 초기화
         Initialize the Semantic Scholar client.

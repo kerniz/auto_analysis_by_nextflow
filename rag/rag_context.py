@@ -11,7 +11,7 @@ to augment LLM prompts with relevant prior knowledge.
 from __future__ import annotations
 
 import logging
-from typing import List, Dict, Any
+from typing import Any
 
 from .document_store import DocumentStore
 
@@ -66,7 +66,7 @@ class RAGContext:
             Formatted context string with sections for each document type.
             각 문서 유형에 대한 섹션이 포함된 포맷된 컨텍스트 문자열.
         """
-        sections: List[str] = []
+        sections: list[str] = []
 
         # Query for related papers / 관련 논문 검색
         papers = self.store.query(
@@ -109,7 +109,7 @@ class RAGContext:
 
         return truncated
 
-    def _format_papers_section(self, papers: List[Dict[str, Any]]) -> str:
+    def _format_papers_section(self, papers: list[dict[str, Any]]) -> str:
         """
         Format the Related Papers section.
         관련 논문 섹션을 포맷합니다.
@@ -131,7 +131,7 @@ class RAGContext:
             )
         return "\n".join(lines)
 
-    def _format_analyses_section(self, analyses: List[Dict[str, Any]]) -> str:
+    def _format_analyses_section(self, analyses: list[dict[str, Any]]) -> str:
         """
         Format the Prior Analyses section.
         이전 분석 섹션을 포맷합니다.
@@ -151,7 +151,7 @@ class RAGContext:
             )
         return "\n".join(lines)
 
-    def _format_debates_section(self, debates: List[Dict[str, Any]]) -> str:
+    def _format_debates_section(self, debates: list[dict[str, Any]]) -> str:
         """
         Format the Debate Reports section.
         토론 보고서 섹션을 포맷합니다.

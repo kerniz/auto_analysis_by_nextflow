@@ -8,7 +8,6 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 try:
     import click
@@ -17,7 +16,7 @@ except ImportError:
     sys.exit(1)
 
 from core.pipeline import AsyncPipeline, PipelineConfig, PipelineStatus
-from core.project_manager import ProjectManager, ResearchProject
+from core.project_manager import ProjectManager
 
 
 @click.group()
@@ -88,7 +87,7 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
     # Pipeline execution config
     if execute_pipeline:
         try:
-            from nextflow.config import NextflowExecutionConfig, ContainerRuntime
+            from nextflow.config import ContainerRuntime, NextflowExecutionConfig
             nf_config = NextflowExecutionConfig(
                 enabled=True,
                 genome=genome,
@@ -105,7 +104,7 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
                 fg="yellow"
             ))
 
-    click.echo(f"=== Bioinformatics Research Automation Platform v4.0 ===")
+    click.echo("=== Bioinformatics Research Automation Platform v4.0 ===")
     click.echo(f"PMIDs: {', '.join(pipeline_config.pmids)}")
     if project:
         click.echo(f"Project: {project}")
@@ -187,7 +186,7 @@ def status(results_dir, fmt):
     progress_file = results_path / "progress.json"
 
     if summary_file.exists():
-        with open(summary_file, "r") as f:
+        with open(summary_file) as f:
             summary = json.load(f)
 
         if fmt == "json":
@@ -207,7 +206,7 @@ def status(results_dir, fmt):
                 click.echo(f"    LLM: {result.get('llm_rating', '?')}")
                 click.echo(f"    Debate: {result.get('debate_verdict', '?')}")
     elif progress_file.exists():
-        with open(progress_file, "r") as f:
+        with open(progress_file) as f:
             progress = json.load(f)
         click.echo(f"Execution ID: {progress.get('execution_id', '?')}")
         click.echo(f"Current Phase: {progress.get('current_phase', '?')}")
@@ -329,7 +328,7 @@ def prereqs():
         import os
         stat = os.statvfs(".")
         free_gb = (stat.f_bavail * stat.f_frsize) / (1024**3)
-        _show_check(f"\nDisk Space", free_gb > 10, f"{free_gb:.1f} GB free")
+        _show_check("\nDisk Space", free_gb > 10, f"{free_gb:.1f} GB free")
     except Exception:
         pass
 
@@ -374,7 +373,6 @@ def search(query, limit, results_dir, no_brave, auto_run, debate):
         year_str = str(r.year) if r.year else "?"
         sources_str = ",".join(r.sources)
         title_str = r.title[:55] + "..." if len(r.title) > 55 else r.title
-        score_bar = "█" * int(r.relevance_score * 10)
         click.echo(
             f"  {i:3d}  {pmid_str:>10}  {year_str:>5}  {r.citation_count:6d}  "
             f"{sources_str:20}  {title_str}"
@@ -420,10 +418,10 @@ def search(query, limit, results_dir, no_brave, auto_run, debate):
 
 async def _run_search(query: str, limit: int, no_brave: bool):
     """검색 실행 헬퍼"""
-    from search import TopicSearcher, ResultRanker
-    from clients.semantic_scholar_client import SemanticScholarClient
     from clients.europe_pmc_client import EuropePMCClient
+    from clients.semantic_scholar_client import SemanticScholarClient
     from core.pubmed_client import PubMedClient
+    from search import ResultRanker, TopicSearcher
 
     pubmed = PubMedClient()
     ss = SemanticScholarClient()
@@ -473,7 +471,8 @@ def consult(results_dir, debate):
 async def _run_consult(results_dir: str, debate: bool):
     """상담 모드 실행"""
     import os
-    from backends import LLMRouter, OllamaBackend, LLMConfig
+
+    from backends import LLMConfig, LLMRouter, OllamaBackend
     from backends.router import RouterConfig
 
     # LLM 라우터 초기화 (경량)

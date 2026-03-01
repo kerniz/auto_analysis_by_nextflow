@@ -7,7 +7,6 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
 from pathlib import Path
 
 from .config import NextflowExecutionConfig
@@ -21,11 +20,11 @@ class FetchNGSResult:
 
     success: bool
     output_dir: Path
-    fastq_dir: Optional[Path] = None
-    samplesheet_path: Optional[Path] = None
-    accessions_processed: List[str] = field(default_factory=list)
-    accessions_failed: List[str] = field(default_factory=list)
-    log_file: Optional[Path] = None
+    fastq_dir: Path | None = None
+    samplesheet_path: Path | None = None
+    accessions_processed: list[str] = field(default_factory=list)
+    accessions_failed: list[str] = field(default_factory=list)
+    log_file: Path | None = None
     execution_time_seconds: float = 0.0
     error: str = ""
 
@@ -49,7 +48,7 @@ class FetchNGSRunner:
 
     async def run(
         self,
-        srr_accessions: List[str],
+        srr_accessions: list[str],
         output_dir: Path,
         pmid: str = "",
     ) -> FetchNGSResult:
@@ -148,7 +147,7 @@ class FetchNGSRunner:
             )
 
     def _create_accession_file(
-        self, accessions: List[str], output_dir: Path
+        self, accessions: list[str], output_dir: Path
     ) -> Path:
         """Write accession IDs to a text file for fetchngs input."""
         accession_file = output_dir / "accessions.csv"
@@ -159,7 +158,7 @@ class FetchNGSRunner:
 
     def _build_command(
         self, accession_file: Path, output_dir: Path
-    ) -> List[str]:
+    ) -> list[str]:
         """Construct the nextflow run command for fetchngs."""
         cmd = [
             "nextflow", "run", "nf-core/fetchngs",
@@ -178,7 +177,7 @@ class FetchNGSRunner:
         return cmd
 
     async def _execute_nextflow(
-        self, cmd: List[str], log_file: Path, timeout_seconds: int = 7200
+        self, cmd: list[str], log_file: Path, timeout_seconds: int = 7200
     ) -> tuple:
         """Run nextflow as an async subprocess."""
         logger.info(f"Executing: {' '.join(cmd)}")
@@ -203,7 +202,7 @@ class FetchNGSRunner:
 
         return process.returncode, duration
 
-    def _find_fastq_dir(self, output_dir: Path) -> Optional[Path]:
+    def _find_fastq_dir(self, output_dir: Path) -> Path | None:
         """Find the FASTQ output directory from fetchngs."""
         candidates = [
             output_dir / "fastq",
@@ -215,7 +214,7 @@ class FetchNGSRunner:
                 return d
         return output_dir if any(output_dir.glob("**/*.fastq.gz")) else None
 
-    def _find_samplesheet(self, output_dir: Path) -> Optional[Path]:
+    def _find_samplesheet(self, output_dir: Path) -> Path | None:
         """Find the auto-generated samplesheet from fetchngs."""
         candidates = [
             output_dir / "samplesheet" / "samplesheet.csv",
@@ -227,8 +226,8 @@ class FetchNGSRunner:
         return None
 
     def _find_processed_accessions(
-        self, fastq_dir: Path, expected: List[str]
-    ) -> List[str]:
+        self, fastq_dir: Path, expected: list[str]
+    ) -> list[str]:
         """Check which accessions have FASTQ files downloaded."""
         found = []
         for acc in expected:

@@ -3,7 +3,6 @@ Tests for nf-core Output Parser
 출력 파서 테스트
 """
 
-import pytest
 from pathlib import Path
 
 from nextflow.output_parser import OutputParser

@@ -4,8 +4,7 @@ nf-core 파이프라인별 samplesheet CSV 생성기
 """
 
 import csv
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -13,11 +12,11 @@ from pathlib import Path
 class SamplesheetColumn:
     name: str
     required: bool = True
-    default: Optional[str] = None
+    default: str | None = None
 
 
 # nf-core pipeline samplesheet format definitions
-SAMPLESHEET_FORMATS: Dict[str, List[SamplesheetColumn]] = {
+SAMPLESHEET_FORMATS: dict[str, list[SamplesheetColumn]] = {
     "nf-core/rnaseq": [
         SamplesheetColumn("sample"),
         SamplesheetColumn("fastq_1"),
@@ -57,11 +56,11 @@ SAMPLESHEET_FORMATS: Dict[str, List[SamplesheetColumn]] = {
 class SamplesheetGenerator:
     """Generates pipeline-specific samplesheet CSVs from SRA accession data."""
 
-    def get_supported_pipelines(self) -> List[str]:
+    def get_supported_pipelines(self) -> list[str]:
         """Return list of supported pipeline names."""
         return list(SAMPLESHEET_FORMATS.keys())
 
-    def get_columns(self, pipeline_name: str) -> List[str]:
+    def get_columns(self, pipeline_name: str) -> list[str]:
         """Return column names for a given pipeline."""
         fmt = SAMPLESHEET_FORMATS.get(pipeline_name)
         if not fmt:
@@ -71,10 +70,10 @@ class SamplesheetGenerator:
     def generate(
         self,
         pipeline_name: str,
-        srr_accessions: List[str],
+        srr_accessions: list[str],
         fastq_dir: Path,
         output_path: Path,
-        metadata: Optional[Dict[str, Dict[str, str]]] = None,
+        metadata: dict[str, dict[str, str]] | None = None,
     ) -> Path:
         """
         Generate a samplesheet CSV for the specified nf-core pipeline.
@@ -124,9 +123,9 @@ class SamplesheetGenerator:
     def generate_from_fastq_pairs(
         self,
         pipeline_name: str,
-        fastq_pairs: List[Tuple[str, Path, Optional[Path]]],
+        fastq_pairs: list[tuple[str, Path, Path | None]],
         output_path: Path,
-        metadata: Optional[Dict[str, Dict[str, str]]] = None,
+        metadata: dict[str, dict[str, str]] | None = None,
     ) -> Path:
         """
         Generate samplesheet from explicit (sample_name, fastq_1, fastq_2) tuples.
@@ -158,7 +157,7 @@ class SamplesheetGenerator:
 
     def _resolve_fastq_paths(
         self, srr_id: str, fastq_dir: Path
-    ) -> Tuple[Optional[Path], Optional[Path]]:
+    ) -> tuple[Path | None, Path | None]:
         """Find fastq_1 and fastq_2 for an SRR accession in the given directory."""
         # Common naming conventions from fetchngs / sra-tools
         patterns_r1 = [
@@ -206,12 +205,12 @@ class SamplesheetGenerator:
     def _build_row(
         self,
         pipeline_name: str,
-        fmt: List[SamplesheetColumn],
+        fmt: list[SamplesheetColumn],
         sample_id: str,
-        fastq_1: Optional[Path],
-        fastq_2: Optional[Path],
-        extra_metadata: Dict[str, str],
-    ) -> List[str]:
+        fastq_1: Path | None,
+        fastq_2: Path | None,
+        extra_metadata: dict[str, str],
+    ) -> list[str]:
         """Build a single row for the samplesheet."""
         row = []
         for col in fmt:

@@ -4,10 +4,10 @@ Research Project Manager
 """
 import json
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -15,20 +15,20 @@ class ResearchProject:
     name: str                          # "류마티스-봉독 유전체 연관 탐색"
     slug: str                          # "ra_bee_venom"
     description: str = ""
-    keywords: List[str] = field(default_factory=list)
-    pmids: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    pmids: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
     @property
-    def subdirs(self) -> List[str]:
+    def subdirs(self) -> list[str]:
         return ["results", "nextflow_work", "nfcore_output", "analysis", "logs", "literature"]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ResearchProject":
+    def from_dict(cls, data: dict[str, Any]) -> "ResearchProject":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
@@ -46,7 +46,7 @@ class ProjectManager:
         return slug or "unnamed_project"
 
     def create_project(self, name: str, description: str = "",
-                       keywords: List[str] = None, pmids: List[str] = None) -> ResearchProject:
+                       keywords: list[str] = None, pmids: list[str] = None) -> ResearchProject:
         """새 연구 프로젝트 생성"""
         slug = self.slugify(name)
         now = datetime.now().isoformat()
@@ -72,7 +72,7 @@ class ProjectManager:
 
         return project
 
-    def list_projects(self) -> List[ResearchProject]:
+    def list_projects(self) -> list[ResearchProject]:
         """모든 프로젝트 목록"""
         projects = []
         if not self.base_dir.exists():
@@ -83,7 +83,7 @@ class ProjectManager:
                 projects.append(self._load_project(pfile))
         return projects
 
-    def get_project(self, slug: str) -> Optional[ResearchProject]:
+    def get_project(self, slug: str) -> ResearchProject | None:
         """slug으로 프로젝트 조회"""
         pfile = self.base_dir / slug / "project.json"
         if pfile.exists():
@@ -98,7 +98,7 @@ class ProjectManager:
         """프로젝트 결과 디렉토리"""
         return self.base_dir / slug / "results"
 
-    def add_pmids(self, slug: str, pmids: List[str]) -> Optional[ResearchProject]:
+    def add_pmids(self, slug: str, pmids: list[str]) -> ResearchProject | None:
         """프로젝트에 PMID 추가"""
         project = self.get_project(slug)
         if not project:

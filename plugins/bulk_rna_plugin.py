@@ -4,23 +4,23 @@ Bulk RNA sequencing 감지 플러그인
 """
 
 import re
-from typing import Dict, Any, Tuple, List
+from typing import Any
 
-from .base import SequencingTypePlugin, DetectionResult, PipelineDefinition
+from .base import PipelineDefinition, SequencingTypePlugin
 
 
 class BulkRnaSeqPlugin(SequencingTypePlugin):
-    
+
     @property
     def name(self) -> str:
         return "bulk_rna_seq"
-    
+
     @property
     def display_name(self) -> str:
         return "Bulk RNA-seq"
-    
+
     @property
-    def keywords(self) -> List[str]:
+    def keywords(self) -> list[str]:
         return [
             "bulk rna-seq", "bulk rna sequencing",
             "rna-seq", "rna sequencing",
@@ -33,16 +33,16 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
             "differential expression", "gene expression analysis",
             "transcriptomic analysis", "transcriptome profiling",
         ]
-    
+
     @property
-    def sra_library_strategies(self) -> List[str]:
+    def sra_library_strategies(self) -> list[str]:
         return [
             "RNA-SEQ",
             "RNA SEQ",
             "TRANSCRIPTOME",
             "MRNA",
         ]
-    
+
     @property
     def pipeline(self) -> PipelineDefinition:
         return PipelineDefinition(
@@ -56,27 +56,27 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
             container_image="nfcore/rnaseq:latest",
             analysis_type="deseq2",
         )
-    
+
     @property
     def priority(self) -> int:
         return 20
-    
+
     @property
-    def exclude_keywords(self) -> List[str]:
+    def exclude_keywords(self) -> list[str]:
         return [
             "single-cell", "single cell", "scrna-seq",
             "10x genomics", "cell ranger", "droplet",
             "whole genome", "wgs", "chip-seq", "atac-seq",
         ]
-    
+
     def calculate_score(
-        self, 
-        text: str, 
-        sra_metadata: Dict[str, Any]
-    ) -> Tuple[float, List[str]]:
+        self,
+        text: str,
+        sra_metadata: dict[str, Any]
+    ) -> tuple[float, list[str]]:
         score = 0.0
         evidence = []
-        
+
         high_weight_keywords = [
             ("bulk rna-seq", 0.4),
             ("bulk rna sequencing", 0.4),
@@ -84,12 +84,12 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
             ("rna sequencing", 0.25),
             ("transcriptome", 0.2),
         ]
-        
+
         for keyword, weight in high_weight_keywords:
             if keyword in text:
                 score += weight
                 evidence.append(f"High-weight keyword: '{keyword}'")
-        
+
         medium_weight_keywords = [
             ("polya", 0.15),
             ("poly-a", 0.15),
@@ -100,12 +100,12 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
             ("strand-specific", 0.15),
             ("mrna", 0.1),
         ]
-        
+
         for keyword, weight in medium_weight_keywords:
             if keyword in text:
                 score += weight
                 evidence.append(f"Medium-weight keyword: '{keyword}'")
-        
+
         context_patterns = [
             (r'differential\s+gene\s+expression', 0.2),
             (r'gene\s+expression\s+(analysis|profiling)', 0.2),
@@ -114,22 +114,22 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
             (r'differentially\s+expressed', 0.2),
             (r'fold[- ]change', 0.1),
         ]
-        
+
         for pattern, weight in context_patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 score += weight
                 evidence.append(f"Context pattern matched: '{pattern}'")
-        
+
         scrna_indicators = [
             "single-cell", "single cell", "10x", "cell ranger",
             "droplet", "umis", "barcode"
         ]
-        
+
         has_scrna = any(ind in text for ind in scrna_indicators)
-        
+
         if "rna-seq" in text or "rna sequencing" in text:
             if not has_scrna:
                 score += 0.2
                 evidence.append("RNA-seq without scRNA-seq indicators")
-        
+
         return min(score, 1.0), evidence

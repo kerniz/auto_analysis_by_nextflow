@@ -11,7 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -25,8 +25,8 @@ class ClientConfig:
     max_retries: int = 3
     rate_limit_delay: float = 0.5
     cache_enabled: bool = True
-    api_key: Optional[str] = None
-    extra_headers: Dict[str, str] = field(default_factory=dict)
+    api_key: str | None = None
+    extra_headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -42,9 +42,9 @@ class ClientResponse:
     error_message: str = ""
     latency_ms: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    raw_response: Dict[str, Any] = field(default_factory=dict)
+    raw_response: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         응답을 딕셔너리로 변환
         Convert response to a serializable dictionary.
@@ -83,8 +83,8 @@ class BaseClient(ABC):
         self._request_count: int = 0
         self._error_count: int = 0
         self._total_latency_ms: float = 0.0
-        self._last_request_time: Optional[float] = None
-        self._cache: Dict[str, ClientResponse] = {}
+        self._last_request_time: float | None = None
+        self._cache: dict[str, ClientResponse] = {}
 
     # ------------------------------------------------------------------
     # Abstract properties & methods
@@ -164,10 +164,10 @@ class BaseClient(ABC):
         method: str,
         url: str,
         *,
-        params: Optional[Dict[str, Any]] = None,
-        json_body: Optional[Dict[str, Any]] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         재시도 로직과 속도 제한이 포함된 HTTP 요청
         Execute an HTTP request with automatic retry and rate limiting.
@@ -185,7 +185,7 @@ class BaseClient(ABC):
         Raises:
             Exception: 모든 재시도 실패 시 / When all retries are exhausted
         """
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         client = await self._get_client()
 
         for attempt in range(self.config.max_retries):
@@ -198,7 +198,7 @@ class BaseClient(ABC):
 
                 self._last_request_time = time.time()
 
-                kwargs: Dict[str, Any] = {}
+                kwargs: dict[str, Any] = {}
                 if params:
                     kwargs["params"] = params
                 if json_body:
@@ -263,7 +263,7 @@ class BaseClient(ABC):
             self._client = None
         self._cache.clear()
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """
         클라이언트 메트릭 반환
         Return operational metrics for monitoring and debugging.
@@ -292,7 +292,7 @@ class BaseClient(ABC):
         """
         return "|".join(parts)
 
-    def _get_cached(self, key: str) -> Optional[ClientResponse]:
+    def _get_cached(self, key: str) -> ClientResponse | None:
         """
         캐시에서 응답 조회
         Retrieve a cached response if caching is enabled.
@@ -317,7 +317,7 @@ class BaseClient(ABC):
         query: str,
         latency_ms: float,
         error_message: str = "",
-        raw_response: Optional[Dict[str, Any]] = None,
+        raw_response: dict[str, Any] | None = None,
     ) -> ClientResponse:
         """
         표준 ClientResponse 생성 헬퍼

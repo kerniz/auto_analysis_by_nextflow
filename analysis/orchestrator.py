@@ -7,10 +7,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 from pathlib import Path
+from typing import Any
 
-from .script_runner import RScriptRunner, PythonScriptRunner
+from .script_runner import PythonScriptRunner, RScriptRunner
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,9 @@ class AnalysisResult:
 
     analysis_type: str
     success: bool
-    output_dir: Optional[Path] = None
-    summary: Dict[str, Any] = field(default_factory=dict)
-    key_files: Dict[str, str] = field(default_factory=dict)
+    output_dir: Path | None = None
+    summary: dict[str, Any] = field(default_factory=dict)
+    key_files: dict[str, str] = field(default_factory=dict)
     execution_time_seconds: float = 0.0
     error: str = ""
 
@@ -91,9 +91,9 @@ class AnalysisOrchestrator:
     def __init__(
         self,
         r_executable: str = "Rscript",
-        scripts_dir: Optional[Path] = None,
+        scripts_dir: Path | None = None,
         scanpy_enabled: bool = False,
-        analysis_params: Optional[Dict[str, Dict[str, str]]] = None,
+        analysis_params: dict[str, dict[str, str]] | None = None,
     ):
         self.r_runner = RScriptRunner(r_executable)
         self.py_runner = PythonScriptRunner()
@@ -108,7 +108,7 @@ class AnalysisOrchestrator:
 
     async def check_prerequisites(
         self, analysis_type: str
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """Check if required tools/packages are installed for a given analysis type."""
         route = ANALYSIS_ROUTES.get(analysis_type)
         if not route:
@@ -139,9 +139,9 @@ class AnalysisOrchestrator:
     async def run_analysis(
         self,
         analysis_type: str,
-        pipeline_outputs: Dict[str, List[str]],
+        pipeline_outputs: dict[str, list[str]],
         output_dir: Path,
-        params: Optional[Dict[str, str]] = None,
+        params: dict[str, str] | None = None,
     ) -> AnalysisResult:
         """
         Run downstream analysis based on type.
@@ -236,8 +236,8 @@ class AnalysisOrchestrator:
     def _map_outputs_to_args(
         self,
         analysis_type: str,
-        pipeline_outputs: Dict[str, List[str]],
-    ) -> Dict[str, str]:
+        pipeline_outputs: dict[str, list[str]],
+    ) -> dict[str, str]:
         """Map nf-core output file categories to script arguments."""
         mapping = OUTPUT_TO_ARGS_MAP.get(analysis_type, {})
         args = {}
@@ -252,7 +252,7 @@ class AnalysisOrchestrator:
 
     def _find_key_files(
         self, analysis_type: str, output_dir: Path
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Find key output files produced by the analysis script."""
         key_patterns = {
             "deseq2": {

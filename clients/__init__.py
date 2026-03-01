@@ -8,12 +8,12 @@ Async client package for accessing external APIs including Semantic Scholar,
 Europe PMC, annotation services (QuickGO, KEGG, Ensembl), and TCGA/GDC.
 """
 
-from .base import BaseClient, ClientConfig, ClientResponse
-from .semantic_scholar_client import SemanticScholarClient
-from .europe_pmc_client import EuropePMCClient
 from .annotation_client import AnnotationClient
+from .base import BaseClient, ClientConfig, ClientResponse
+from .data_aggregator import AggregatedResult, DataAggregator
+from .europe_pmc_client import EuropePMCClient
+from .semantic_scholar_client import SemanticScholarClient
 from .tcga_client import TCGAClient
-from .data_aggregator import DataAggregator, AggregatedResult
 
 __all__ = [
     "BaseClient",

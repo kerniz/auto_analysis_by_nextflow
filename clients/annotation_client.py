@@ -10,7 +10,7 @@ for functional annotation, pathway analysis, and gene information.
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -37,7 +37,7 @@ class AnnotationClient(BaseClient):
     KEGG_BASE = "https://rest.kegg.jp"
     ENSEMBL_BASE = "https://rest.ensembl.org"
 
-    def __init__(self, config: Optional[ClientConfig] = None):
+    def __init__(self, config: ClientConfig | None = None):
         """
         어노테이션 클라이언트 초기화
         Initialize the annotation client.
@@ -56,8 +56,8 @@ class AnnotationClient(BaseClient):
             )
         super().__init__(config)
         # 추가 클라이언트 / Additional clients for KEGG and Ensembl
-        self._kegg_client: Optional[httpx.AsyncClient] = None
-        self._ensembl_client: Optional[httpx.AsyncClient] = None
+        self._kegg_client: httpx.AsyncClient | None = None
+        self._ensembl_client: httpx.AsyncClient | None = None
 
     @property
     def name(self) -> str:
@@ -204,7 +204,7 @@ class AnnotationClient(BaseClient):
                 error_message=f"GO term 조회 실패 ({gene_id}): {e}",
             )
 
-    async def get_go_enrichment(self, gene_list: List[str]) -> ClientResponse:
+    async def get_go_enrichment(self, gene_list: list[str]) -> ClientResponse:
         """
         유전자 목록의 GO term 일괄 조회 (배치)
         Batch lookup of GO annotations for a list of gene product IDs.
@@ -223,8 +223,8 @@ class AnnotationClient(BaseClient):
             tasks = [self.get_go_terms(gene_id, limit=20) for gene_id in gene_list]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            enrichment: Dict[str, Any] = {}
-            go_term_counts: Dict[str, int] = {}
+            enrichment: dict[str, Any] = {}
+            go_term_counts: dict[str, int] = {}
 
             for gene_id, result in zip(gene_list, results):
                 if isinstance(result, Exception):
@@ -395,7 +395,7 @@ class AnnotationClient(BaseClient):
             )
 
     @staticmethod
-    def _parse_kegg_flat(text: str) -> Dict[str, Any]:
+    def _parse_kegg_flat(text: str) -> dict[str, Any]:
         """
         KEGG flat-file 텍스트를 딕셔너리로 파싱
         Parse KEGG flat-file format into a structured dictionary.
@@ -406,9 +406,9 @@ class AnnotationClient(BaseClient):
         Returns:
             dict: 파싱된 경로 정보 / Parsed pathway information
         """
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         current_key = ""
-        current_value_lines: List[str] = []
+        current_value_lines: list[str] = []
 
         for line in text.split("\n"):
             if line.startswith("///"):

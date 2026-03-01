@@ -3,14 +3,15 @@ Tests for Data Source Clients
 데이터 소스 클라이언트 테스트
 """
 
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from clients import ClientConfig, ClientResponse
-from clients.semantic_scholar_client import SemanticScholarClient
-from clients.europe_pmc_client import EuropePMCClient
 from clients.annotation_client import AnnotationClient
+from clients.data_aggregator import AggregatedResult, DataAggregator
+from clients.europe_pmc_client import EuropePMCClient
+from clients.semantic_scholar_client import SemanticScholarClient
 from clients.tcga_client import TCGAClient
-from clients.data_aggregator import DataAggregator, AggregatedResult
 
 
 class TestClientConfig:

@@ -4,12 +4,9 @@ R 및 Python 분석 스크립트 실행기
 """
 
 import asyncio
-import json
 import logging
 import shutil
 import sys
-import time
-from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -25,7 +22,7 @@ class RScriptRunner:
         """Verify Rscript is available on the system."""
         return shutil.which(self.r_executable) is not None
 
-    async def check_packages(self, packages: List[str]) -> Dict[str, bool]:
+    async def check_packages(self, packages: list[str]) -> dict[str, bool]:
         """Check if required R packages are installed."""
         results = {}
         for pkg in packages:
@@ -45,9 +42,9 @@ class RScriptRunner:
     async def run(
         self,
         script_path: Path,
-        args: Dict[str, str],
+        args: dict[str, str],
         timeout: int = 3600,
-    ) -> Tuple[bool, str, str]:
+    ) -> tuple[bool, str, str]:
         """
         Run an R script with named arguments.
 
@@ -96,14 +93,14 @@ class RScriptRunner:
 class PythonScriptRunner:
     """Runs Python analysis scripts via subprocess."""
 
-    def __init__(self, python_executable: Optional[str] = None):
+    def __init__(self, python_executable: str | None = None):
         self.python_executable = python_executable or sys.executable
 
     async def check_installation(self) -> bool:
         """Python is always available."""
         return True
 
-    async def check_packages(self, packages: List[str]) -> Dict[str, bool]:
+    async def check_packages(self, packages: list[str]) -> dict[str, bool]:
         """Check if required Python packages are installed."""
         results = {}
         for pkg in packages:
@@ -123,9 +120,9 @@ class PythonScriptRunner:
     async def run(
         self,
         script_path: Path,
-        args: Dict[str, str],
+        args: dict[str, str],
         timeout: int = 3600,
-    ) -> Tuple[bool, str, str]:
+    ) -> tuple[bool, str, str]:
         """
         Run a Python script with named arguments.
 

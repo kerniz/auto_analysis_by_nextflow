@@ -8,7 +8,6 @@ Search Result Ranker and Deduplicator
 
 import math
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from .topic_searcher import SearchResult
 
@@ -28,9 +27,9 @@ class ResultRanker:
 
     def rank(
         self,
-        results: List[SearchResult],
-        current_year: Optional[int] = None,
-    ) -> List[SearchResult]:
+        results: list[SearchResult],
+        current_year: int | None = None,
+    ) -> list[SearchResult]:
         """
         검색 결과 중복 제거, 점수 계산, 정렬
 
@@ -61,16 +60,16 @@ class ResultRanker:
             scored, key=lambda r: r.relevance_score, reverse=True
         )
 
-    def _deduplicate(self, results: List[SearchResult]) -> List[SearchResult]:
+    def _deduplicate(self, results: list[SearchResult]) -> list[SearchResult]:
         """
         PMID 기반 중복 제거, 소스 병합
 
         같은 PMID를 가진 결과는 하나로 합치고 sources를 병합합니다.
         PMID가 없는 결과(Brave 등)는 제목 기반으로 중복 검사합니다.
         """
-        by_pmid: Dict[str, SearchResult] = {}
-        by_title: Dict[str, SearchResult] = {}
-        no_id: List[SearchResult] = []
+        by_pmid: dict[str, SearchResult] = {}
+        by_title: dict[str, SearchResult] = {}
+        no_id: list[SearchResult] = []
 
         for result in results:
             if result.pmid:

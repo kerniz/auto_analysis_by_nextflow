@@ -7,9 +7,7 @@ Semantic Scholar, Europe PMC 데이터를 활용하여
 """
 
 import asyncio
-import re
-from typing import Dict, List, Optional, Any
-from datetime import datetime
+from typing import Any
 
 
 class NoveltyScorer:
@@ -35,10 +33,10 @@ class NoveltyScorer:
 
     async def score_novelty(
         self,
-        paper_metadata: Dict[str, Any],
-        enrichment_results: Dict[str, Any],
+        paper_metadata: dict[str, Any],
+        enrichment_results: dict[str, Any],
         aggregated_data: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         전체 신규성 점수 계산
 
@@ -156,7 +154,7 @@ class NoveltyScorer:
 
     async def _assess_methodology_novelty(
         self,
-        paper_metadata: Dict[str, Any],
+        paper_metadata: dict[str, Any],
     ) -> float:
         """
         방법론 신규성 평가
@@ -215,7 +213,7 @@ class NoveltyScorer:
 
     async def _assess_finding_novelty(
         self,
-        enrichment_results: Dict[str, Any],
+        enrichment_results: dict[str, Any],
         aggregated_data: Any,
     ) -> float:
         """
@@ -230,8 +228,6 @@ class NoveltyScorer:
 
         # 유의한 경로의 수
         significant_terms = enrichment_results.get("significant_terms", [])
-        top_genes_count = enrichment_results.get("top_genes_count", 0)
-
         # 잘 알려진 경로 목록 (낮은 신규성)
         well_known_pathways = [
             "cell cycle", "apoptosis", "p53 signaling",

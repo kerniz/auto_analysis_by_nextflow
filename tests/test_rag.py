@@ -3,8 +3,9 @@ Tests for RAG Package
 RAG 패키지 테스트
 """
 
+
 import pytest
-from pathlib import Path
+
 from rag.document_store import DocumentStore
 from rag.rag_context import RAGContext
 
@@ -26,7 +27,9 @@ class TestDocumentStoreImport:
 def doc_store(tmp_path):
     """ChromaDB가 설치된 경우에만 작동하는 fixture"""
     try:
-        import chromadb
+        import importlib.util
+        if importlib.util.find_spec("chromadb") is None:
+            raise ImportError("chromadb not installed")
         store = DocumentStore(tmp_path / "test_rag_db")
         store._ensure_initialized()
         return store
