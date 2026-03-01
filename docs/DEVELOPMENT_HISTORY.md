@@ -340,6 +340,47 @@ bioauto/
 
 ---
 
+## v4.1.0 — Slurm HPC + 입력검증 보안 + 프로젝트 격리 + 7인 에이전트
+
+**릴리스일**: 2026-02-27
+**커밋**: `cabdc52`
+
+### 변경 사항
+
+- Slurm HPC executor 지원 (nextflow_execution.slurm 설정)
+- 입력 검증 보안 강화 (PMID 형식, 파일 경로 등)
+- 프로젝트 격리 구조 (`research_projects/` 디렉토리)
+- 7인 팀 에이전트 구성 (`.claude/agents/`)
+
+---
+
+## v4.1.1 — config.json 전체 연결 + lint 전량 수정 + 테스트 커버리지 87%
+
+**릴리스일**: 2026-02-28
+**커밋**: `2f81bf0`
+
+### 변경 사항
+
+- PipelineConfig에 9개 설정 클래스 추가 — config.json 전 섹션 파싱
+  - `LLMServerConfig`, `DebateSettings`, `EnrichmentSettings`, `DirectoriesConfig` 등
+- AsyncPipeline.initialize() 하드코딩 제거, config 값으로 대체
+- Ollama 서버 `REDACTED-HOST-X86:11435`, timeout 72시간 설정
+- ruff lint **1,365개 → 0개** 전량 수정
+- 테스트 **233개 → 975개** (+742), 전체 커버리지 **46% → 87%**
+- 89개 파일 변경, +11,267줄 추가
+- GSE185440 dry-run 테스트 스크립트 추가
+
+### 커버리지 약점 (개선 필요)
+
+| 모듈 | 커버리지 | 미커버 라인 |
+|------|---------|------------|
+| `core/cli.py` | 66% | 148줄 |
+| `core/pipeline.py` | 68% | 187줄 |
+| `search/topic_searcher.py` | 74% | 30줄 |
+| `nextflow/executor.py` | 76% | 33줄 |
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -352,3 +393,9 @@ bioauto/
 | `32ac6d1` | feat: bioauto v3.1.0 — 검색/상담/Brave/RAG |
 | `117d4f6` | feat: bioauto v4.0.0 — Nextflow 실행 + R/Python 분석 |
 | `c992053` | chore: opencode 관련 파일 삭제 |
+| `4bb8bb8` | refactor: 프로젝트 구조 정리 |
+| `d0b2445` | fix: CI pyproject.toml 전환, coverage 확장 |
+| `46466ce` | refactor: core/ 패키지 이동 |
+| `cabdc52` | feat: Slurm HPC + 입력검증 + 프로젝트 격리 + 7인 에이전트 |
+| `207056b` | feat: 류마티스-봉독 유전체 탐색 + Anthropic 모델 업데이트 |
+| `2f81bf0` | refactor: config.json 전체 연결 + lint 전량 수정 + 커버리지 87% |

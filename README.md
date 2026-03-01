@@ -430,7 +430,7 @@ pytest tests/test_analysis.py -v
 pytest tests/ --cov=. --cov-report=html
 ```
 
-현재 테스트: **204 passed**, 10 skipped (chromadb 미설치)
+현재 테스트: **975 passed**, 10 skipped (chromadb 미설치) — 커버리지 87%
 
 ---
 
@@ -465,7 +465,7 @@ bioauto/
 │   └── python_scripts/     #   scanpy
 │
 ├── scripts/                # 유틸리티 스크립트
-├── tests/                  # 테스트 (204개)
+├── tests/                  # 테스트 (975개)
 └── docs/                   # 개발 문서 (아키텍처, 개발 이력)
 ```
 

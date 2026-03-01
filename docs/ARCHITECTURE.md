@@ -230,4 +230,4 @@ tests/
 
 **모킹 전략**: 외부 API/프로세스는 모두 mock. `asyncio.create_subprocess_exec`, `shutil.which`, `httpx` mock 사용. `tmp_path`로 파일시스템 테스트.
 
-현재: **204 passed, 10 skipped** (chromadb 미설치)
+현재: **975 passed, 10 skipped** (chromadb 미설치) — 커버리지 87%
