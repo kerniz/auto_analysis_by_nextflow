@@ -399,3 +399,5 @@ bioauto/
 | `cabdc52` | feat: Slurm HPC + 입력검증 + 프로젝트 격리 + 7인 에이전트 |
 | `207056b` | feat: 류마티스-봉독 유전체 탐색 + Anthropic 모델 업데이트 |
 | `2f81bf0` | refactor: config.json 전체 연결 + lint 전량 수정 + 커버리지 87% |
+| `f9679a3` | docs: CLAUDE.md 개선 + 개발 이력 동기화 |
+| `297db5b` | fix: /workspace 하드코딩 제거 + config.json 자동 로드 + PubMed JSON 파싱 수정 |
