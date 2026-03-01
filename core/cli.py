@@ -777,5 +777,55 @@ def project_add_pmids(slug, pmids):
     click.echo(f"  List: {', '.join(proj.pmids)}")
 
 
+@cli.command()
+@click.argument("pmids", nargs=-1)
+@click.option(
+    "--results-dir", default="./results", help="결과 디렉토리 (기본: ./results)"
+)
+@click.option("--all", "gen_all", is_flag=True, help="모든 final_report에서 생성")
+def report(pmids, results_dir, gen_all):
+    """기존 분석 결과에서 HTML 리포트 생성.
+
+    예시:
+      bioauto report 31061532              # 단일 PMID
+      bioauto report 31061532 37711782     # 복수 PMID
+      bioauto report --all                 # 모든 결과
+    """
+    from core.report_generator import ReportGenerator
+
+    results_path = Path(results_dir)
+    gen = ReportGenerator()
+
+    if gen_all:
+        json_files = sorted(results_path.glob("final_report_*.json"))
+    elif pmids:
+        json_files = [results_path / f"final_report_{p}.json" for p in pmids]
+    else:
+        click.echo("PMID를 지정하거나 --all 옵션을 사용하세요.")
+        return
+
+    reports = []
+    for jf in json_files:
+        if not jf.exists():
+            click.echo(f"  [SKIP] {jf.name} not found")
+            continue
+
+        try:
+            html_path = gen.generate_from_json(jf, results_path)
+            click.echo(f"  [OK] {html_path}")
+            with open(jf) as f:
+                reports.append(json.load(f))
+        except Exception as e:
+            click.echo(f"  [FAIL] {jf.name}: {e}")
+
+    # 2개 이상이면 요약 리포트도 생성
+    if len(reports) >= 2:
+        summary_path = results_path / "report_summary.html"
+        gen.generate_summary(reports, summary_path)
+        click.echo(f"  [OK] {summary_path} (summary)")
+
+    click.echo(f"\nTotal: {len(reports)} report(s) generated")
+
+
 if __name__ == "__main__":
     cli()

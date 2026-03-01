@@ -1208,8 +1208,22 @@ Provide a JSON response with:
 
     async def _save_pmid_result(self, result: PMIDResult):
         output_file = self.config.results_dir / f"final_report_{result.pmid}.json"
+        result_dict = result.to_dict()
         with open(output_file, "w") as f:
-            json.dump(result.to_dict(), f, indent=2, default=str, ensure_ascii=False)
+            json.dump(result_dict, f, indent=2, default=str, ensure_ascii=False)
+
+        # HTML 리포트 자동 생성
+        try:
+            from core.report_generator import ReportGenerator
+            # debate_report 전체 데이터를 포함시킴
+            if result.debate_report:
+                result_dict["debate_report"] = result.debate_report
+            gen = ReportGenerator()
+            html_path = self.config.results_dir / f"report_{result.pmid}.html"
+            gen.generate(result_dict, html_path)
+            print(f"  HTML report: {html_path}")
+        except Exception as e:
+            print(f"  [WARN] HTML 리포트 생성 실패: {e}")
 
     async def _save_summary(self):
         summary = {
