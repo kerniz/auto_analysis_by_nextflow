@@ -2,7 +2,7 @@
   "pipeline_config": {
     "test_pmids": ["40315330", "32416070"],
     "llm_server": {
-      "url": "http://REDACTED-HOST-X86:11435",
+      "url": "http://REDACTED-HOST-X86:11436",
       "model": "qwen3:30b",
       "timeout": 259200,
       "max_retries": 3

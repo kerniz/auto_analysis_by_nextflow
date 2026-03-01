@@ -381,6 +381,46 @@ bioauto/
 
 ---
 
+## v4.1.2 — Debate JSON 파싱 강화 + Slurm HPC 부하 체크 (2026-03-02)
+
+**릴리스일**: 2026-03-02
+**커밋**: `4e4155c`
+
+### 배경
+
+v4.1.1에서 PMID 31061532 토론 실행 시 debate score가 0.21(FAIL)로 떨어지는 문제가 발생했다. qwen3 모델의 `<think>` 태그가 JSON 응답에 섞이고, 깨진 JSON 응답이 파싱 실패를 유발했다. 또한 Ollama 서버가 동시 요청으로 과부하 상태에 빠지는 문제도 있었다.
+
+### 변경 사항
+
+#### 1. agents/base.py — qwen3 호환성 + JSON 복구
+- `_strip_think_tags()` 메서드 추가 — qwen3의 `<think>...</think>` 태그를 LLM 응답에서 자동 제거
+- `_repair_json()` 메서드 추가 — 깨진 JSON 복구 (미종결 문자열, trailing comma, 미닫힌 괄호)
+- LLM 프롬프트에 `/no_think` 접미사 추가 — qwen3 thinking 모드 비활성화
+
+#### 2. agents/debate_manager.py — 합의 계산 완화
+- 파싱 실패 응답도 점수 계산에 포함하도록 confidence 필터 완화
+- 기존: 파싱 실패 시 응답 제외 → 유효 응답 부족으로 합의 불가
+- 변경: 파싱 실패 응답에 기본 점수 부여 → 합의 도출 가능
+
+#### 3. backends/ollama_backend.py — format kwargs 전달
+- `generate()` 메서드에 format kwargs passthrough 지원 추가
+- 호출자가 응답 형식(JSON 등)을 명시적으로 지정 가능
+
+#### 4. config.json — 병렬 평가 비활성화
+- `parallel_assessment: false` 변경 — Ollama 서버 과부하 방지
+- 순차 실행으로 안정성 확보
+
+#### 5. core/pipeline.py — 데이터 매핑 수정 + HPC 부하 체크
+- `research_data` 키 매핑 수정: `paper` → `paper_info` (기존 코드와 일관성)
+- `_wait_for_hpc_idle()` 메서드 추가 — `squeue`/`sinfo`로 Slurm HPC 노드 부하를 확인하고 유휴 상태가 될 때까지 대기 후 토론 시작
+
+#### 6. 결과
+- **Debate score**: 0.21 (FAIL) → 0.70 (WARN) — PMID 31061532 기준
+- JSON 파싱 성공률 대폭 향상
+- HPC 환경에서 안정적인 토론 실행 보장
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -401,3 +441,4 @@ bioauto/
 | `2f81bf0` | refactor: config.json 전체 연결 + lint 전량 수정 + 커버리지 87% |
 | `f9679a3` | docs: CLAUDE.md 개선 + 개발 이력 동기화 |
 | `297db5b` | fix: /workspace 하드코딩 제거 + config.json 자동 로드 + PubMed JSON 파싱 수정 |
+| `4e4155c` | fix: debate JSON 파싱 강화 + Slurm HPC 부하 체크 + 토론 점수 0.21→0.70 |
