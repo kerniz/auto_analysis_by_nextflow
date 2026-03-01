@@ -55,7 +55,7 @@
     "consensus_threshold": 0.7,
     "enable_cross_examination": true,
     "timeout_per_agent": 259200,
-    "parallel_assessment": true,
+    "parallel_assessment": false,
     "agent_weights": {
       "phd_expert": 0.5,
       "undergraduate": 0.3,

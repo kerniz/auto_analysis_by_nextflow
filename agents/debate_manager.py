@@ -351,7 +351,11 @@ class DebateManager:
         if not responses:
             return None
 
+        # confidence > 0 인 응답 우선, 부족하면 전체 사용
         scores = [r.score for r in responses if r.confidence > 0.0]
+        if len(scores) < 2:
+            # 파싱 실패 응답(confidence=0)도 포함하여 재시도
+            scores = [r.score for r in responses]
 
         if len(scores) < 2:
             return None
@@ -397,8 +401,7 @@ class DebateManager:
 
         # 마지막 라운드의 응답에서 정보 수집
         for response in last_round.responses:
-            if response.confidence > 0.0:
-                all_scores.append(response.score)
+            all_scores.append(response.score)
             all_key_points.extend(response.key_points)
             all_concerns.extend(response.concerns)
 
@@ -555,8 +558,8 @@ class DebateManager:
         if not last_round.responses:
             return []
 
-        # 마지막 라운드의 점수 수집
-        scores = [r.score for r in last_round.responses if r.confidence > 0.0]
+        # 마지막 라운드의 점수 수집 (파싱 실패 응답도 포함)
+        scores = [r.score for r in last_round.responses]
         if not scores:
             return []
 
@@ -564,9 +567,6 @@ class DebateManager:
         dissenting: list[str] = []
 
         for response in last_round.responses:
-            if response.confidence <= 0.0:
-                continue
-
             deviation = abs(response.score - mean_score)
             # 평균에서 0.2 이상 벗어나면 소수 의견으로 판정
             if deviation >= 0.2:

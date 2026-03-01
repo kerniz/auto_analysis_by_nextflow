@@ -304,8 +304,51 @@ class DebateAgent(ABC):
             "score는 0.0(매우 낮음)~1.0(매우 높음) 사이의 값입니다. "
             "confidence는 당신의 평가에 대한 확신도(0.0~1.0)입니다."
         )
+        # qwen3 모델의 thinking 모드 비활성화 (토큰 절약)
+        prompt_parts.append("")
+        prompt_parts.append("/no_think")
 
         return "\n".join(prompt_parts)
+
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """qwen3 모델의 <think>...</think> 태그 제거."""
+        return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    @staticmethod
+    def _repair_json(text: str) -> str:
+        """
+        불완전한 JSON 복구 시도 / Attempt to repair broken JSON.
+
+        qwen3:30b 등의 모델이 생성하는 불완전한 JSON을 수리합니다:
+        - 닫히지 않은 문자열 닫기
+        - 트레일링 콤마 제거
+        - 닫히지 않은 배열/객체 닫기
+        """
+        # 트레일링 콤마 제거 (,] 또는 ,} 패턴)
+        text = re.sub(r",\s*([}\]])", r"\1", text)
+
+        # 닫히지 않은 문자열/배열/객체 복구
+        # 열린 중괄호/대괄호 카운트
+        open_braces = text.count("{") - text.count("}")
+        open_brackets = text.count("[") - text.count("]")
+
+        # 문자열이 닫히지 않았는지 확인
+        in_string = False
+        last_char = ""
+        for ch in text:
+            if ch == '"' and last_char != "\\":
+                in_string = not in_string
+            last_char = ch
+
+        if in_string:
+            text += '"'
+
+        # 닫히지 않은 배열/객체 닫기
+        text += "]" * max(0, open_brackets)
+        text += "}" * max(0, open_braces)
+
+        return text
 
     def _parse_response(
         self,
@@ -315,7 +358,7 @@ class DebateAgent(ABC):
         """
         LLM 응답 파싱 / Parse the LLM response into an AgentResponse.
 
-        JSON 파싱을 시도하고, 실패 시 기본값으로 폴백합니다.
+        JSON 파싱을 시도하고, 실패 시 JSON 복구를 시도한 뒤 기본값으로 폴백합니다.
 
         Args:
             llm_content: LLM이 반환한 텍스트 응답
@@ -326,12 +369,15 @@ class DebateAgent(ABC):
         """
         parsed = None
 
+        # qwen3 모델의 <think>...</think> 태그 제거
+        cleaned = self._strip_think_tags(llm_content)
+
         # JSON 블록 추출 시도
         try:
             # ```json ... ``` 블록에서 추출
             json_match = re.search(
                 r"```(?:json)?\s*\n?(.*?)\n?\s*```",
-                llm_content,
+                cleaned,
                 re.DOTALL,
             )
             if json_match:
@@ -339,16 +385,33 @@ class DebateAgent(ABC):
             else:
                 # 순수 JSON으로 파싱 시도
                 # 중괄호로 시작하는 부분 찾기
-                brace_match = re.search(r"\{.*\}", llm_content, re.DOTALL)
+                brace_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
                 if brace_match:
                     parsed = json.loads(brace_match.group(0))
                 else:
-                    parsed = json.loads(llm_content)
-        except (json.JSONDecodeError, AttributeError) as e:
-            logger.warning(
-                "JSON 파싱 실패 (agent=%s, round=%d): %s",
-                self.name, round_number, str(e),
-            )
+                    parsed = json.loads(cleaned)
+        except (json.JSONDecodeError, AttributeError):
+            # 1차 파싱 실패 → JSON 복구 시도
+            try:
+                json_match = re.search(
+                    r"```(?:json)?\s*\n?(.*)",
+                    cleaned,
+                    re.DOTALL,
+                )
+                raw = json_match.group(1) if json_match else cleaned
+                brace_match = re.search(r"\{.*", raw, re.DOTALL)
+                if brace_match:
+                    repaired = self._repair_json(brace_match.group(0))
+                    parsed = json.loads(repaired)
+                    logger.info(
+                        "JSON 복구 성공 (agent=%s, round=%d)",
+                        self.name, round_number,
+                    )
+            except (json.JSONDecodeError, AttributeError, ValueError) as e:
+                logger.warning(
+                    "JSON 파싱 실패 (agent=%s, round=%d): %s",
+                    self.name, round_number, str(e),
+                )
 
         if parsed and isinstance(parsed, dict):
             # 점수 범위 검증 및 클램프

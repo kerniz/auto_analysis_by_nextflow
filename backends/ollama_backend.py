@@ -114,6 +114,10 @@ class OllamaBackend(LLMBackend):
             }
         }
 
+        # JSON 형식 강제 (format 파라미터가 전달된 경우)
+        if kwargs.get("format"):
+            body["format"] = kwargs["format"]
+
         if system_prompt:
             body["system"] = system_prompt
 

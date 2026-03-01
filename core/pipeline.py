@@ -6,6 +6,7 @@ Async Pipeline Module - Main Orchestrator
 import asyncio
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -745,13 +746,22 @@ class AsyncPipeline:
 
                 # Stage 7: 멀티 에이전트 토론
                 if self.debate_manager:
+                    # HPC 파이프라인 작업과 리소스 경합 방지
+                    await self._wait_for_hpc_idle()
                     try:
                         research_data = {
-                            "paper": result.pubmed_metadata,
-                            "sequencing": result.sequencing_result,
-                            "aggregated": result.aggregated_data,
-                            "enrichment": result.enrichment_results,
-                            "llm_analysis": result.llm_analysis,
+                            "paper_info": result.pubmed_metadata or {},
+                            "sequencing_type": (
+                                result.sequencing_result.get("sequencing_type", "Unknown")
+                                if isinstance(result.sequencing_result, dict)
+                                else "Unknown"
+                            ),
+                            "pipeline_info": result.sequencing_result or {},
+                            "analysis_results": {
+                                **(result.aggregated_data or {}),
+                                **(result.enrichment_results or {}),
+                                **(result.llm_analysis or {}),
+                            },
                         }
                         debate_result = await self.debate_manager.run_debate(research_data)
                         result.debate_report = debate_result.to_dict()
@@ -1087,6 +1097,98 @@ Provide a JSON response with:
             "consistency_rating": "WARN",
             "technical_assessment": content[:500]
         }
+
+    async def _wait_for_hpc_idle(
+        self,
+        check_interval: int = 30,
+        max_wait: int = 1800,
+    ):
+        """
+        Slurm HPC 노드의 부하가 낮아질 때까지 대기.
+
+        nf-core 파이프라인이 Slurm에서 실행 중이면
+        토론(LLM 호출)을 지연시켜 리소스 경합을 방지합니다.
+
+        확인 항목:
+        1. squeue: 현재 사용자의 RUNNING 상태 Nextflow/nf-core 작업 수
+        2. sinfo: 노드의 CPU 할당률 (AllocCPU/TotalCPU)
+
+        Args:
+            check_interval: 체크 간격 (초, 기본 30초)
+            max_wait: 최대 대기 시간 (초, 기본 1800초 = 30분)
+        """
+        if not shutil.which("squeue"):
+            return  # Slurm이 없으면 즉시 진행
+
+        waited = 0
+        while waited < max_wait:
+            try:
+                # squeue: 현재 사용자의 RUNNING 작업 수 확인
+                proc = await asyncio.create_subprocess_exec(
+                    "squeue", "--me", "--states=RUNNING",
+                    "--format=%j", "--noheader",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await proc.communicate()
+                running_jobs = [
+                    line for line in stdout.decode().strip().split("\n")
+                    if line.strip()
+                ]
+                nf_jobs = [
+                    j for j in running_jobs
+                    if any(k in j.lower() for k in ("nf-", "nextflow", "nfcore"))
+                ]
+
+                if not nf_jobs:
+                    if waited > 0:
+                        print("  HPC 파이프라인 작업 완료, 토론 시작")
+                    return
+
+                # sinfo: 노드 CPU 할당률 체크
+                alloc_ratio = await self._get_slurm_cpu_alloc_ratio()
+
+                print(
+                    f"  HPC 파이프라인 작업 {len(nf_jobs)}개 실행 중 "
+                    f"(CPU 할당률: {alloc_ratio:.0f}%), "
+                    f"{check_interval}초 후 재확인... ({waited}/{max_wait}s)"
+                )
+
+            except Exception as e:
+                print(f"  Slurm 상태 확인 실패: {e}, 토론 진행")
+                return
+
+            await asyncio.sleep(check_interval)
+            waited += check_interval
+
+        print(f"  HPC 대기 타임아웃 ({max_wait}s), 토론 강제 시작")
+
+    @staticmethod
+    async def _get_slurm_cpu_alloc_ratio() -> float:
+        """Slurm 노드의 CPU 할당률(%) 반환."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sinfo", "--Node", "--noheader",
+                "--format=%C",  # CPUS(A/I/O/T) 형식
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            lines = stdout.decode().strip().split("\n")
+            total_alloc = 0
+            total_cpus = 0
+            for line in lines:
+                parts = line.strip().split("/")
+                if len(parts) == 4:
+                    alloc = int(parts[0])
+                    total = int(parts[3])
+                    total_alloc += alloc
+                    total_cpus += total
+            if total_cpus > 0:
+                return (total_alloc / total_cpus) * 100
+        except Exception:
+            pass
+        return 0.0
 
     async def _load_cached(self, filename: str) -> dict[str, Any]:
         cached_file = self.config.results_dir / filename
