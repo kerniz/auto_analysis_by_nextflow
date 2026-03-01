@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 class ProgressManager:
-    def __init__(self, progress_file="/workspace/progress.json"):
+    def __init__(self, progress_file="./results/progress.json"):
         self.progress_file = progress_file
         self.progress_data = self.load_progress()
 

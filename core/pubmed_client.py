@@ -62,13 +62,25 @@ class PubMedClient:
         """논문 요약 정보 수집"""
         try:
             handle = Entrez.esummary(db="pubmed", id=pmid, retmode="json")
-            record = Entrez.read(handle)
+            record = json.load(handle)
             handle.close()
 
-            if pmid in record:
-                return record[pmid]
-            else:
-                return None
+            result = record.get("result", {})
+            if pmid in result:
+                raw = result[pmid]
+                # 필드명을 기존 코드와 호환되도록 매핑
+                return {
+                    "Title": raw.get("title", ""),
+                    "Authors": [a.get("name", "") for a in raw.get("authors", [])],
+                    "Source": raw.get("source", ""),
+                    "PubDate": raw.get("pubdate", ""),
+                    "DOI": raw.get("elocationid", ""),
+                    "ArticleIds": {
+                        aid.get("idtype", ""): aid.get("value", "")
+                        for aid in raw.get("articleids", [])
+                    },
+                }
+            return None
 
         except Exception as e:
             print(f"요약 정보 수집 실패: {e}")
@@ -206,7 +218,7 @@ class PubMedClient:
         """메타데이터 저장"""
         if not filename:
             pmid = metadata["pmid"]
-            filename = f"/workspace/results/pubmed_{pmid}.json"
+            filename = f"./results/pubmed_{pmid}.json"
 
         try:
             with open(filename, 'w', encoding='utf-8') as f:
@@ -220,7 +232,7 @@ class PubMedClient:
 
     def load_metadata(self, pmid: str) -> dict | None:
         """저장된 메타데이터 로드"""
-        filename = f"/workspace/results/pubmed_{pmid}.json"
+        filename = f"./results/pubmed_{pmid}.json"
 
         try:
             with open(filename, encoding='utf-8') as f:

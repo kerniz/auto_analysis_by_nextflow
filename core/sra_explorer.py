@@ -14,12 +14,12 @@ import requests
 
 
 class SRAExplorer:
-    def __init__(self):
+    def __init__(self, results_dir: str = "./results"):
         """SRA 탐색기 초기화"""
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self.sra_base_url = "https://www.ncbi.nlm.nih.gov/sra"
-        self.raw_data_dir = "/workspace/raw_data"
-        self.samplesheet_dir = "/workspace/results"
+        self.raw_data_dir = os.path.join(results_dir, "raw_data")
+        self.samplesheet_dir = results_dir
 
         # 디렉토리 생성
         os.makedirs(self.raw_data_dir, exist_ok=True)
@@ -244,7 +244,7 @@ class SRAExplorer:
 
     def save_sra_results(self, results: dict, pmid: str) -> str:
         """SRA 탐색 결과 저장"""
-        filename = f"/workspace/results/sra_exploration_{pmid}.json"
+        filename = os.path.join(self.samplesheet_dir, f"sra_exploration_{pmid}.json")
 
         try:
             with open(filename, 'w', encoding='utf-8') as f:

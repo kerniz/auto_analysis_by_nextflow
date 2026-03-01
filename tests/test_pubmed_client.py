@@ -66,20 +66,29 @@ class TestFetchSummary:
     def test_success(self, mock_entrez):
         c = PubMedClient()
         mock_handle = MagicMock()
-        mock_entrez.esummary.return_value = mock_handle
-        mock_entrez.read.return_value = {"12345": {"Title": "T"}}
+        # _fetch_summary now uses json.load instead of Entrez.read
+        import io
+        import json
+        json_data = {"result": {"uids": ["12345"], "12345": {
+            "title": "T", "authors": [], "source": "J", "pubdate": "2024",
+            "elocationid": "", "articleids": [],
+        }}}
+        mock_handle.read = MagicMock(return_value=json.dumps(json_data))
+        mock_handle.__enter__ = MagicMock(return_value=io.StringIO(json.dumps(json_data)))
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_entrez.esummary.return_value = io.StringIO(json.dumps(json_data))
 
         result = c._fetch_summary("12345")
         assert result is not None
         assert result["Title"] == "T"
-        mock_handle.close.assert_called_once()
 
     @patch("core.pubmed_client.Entrez")
     def test_not_found(self, mock_entrez):
         c = PubMedClient()
-        mock_handle = MagicMock()
-        mock_entrez.esummary.return_value = mock_handle
-        mock_entrez.read.return_value = {}
+        import io
+        import json
+        json_data = {"result": {"uids": []}}
+        mock_entrez.esummary.return_value = io.StringIO(json.dumps(json_data))
 
         result = c._fetch_summary("12345")
         assert result is None
@@ -318,7 +327,7 @@ class TestSaveMetadata:
         m = mock_open()
         with patch("builtins.open", m):
             result = c.save_metadata(metadata)
-            assert result == "/workspace/results/pubmed_12345.json"
+            assert result == "./results/pubmed_12345.json"
 
     @patch("core.pubmed_client.Entrez")
     def test_save_custom_filename(self, mock_entrez):

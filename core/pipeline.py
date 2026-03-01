@@ -814,7 +814,7 @@ class AsyncPipeline:
 
         try:
             from core.sra_explorer import SRAExplorer
-            explorer = SRAExplorer()
+            explorer = SRAExplorer(results_dir=str(self.config.results_dir))
             sra_links = pubmed_metadata.get("sra_links", [])
             result = explorer.explore_sra_datasets(pmid, sra_links)
             if result:

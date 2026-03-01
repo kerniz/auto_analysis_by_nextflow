@@ -12,9 +12,15 @@ class TestSRAExplorerInit:
     def test_init(self, mock_makedirs):
         explorer = SRAExplorer()
         assert explorer.base_url == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        assert explorer.raw_data_dir == "/workspace/raw_data"
-        assert explorer.samplesheet_dir == "/workspace/results"
+        assert explorer.raw_data_dir == "./results/raw_data"
+        assert explorer.samplesheet_dir == "./results"
         assert mock_makedirs.call_count == 2
+
+    @patch("os.makedirs")
+    def test_init_custom_dir(self, mock_makedirs):
+        explorer = SRAExplorer(results_dir="/tmp/test")
+        assert explorer.raw_data_dir == "/tmp/test/raw_data"
+        assert explorer.samplesheet_dir == "/tmp/test"
 
 
 class TestExploreSraDatasets:

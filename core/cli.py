@@ -19,6 +19,29 @@ from core.pipeline import AsyncPipeline, PipelineConfig, PipelineStatus
 from core.project_manager import ProjectManager
 
 
+def _load_config() -> dict:
+    """config.json에서 설정을 로드합니다."""
+    config_paths = [
+        Path(__file__).parent.parent / "config.json",
+        Path.cwd() / "config.json",
+    ]
+    for p in config_paths:
+        if p.exists():
+            with open(p) as f:
+                return json.load(f)
+    return {}
+
+
+def _get_llm_server_config() -> tuple[str, str, int]:
+    """config.json에서 LLM 서버 설정을 반환합니다. (url, model, timeout)"""
+    cfg = _load_config()
+    llm = cfg.get("pipeline_config", {}).get("llm_server", {})
+    url = llm.get("url", "http://localhost:11434")
+    model = llm.get("model", "qwen3:30b")
+    timeout = llm.get("timeout", 60)
+    return url, model, timeout
+
+
 @click.group()
 @click.version_option(version="4.0.0", prog_name="bioauto")
 def cli():
@@ -68,21 +91,29 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
     예시: bioauto run 40315330 32416070
     예시: bioauto run 40315330 --project ra_bee_venom
     """
-    if config:
-        pipeline_config = PipelineConfig.from_json(config)
+    # config.json 로드 (--config 지정 시 해당 파일, 아니면 자동 탐색)
+    config_path = config or None
+    if config_path:
+        pipeline_config = PipelineConfig.from_json(config_path)
         pipeline_config.pmids = list(pmids) or pipeline_config.pmids
     else:
-        pipeline_config = PipelineConfig(
-            pmids=list(pmids),
-            results_dir=Path(results_dir),
-            max_concurrent=max_concurrent,
-            enable_resume=resume,
-            enable_data_aggregation=aggregate,
-            enable_enrichment=enrichment,
-            enable_debate=debate,
-            debate_rounds=debate_rounds,
-            project_slug=project,
-        )
+        # config.json 자동 탐색하여 설정 로드
+        cfg_data = _load_config()
+        if cfg_data:
+            pipeline_config = PipelineConfig.from_dict(cfg_data)
+            pipeline_config.pmids = list(pmids)
+        else:
+            pipeline_config = PipelineConfig(pmids=list(pmids))
+
+    # CLI 옵션으로 오버라이드
+    pipeline_config.results_dir = Path(results_dir)
+    pipeline_config.max_concurrent = max_concurrent
+    pipeline_config.enable_resume = resume
+    pipeline_config.enable_data_aggregation = aggregate
+    pipeline_config.enable_enrichment = enrichment
+    pipeline_config.enable_debate = debate
+    pipeline_config.debate_rounds = debate_rounds
+    pipeline_config.project_slug = project
 
     # Pipeline execution config
     if execute_pipeline:
@@ -220,18 +251,31 @@ def status(results_dir, fmt):
 def backends():
     """LLM 백엔드 상태를 확인합니다."""
     import os
+    ollama_url, ollama_model, _ = _get_llm_server_config()
     click.echo("=== LLM Backend Status ===\n")
 
     # Ollama
-    click.echo("1. Ollama (DeepSeek-Coder)")
+    click.echo(f"1. Ollama ({ollama_model})")
     try:
         import httpx
-        resp = httpx.get("http://localhost:11434/api/tags", timeout=5)
+        resp = httpx.get(f"{ollama_url}/api/tags", timeout=10)
         if resp.status_code == 200:
             models = resp.json().get("models", [])
             model_names = [m.get("name", "") for m in models]
-            click.echo(click.style("   Status: HEALTHY", fg="green"))
+            model_found = any(
+                ollama_model in name or name.startswith(ollama_model.split(":")[0])
+                for name in model_names
+            )
+            if model_found:
+                click.echo(click.style("   Status: HEALTHY", fg="green"))
+            else:
+                click.echo(click.style(
+                    f"   Status: Model '{ollama_model}' not found", fg="yellow"
+                ))
+            click.echo(f"   Server: {ollama_url}")
             click.echo(f"   Models: {', '.join(model_names[:5])}")
+            if len(model_names) > 5:
+                click.echo(f"   ... +{len(model_names) - 5} more")
         else:
             click.echo(click.style("   Status: UNHEALTHY", fg="red"))
     except Exception:
@@ -475,11 +519,12 @@ async def _run_consult(results_dir: str, debate: bool):
     from backends import LLMConfig, LLMRouter, OllamaBackend
     from backends.router import RouterConfig
 
-    # LLM 라우터 초기화 (경량)
+    # LLM 라우터 초기화 (config.json에서 설정 로드)
+    ollama_url, ollama_model, ollama_timeout = _get_llm_server_config()
     backends_list = []
-    ollama_config = LLMConfig(model="deepseek-coder:33b", timeout=60)
+    ollama_config = LLMConfig(model=ollama_model, timeout=ollama_timeout)
     backends_list.append(OllamaBackend(
-        base_url="http://localhost:11434", config=ollama_config
+        base_url=ollama_url, config=ollama_config
     ))
 
     if os.environ.get("OPENAI_API_KEY"):

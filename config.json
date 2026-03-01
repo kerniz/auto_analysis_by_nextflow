@@ -3,7 +3,7 @@
     "test_pmids": ["40315330", "32416070"],
     "llm_server": {
       "url": "http://REDACTED-HOST-X86:11435",
-      "model": "deepseek-coder:33b",
+      "model": "qwen3:30b",
       "timeout": 259200,
       "max_retries": 3
     },
@@ -71,13 +71,13 @@
     "top_genes_count": 50
   },
   "directories": {
-    "raw_data": "/workspace/raw_data",
-    "processed_data": "/workspace/processed_data",
-    "nextflow_work": "/workspace/nextflow_work",
-    "containers": "/workspace/containers",
-    "results": "/workspace/results",
-    "logs": "/workspace/logs",
-    "charts": "/workspace/charts",
+    "raw_data": "./results/raw_data",
+    "processed_data": "./results/processed_data",
+    "nextflow_work": "./results/nextflow_work",
+    "containers": "./results/containers",
+    "results": "./results",
+    "logs": "./results/logs",
+    "charts": "./results/charts",
     "research_projects": "./research_projects"
   },
   "brave_search": {
@@ -154,7 +154,7 @@
   },
   "execution": {
     "resume_enabled": true,
-    "progress_file": "/workspace/progress.json",
+    "progress_file": "./results/progress.json",
     "log_level": "ERROR",
     "dry_run_first": true,
     "max_concurrent": 5,

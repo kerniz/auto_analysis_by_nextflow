@@ -124,7 +124,13 @@ class SequencingTypePlugin(ABC):
         )
 
     def _check_sra_metadata(self, sra_metadata: dict[str, Any]) -> bool:
-        for sra_id, meta in sra_metadata.items():
+        # sra_metadata는 전체 SRA 결과 dict — "metadata" 키 안에 SRR별 정보가 있음
+        metadata_entries = sra_metadata.get("metadata", sra_metadata)
+        if not isinstance(metadata_entries, dict):
+            return False
+        for sra_id, meta in metadata_entries.items():
+            if not isinstance(meta, dict):
+                continue
             strategy = meta.get("LibStrategy", "").upper()
             if strategy in [s.upper() for s in self.sra_library_strategies]:
                 return True

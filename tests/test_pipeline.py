@@ -1150,7 +1150,8 @@ class TestAsyncPipelineFetchMethods:
         """_fetch_pubmed returns fallback when no cache and client unavailable."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
-        result = await pipeline._fetch_pubmed("99999")
+        with patch.dict("sys.modules", {"core.pubmed_client": None}):
+            result = await pipeline._fetch_pubmed("99999")
         assert result["pmid"] == "99999"
         assert result["source"] == "unavailable"
 
