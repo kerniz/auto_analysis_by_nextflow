@@ -421,6 +421,28 @@ v4.1.1에서 PMID 31061532 토론 실행 시 debate score가 0.21(FAIL)로 떨�
 
 ---
 
+## v4.1.3 — HTML 리포트 생성기 + 테스트 1000개 (2026-03-02)
+
+### 커밋: `411668c`
+
+### 변경 사항
+1. **core/report_generator.py** (신규): 자체 포함 HTML 리포트 생성기
+   - 인라인 CSS, 반응형 디자인, XSS 방지 (html.escape)
+   - 논문정보, 시퀀싱 감지, SRA, 데이터소스, Enrichment, LLM 분석, 토론 라운드별 상세, 파이프라인 실행 섹션
+   - 점수 바, 배지(PASS/WARN/FAIL), 접기(details) 지원
+   - generate(), generate_from_json(), generate_summary() 3가지 API
+
+2. **core/cli.py**: `bioauto report` CLI 명령 추가
+   - `bioauto report 31061532` — 단일 PMID
+   - `bioauto report --all` — 모든 결과에서 생성
+   - 2개 이상이면 report_summary.html 자동 생성
+
+3. **core/pipeline.py**: _save_pmid_result() 후 HTML 리포트 자동 생성
+
+4. **tests/test_report_generator.py**: 24개 테스트 추가 (976→1000 passed)
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -442,3 +464,4 @@ v4.1.1에서 PMID 31061532 토론 실행 시 debate score가 0.21(FAIL)로 떨�
 | `f9679a3` | docs: CLAUDE.md 개선 + 개발 이력 동기화 |
 | `297db5b` | fix: /workspace 하드코딩 제거 + config.json 자동 로드 + PubMed JSON 파싱 수정 |
 | `4e4155c` | fix: debate JSON 파싱 강화 + Slurm HPC 부하 체크 + 토론 점수 0.21→0.70 |
+| `411668c` | feat: HTML 리포트 생성기 + CLI report 명령 + 테스트 1000개 달성 |
