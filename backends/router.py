@@ -4,11 +4,14 @@ LLM Router
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from .base import BackendStatus, LLMBackend, LLMResponse
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -101,7 +104,7 @@ class LLMRouter:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"헬스체크 오류: {e}")
+                logger.error("헬스체크 오류: %s", e)
 
     async def health_check_all(self) -> dict[str, bool]:
         """모든 백엔드 헬스체크"""
@@ -117,7 +120,7 @@ class LLMRouter:
         for name, result in zip(self.backends.keys(), check_results):
             if isinstance(result, Exception):
                 results[name] = False
-                print(f"백엔드 {name} 헬스체크 실패: {result}")
+                logger.warning("백엔드 %s 헬스체크 실패: %s", name, result)
             else:
                 results[name] = result
 
@@ -222,7 +225,7 @@ class LLMRouter:
 
                 except Exception as e:
                     last_error = str(e)
-                    print(f"백엔드 {backend_name} 실패: {e}")
+                    logger.warning("백엔드 %s 실패: %s", backend_name, e)
 
                     # 백엔드 상태 업데이트
                     backend.update_status(False)

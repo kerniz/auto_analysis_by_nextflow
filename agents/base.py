@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Any
 
 from backends.router import LLMRouter
+from core.json_utils import repair_json, strip_think_tags
 
 logger = logging.getLogger(__name__)
 
@@ -313,42 +314,12 @@ class DebateAgent(ABC):
     @staticmethod
     def _strip_think_tags(text: str) -> str:
         """qwen3 모델의 <think>...</think> 태그 제거."""
-        return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        return strip_think_tags(text)
 
     @staticmethod
     def _repair_json(text: str) -> str:
-        """
-        불완전한 JSON 복구 시도 / Attempt to repair broken JSON.
-
-        qwen3:30b 등의 모델이 생성하는 불완전한 JSON을 수리합니다:
-        - 닫히지 않은 문자열 닫기
-        - 트레일링 콤마 제거
-        - 닫히지 않은 배열/객체 닫기
-        """
-        # 트레일링 콤마 제거 (,] 또는 ,} 패턴)
-        text = re.sub(r",\s*([}\]])", r"\1", text)
-
-        # 닫히지 않은 문자열/배열/객체 복구
-        # 열린 중괄호/대괄호 카운트
-        open_braces = text.count("{") - text.count("}")
-        open_brackets = text.count("[") - text.count("]")
-
-        # 문자열이 닫히지 않았는지 확인
-        in_string = False
-        last_char = ""
-        for ch in text:
-            if ch == '"' and last_char != "\\":
-                in_string = not in_string
-            last_char = ch
-
-        if in_string:
-            text += '"'
-
-        # 닫히지 않은 배열/객체 닫기
-        text += "]" * max(0, open_brackets)
-        text += "}" * max(0, open_braces)
-
-        return text
+        """불완전한 JSON 복구 시도."""
+        return repair_json(text)
 
     def _parse_response(
         self,

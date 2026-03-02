@@ -1588,3 +1588,740 @@ class TestIndexResultInRag:
         )
         pipeline._index_result_in_rag(result)
         mock_store.add_debate_report.assert_not_called()
+
+
+# ============================================================
+# Slurm HPC Functions (Step 1-A)
+# ============================================================
+
+
+class TestSlurmHPCFunctions:
+    """Tests for _wait_for_hpc_idle and _get_slurm_cpu_alloc_ratio."""
+
+    async def test_get_cpu_alloc_ratio_single_node(self):
+        """Single node: 4/28/0/32 -> 12.5%."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"4/28/0/32\n", b""))
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            ratio = await AsyncPipeline._get_slurm_cpu_alloc_ratio()
+        assert abs(ratio - 12.5) < 0.1
+
+    async def test_get_cpu_alloc_ratio_multi_node(self):
+        """Two nodes: (8+16)/(32+32) = 37.5%."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"8/24/0/32\n16/16/0/32\n", b"")
+        )
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            ratio = await AsyncPipeline._get_slurm_cpu_alloc_ratio()
+        assert abs(ratio - 37.5) < 0.1
+
+    async def test_get_cpu_alloc_ratio_empty_output(self):
+        """Empty sinfo output returns 0.0."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            ratio = await AsyncPipeline._get_slurm_cpu_alloc_ratio()
+        assert ratio == 0.0
+
+    async def test_get_cpu_alloc_ratio_malformed(self):
+        """Malformed output returns 0.0."""
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"N/A\n", b""))
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            ratio = await AsyncPipeline._get_slurm_cpu_alloc_ratio()
+        assert ratio == 0.0
+
+    async def test_get_cpu_alloc_ratio_exception(self):
+        """Subprocess failure returns 0.0."""
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=OSError("sinfo not found"),
+        ):
+            ratio = await AsyncPipeline._get_slurm_cpu_alloc_ratio()
+        assert ratio == 0.0
+
+    async def test_wait_for_hpc_idle_no_slurm(self, tmp_path):
+        """Without squeue installed, returns immediately."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        with patch("shutil.which", return_value=None):
+            await pipeline._wait_for_hpc_idle(check_interval=1, max_wait=3)
+        # No assertion needed — if it returns, it passed
+
+    async def test_wait_for_hpc_idle_no_nf_jobs(self, tmp_path):
+        """Non-nf-core jobs → returns immediately."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"eval\npose_2fp\nrelabel_\n", b"")
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/squeue"),
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        ):
+            await pipeline._wait_for_hpc_idle(check_interval=1, max_wait=5)
+
+    async def test_wait_for_hpc_idle_nf_jobs_then_clear(self, tmp_path):
+        """nf-core job present, then cleared on second check."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        call_count = 0
+
+        async def mock_communicate():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                # First two calls: squeue then sinfo
+                if call_count == 1:
+                    return (b"nf-rnaseq\n", b"")
+                else:
+                    return (b"4/28/0/32\n", b"")
+            else:
+                # Third call onwards: no nf jobs
+                return (b"eval\n", b"")
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate = mock_communicate
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/squeue"),
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await pipeline._wait_for_hpc_idle(check_interval=1, max_wait=10)
+
+    async def test_wait_for_hpc_idle_timeout(self, tmp_path):
+        """nf-core job never clears → times out."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"nf-rnaseq\n", b"")
+        )
+
+        # Mock both squeue and sinfo subprocess calls
+        async def mock_create_subproc(*args, **kwargs):
+            p = AsyncMock()
+            if "squeue" in args:
+                p.communicate = AsyncMock(return_value=(b"nf-rnaseq\n", b""))
+            else:
+                p.communicate = AsyncMock(return_value=(b"4/28/0/32\n", b""))
+            return p
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/squeue"),
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=mock_create_subproc,
+            ),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await pipeline._wait_for_hpc_idle(check_interval=1, max_wait=2)
+
+    async def test_wait_for_hpc_idle_exception_returns(self, tmp_path):
+        """squeue exception → returns immediately with warning."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/squeue"),
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=OSError("broken"),
+            ),
+        ):
+            await pipeline._wait_for_hpc_idle(check_interval=1, max_wait=5)
+
+
+# ============================================================
+# Pipeline Stages Coverage (Step 3-A)
+# ============================================================
+
+
+class TestFetchPubmed:
+    """Tests for _fetch_pubmed method."""
+
+    async def test_returns_cached_data(self, tmp_path):
+        """Returns cached data when file exists."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        cached = {"pmid": "12345", "title": "Cached", "abstract": "Data"}
+        cached_file = tmp_path / "pubmed_12345.json"
+        cached_file.write_text(json.dumps(cached))
+        result = await pipeline._fetch_pubmed("12345")
+        assert result["title"] == "Cached"
+
+    async def test_fetches_from_pubmed_client(self, tmp_path):
+        """Fetches from PubMedClient when no cache."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        mock_client = MagicMock()
+        mock_client.fetch_paper_metadata = MagicMock(
+            return_value={"pmid": "12345", "title": "Fetched"}
+        )
+        with patch("core.pipeline.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = {"pmid": "12345", "title": "Fetched"}
+            result = await pipeline._fetch_pubmed("12345")
+        assert result["title"] == "Fetched"
+        assert (tmp_path / "pubmed_12345.json").exists()
+
+    async def test_import_error_returns_fallback(self, tmp_path):
+        """Returns fallback when PubMedClient not available."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        with patch("builtins.__import__", side_effect=ImportError("no module")):
+            result = await pipeline._fetch_pubmed("12345")
+        assert result["source"] == "unavailable"
+
+
+class TestExploreSra:
+    """Tests for _explore_sra method."""
+
+    async def test_returns_cached_data(self, tmp_path):
+        """Returns cached SRA data."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        cached = {"pmid": "12345", "sra_ids": ["SRR123"]}
+        (tmp_path / "sra_exploration_12345.json").write_text(json.dumps(cached))
+        result = await pipeline._explore_sra("12345", {"sra_links": []})
+        assert result["sra_ids"] == ["SRR123"]
+
+    async def test_import_error_returns_fallback(self, tmp_path):
+        """Returns fallback when SRAExplorer not available."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        with patch("builtins.__import__", side_effect=ImportError):
+            result = await pipeline._explore_sra("12345", {"sra_links": []})
+        assert result["source"] == "unavailable"
+
+
+class TestAnalyzeWithLLMConsensus:
+    """Tests for _analyze_with_llm_consensus."""
+
+    async def test_no_router_returns_warn(self, tmp_path):
+        """No LLM router → returns WARN."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        pipeline.llm_router = None
+        result = await pipeline._analyze_with_llm_consensus(
+            "12345", {"title": "T", "abstract": "A"}, {"sequencing_type": "RNA-seq"}
+        )
+        assert result["consistency_rating"] == "WARN"
+        assert "No LLM router" in result["error"]
+
+    async def test_cached_result(self, tmp_path):
+        """Returns cached analysis when file exists."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        cached = {"consistency_rating": "PASS", "consistency_score": 0.9}
+        (tmp_path / "deepseek_analysis_12345.json").write_text(json.dumps(cached))
+        result = await pipeline._analyze_with_llm_consensus(
+            "12345", {}, {}
+        )
+        assert result["consistency_rating"] == "PASS"
+
+    async def test_no_healthy_backends_fallback(self, tmp_path):
+        """No healthy backends → uses router.generate fallback."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        mock_router = MagicMock()
+        mock_router.backends = {}
+        mock_router.generate = AsyncMock(
+            return_value=LLMResponse(
+                content='{"consistency_score": 0.8, "consistency_rating": "PASS"}',
+                model="qwen3:30b",
+                success=True,
+                backend_name="ollama",
+                latency_ms=100.0,
+            )
+        )
+        pipeline.llm_router = mock_router
+        result = await pipeline._analyze_with_llm_consensus(
+            "12345", {"title": "T"}, {"sequencing_type": "RNA-seq"}
+        )
+        assert result["consistency_rating"] == "PASS"
+        assert result["backend"] == "ollama"
+
+    async def test_single_healthy_backend(self, tmp_path):
+        """Single healthy backend returns its result directly."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        mock_backend = MagicMock()
+        mock_backend.status = BackendStatus.HEALTHY
+        mock_backend.health_score = 1.0
+        mock_backend.generate_with_retry = AsyncMock(
+            return_value=LLMResponse(
+                content='{"consistency_score": 0.85, "consistency_rating": "PASS"}',
+                model="qwen3:30b",
+                success=True,
+                backend_name="ollama",
+                latency_ms=100.0,
+            )
+        )
+        mock_router = MagicMock()
+        mock_router.backends = {"ollama": mock_backend}
+        pipeline.llm_router = mock_router
+        pipeline.doc_store = None
+
+        result = await pipeline._analyze_with_llm_consensus(
+            "12345",
+            {"title": "Test", "abstract": "Abstract"},
+            {"sequencing_type": "RNA-seq"},
+        )
+        assert result["consistency_score"] == 0.85
+        assert result["backend"] == "ollama"
+
+    async def test_multi_backend_consensus(self, tmp_path):
+        """Multiple backends → merge_consensus called."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        def make_backend(name, score):
+            b = MagicMock()
+            b.status = BackendStatus.HEALTHY
+            b.health_score = 1.0
+            b.generate_with_retry = AsyncMock(
+                return_value=LLMResponse(
+                    content=json.dumps({
+                        "consistency_score": score,
+                        "consistency_rating": "PASS",
+                        "technical_assessment": f"From {name}",
+                    }),
+                    model="qwen3:30b",
+                    success=True,
+                    backend_name=name,
+                    latency_ms=100.0,
+                )
+            )
+            return b
+
+        b1 = make_backend("ollama", 0.8)
+        b2 = make_backend("openai", 0.9)
+        mock_router = MagicMock()
+        mock_router.backends = {"ollama": b1, "openai": b2}
+        pipeline.llm_router = mock_router
+        pipeline.doc_store = None
+
+        result = await pipeline._analyze_with_llm_consensus(
+            "12345",
+            {"title": "Test", "abstract": "A"},
+            {"sequencing_type": "RNA-seq"},
+        )
+        assert "consensus" in result
+        assert result["consensus"]["num_backends"] == 2
+
+    async def test_all_backends_fail(self, tmp_path):
+        """All backends fail → WARN result."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        mock_backend = MagicMock()
+        mock_backend.status = BackendStatus.HEALTHY
+        mock_backend.health_score = 1.0
+        mock_backend.generate_with_retry = AsyncMock(
+            side_effect=Exception("timeout")
+        )
+        mock_router = MagicMock()
+        mock_router.backends = {"ollama": mock_backend}
+        pipeline.llm_router = mock_router
+        pipeline.doc_store = None
+
+        result = await pipeline._analyze_with_llm_consensus(
+            "12345", {"title": "T"}, {"sequencing_type": "x"},
+        )
+        assert result["consistency_rating"] == "WARN"
+        assert "failed" in result["error"]
+
+
+class TestMergeConsensus:
+    """Tests for _merge_consensus."""
+
+    def test_two_results_weighted_average(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        results = [
+            {
+                "consistency_score": 0.8,
+                "consistency_rating": "PASS",
+                "health_score": 1.0,
+                "backend": "ollama",
+                "technical_assessment": "Good",
+                "recommendations": ["rec1"],
+            },
+            {
+                "consistency_score": 0.6,
+                "consistency_rating": "WARN",
+                "health_score": 1.0,
+                "backend": "openai",
+                "technical_assessment": "OK",
+                "recommendations": ["rec2"],
+            },
+        ]
+        merged = pipeline._merge_consensus(results)
+        assert abs(merged["consistency_score"] - 0.7) < 0.01
+        assert merged["consensus"]["num_backends"] == 2
+
+    def test_rating_votes_majority(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        results = [
+            {"consistency_rating": "PASS", "health_score": 2.0, "backend": "a"},
+            {"consistency_rating": "WARN", "health_score": 1.0, "backend": "b"},
+        ]
+        merged = pipeline._merge_consensus(results)
+        assert merged["consistency_rating"] == "PASS"
+
+
+class TestRunEnrichment:
+    """Tests for _run_enrichment."""
+
+    async def test_with_genes(self, tmp_path):
+        """Runs GSEA + pathway when gene list available."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        pipeline.data_aggregator = None
+
+        result = PMIDResult(
+            pmid="12345",
+            status=PipelineStatus.RUNNING,
+            pubmed_metadata={"keywords": ["BRCA1", "TP53"]},
+            aggregated_data={
+                "europe_pmc_data": {
+                    "text_mined_terms": [
+                        {"type": "Gene", "name": "TNF"},
+                    ]
+                }
+            },
+        )
+
+        mock_gsea = MagicMock()
+        mock_gsea.run_enrichr = AsyncMock(
+            return_value={"significant_terms": ["pathway1"]}
+        )
+        mock_pathway = MagicMock()
+        mock_pathway.analyze_pathways = AsyncMock(return_value={"p1": 0.01})
+
+        with patch("core.pipeline.GSEAAnalyzer", return_value=mock_gsea, create=True), \
+             patch("core.pipeline.PathwayAnalyzer", return_value=mock_pathway, create=True), \
+             patch("core.pipeline.NoveltyScorer", create=True):
+            enrichment = await pipeline._run_enrichment(result)
+
+        assert enrichment["top_genes_count"] >= 1
+
+    async def test_import_error(self, tmp_path):
+        """Returns error when enrichment package missing."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = PMIDResult(pmid="12345", status=PipelineStatus.RUNNING)
+
+        with patch("builtins.__import__", side_effect=ImportError):
+            enrichment = await pipeline._run_enrichment(result)
+        assert "error" in enrichment
+
+
+class TestExtractGenes:
+    """Tests for _extract_genes_from_metadata."""
+
+    def test_from_text_mined_terms(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = PMIDResult(
+            pmid="12345",
+            status=PipelineStatus.RUNNING,
+            pubmed_metadata={"keywords": []},
+            aggregated_data={
+                "europe_pmc_data": {
+                    "text_mined_terms": [
+                        {"type": "Gene", "name": "TNF"},
+                        {"type": "Gene", "name": "IL6"},
+                        {"type": "Disease", "name": "Cancer"},
+                    ]
+                }
+            },
+        )
+        genes = pipeline._extract_genes_from_metadata(result)
+        assert "TNF" in genes
+        assert "IL6" in genes
+        assert "Cancer" not in genes
+
+    def test_from_uppercase_keywords(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = PMIDResult(
+            pmid="12345",
+            status=PipelineStatus.RUNNING,
+            pubmed_metadata={"keywords": ["BRCA1", "TP53", "cancer"]},
+            aggregated_data={},
+        )
+        genes = pipeline._extract_genes_from_metadata(result)
+        assert "BRCA1" in genes
+        assert "TP53" in genes
+        assert "cancer" not in genes  # not uppercase
+
+    def test_empty_data(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = PMIDResult(
+            pmid="12345",
+            status=PipelineStatus.RUNNING,
+            pubmed_metadata={},
+            aggregated_data={},
+        )
+        genes = pipeline._extract_genes_from_metadata(result)
+        assert genes == []
+
+
+class TestBuildAnalysisPrompt:
+    """Tests for _build_analysis_prompt."""
+
+    def test_basic_prompt(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        prompt = pipeline._build_analysis_prompt(
+            {"title": "Test Paper", "abstract": "Abstract text"},
+            {"sequencing_type": "scRNA-seq"},
+        )
+        assert "Test Paper" in prompt
+        assert "scRNA-seq" in prompt
+        assert "JSON response" in prompt
+
+    def test_with_downstream_analysis(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        prompt = pipeline._build_analysis_prompt(
+            {"title": "T", "abstract": "A"},
+            {"sequencing_type": "x"},
+            downstream_analysis={
+                "success": True,
+                "summary": {
+                    "total_genes": 5000,
+                    "clusters": 12,
+                    "qc_params": {"skip": True},
+                },
+            },
+        )
+        assert "total_genes" in prompt
+        assert "clusters" in prompt
+        assert "qc_params" not in prompt  # filtered out
+
+
+class TestParseLlmResponse:
+    """Tests for _parse_llm_response."""
+
+    def test_valid_json(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        content = '{"consistency_score": 0.9, "consistency_rating": "PASS"}'
+        result = pipeline._parse_llm_response(content)
+        assert result["consistency_score"] == 0.9
+
+    def test_json_in_text(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        content = 'Here is my analysis: {"consistency_rating": "WARN"} end.'
+        result = pipeline._parse_llm_response(content)
+        assert result["consistency_rating"] == "WARN"
+
+    def test_no_json_fallback(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        content = "No JSON here, just text."
+        result = pipeline._parse_llm_response(content)
+        assert result["consistency_rating"] == "WARN"
+        assert "No JSON" in result["technical_assessment"]
+
+
+class TestLoadCached:
+    """Tests for _load_cached."""
+
+    async def test_existing_file(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        data = {"key": "value"}
+        (tmp_path / "test.json").write_text(json.dumps(data))
+        result = await pipeline._load_cached("test.json")
+        assert result == {"key": "value"}
+
+    async def test_missing_file(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = await pipeline._load_cached("nonexistent.json")
+        assert result == {}
+
+
+class TestSaveSummary:
+    """Tests for _save_summary."""
+
+    async def test_writes_summary_file(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        pipeline.results = {
+            "12345": PMIDResult(pmid="12345", status=PipelineStatus.COMPLETED),
+            "67890": PMIDResult(pmid="67890", status=PipelineStatus.FAILED),
+        }
+        await pipeline._save_summary()
+        summary_file = tmp_path / "execution_summary.json"
+        assert summary_file.exists()
+        data = json.loads(summary_file.read_text())
+        assert data["execution_summary"]["completed"] == 1
+        assert data["execution_summary"]["failed"] == 1
+
+
+class TestSavePmidResult:
+    """Tests for _save_pmid_result."""
+
+    async def test_saves_result_json(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = PMIDResult(
+            pmid="12345",
+            status=PipelineStatus.COMPLETED,
+            pubmed_metadata={"title": "Test"},
+        )
+        with patch("core.pipeline.ReportGenerator", create=True) as mock_gen_cls:
+            mock_gen = MagicMock()
+            mock_gen_cls.return_value = mock_gen
+            await pipeline._save_pmid_result(result)
+        output_file = tmp_path / "final_report_12345.json"
+        assert output_file.exists()
+
+
+class TestRunGatherException:
+    """Tests for run() exception handling in gather."""
+
+    async def test_exception_in_process_pmid(self, tmp_path):
+        """Exception in _process_pmid → status FAILED."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        with patch.object(
+            pipeline, "initialize", new_callable=AsyncMock
+        ), patch.object(
+            pipeline, "_process_pmid", new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ), patch.object(
+            pipeline, "_save_summary", new_callable=AsyncMock,
+        ), patch.object(
+            pipeline, "shutdown", new_callable=AsyncMock,
+        ):
+            results = await pipeline.run()
+
+        assert results["12345"].status == PipelineStatus.FAILED
+        assert "boom" in results["12345"].error
+
+
+class TestProcessPmidHappyPath:
+    """Test the _process_pmid orchestration."""
+
+    async def test_basic_stages_1_to_6(self, tmp_path):
+        """Stages 1-6 run without pipeline execution."""
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_debate=False,
+            enable_enrichment=False,
+            enable_data_aggregation=False,
+            enable_pipeline_execution=False,
+        )
+        pipeline = AsyncPipeline(config)
+        # Set attributes normally created by initialize()
+        pipeline.fetchngs_runner = None
+        pipeline.nf_executor = None
+        pipeline.samplesheet_gen = None
+        pipeline.analysis_orchestrator = None
+        pipeline.data_aggregator = None
+        pipeline.debate_manager = None
+        pipeline.doc_store = None
+
+        pipeline.plugin_registry = MagicMock()
+        detection = MagicMock()
+        detection.sequencing_type = "RNA-seq"
+        detection.confidence = 0.95
+        detection.evidence = ["evidence"]
+        detection.recommended_pipeline = None
+        pipeline.plugin_registry.detect.return_value = (detection, None)
+
+        pipeline.llm_router = MagicMock()
+        mock_backend = MagicMock()
+        mock_backend.status = BackendStatus.HEALTHY
+        mock_backend.health_score = 1.0
+        mock_backend.generate_with_retry = AsyncMock(
+            return_value=LLMResponse(
+                content='{"consistency_score": 0.8, "consistency_rating": "PASS"}',
+                model="qwen3:30b",
+                success=True,
+                backend_name="ollama",
+                latency_ms=100.0,
+            )
+        )
+        pipeline.llm_router.backends = {"ollama": mock_backend}
+
+        with patch.object(
+            pipeline, "_fetch_pubmed", new_callable=AsyncMock,
+            return_value={"pmid": "12345", "title": "T", "abstract": "A"},
+        ), patch.object(
+            pipeline, "_explore_sra", new_callable=AsyncMock,
+            return_value={"pmid": "12345", "sra_ids": ["SRR1"]},
+        ), patch.object(
+            pipeline, "_save_pmid_result", new_callable=AsyncMock,
+        ):
+            result = await pipeline._process_pmid("12345")
+
+        assert result.status == PipelineStatus.COMPLETED
+        assert result.pubmed_metadata["title"] == "T"
+        assert result.sequencing_result["sequencing_type"] == "RNA-seq"
+
+    async def test_exception_sets_failed(self, tmp_path):
+        """Exception during processing → FAILED status."""
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_debate=False,
+            enable_enrichment=False,
+            enable_data_aggregation=False,
+        )
+        pipeline = AsyncPipeline(config)
+
+        with patch.object(
+            pipeline, "_fetch_pubmed", new_callable=AsyncMock,
+            side_effect=RuntimeError("PubMed down"),
+        ), patch.object(
+            pipeline, "_save_pmid_result", new_callable=AsyncMock,
+        ):
+            result = await pipeline._process_pmid("12345")
+
+        assert result.status == PipelineStatus.FAILED
+        assert "PubMed down" in result.error
+
+
+class TestIsStepDone:
+    """Tests for _is_step_done and _mark_step_done."""
+
+    def test_no_progress_returns_false(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        assert pipeline._is_step_done("12345", "pubmed_done") is False
+
+    def test_resume_enabled(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"], results_dir=tmp_path, enable_resume=True
+        )
+        pipeline = AsyncPipeline(config)
+        pipeline.progress = MagicMock()
+        pipeline.progress.is_pmid_step_completed.return_value = True
+        assert pipeline._is_step_done("12345", "pubmed_done") is True
+
+    def test_mark_step_done(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        pipeline.progress = MagicMock()
+        pipeline._mark_step_done("12345", "pubmed_done")
+        pipeline.progress.mark_pmid_step_completed.assert_called_once_with(
+            "12345", "pubmed_done"
+        )

@@ -851,3 +851,234 @@ class TestSlurmExecutor:
         assert content.count("clusterOptions") == 1
         assert "--account=mylab" in content
         assert "--qos=high" in content
+
+
+class TestExecutePipeline:
+    """Tests for NextflowExecutor.execute_pipeline() to improve coverage."""
+
+    def _make_executor(self, tmp_path, slurm=None):
+        """Helper to create executor with tmp_path-based config."""
+        config = NextflowExecutionConfig(
+            genome="GRCh38",
+            profile="docker",
+            max_memory="16.GB",
+            max_cpus=4,
+            work_dir=tmp_path / "work",
+            slurm=slurm or SlurmConfig(),
+        )
+        return NextflowExecutor(config)
+
+    def _make_pipeline_def(self):
+        return PipelineDefinition(
+            nf_core_name="nf-core/rnaseq",
+            timeout_hours=1,
+            analysis_type="deseq2",
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_pipeline_success(self, tmp_path):
+        """Mock subprocess with returncode=0, verify status='completed'."""
+        executor = self._make_executor(tmp_path)
+        pipeline_def = self._make_pipeline_def()
+        output_dir = tmp_path / "output"
+        samplesheet = tmp_path / "samplesheet.csv"
+        samplesheet.write_text("sample,fastq_1\ns1,f1.fq.gz\n")
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=None)
+        mock_proc.returncode = 0
+
+        expected_outputs = {"counts_matrix": ["gene_counts.tsv"]}
+        expected_trace = {"FASTQC": {"status": "COMPLETED"}}
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch.object(
+                executor.output_parser, "find_outputs",
+                return_value=expected_outputs,
+            ),
+            patch(
+                "nextflow.executor.PipelineMonitor"
+            ) as mock_monitor_cls,
+        ):
+            mock_monitor_instance = MagicMock()
+            mock_monitor_instance.parse_trace_file.return_value = expected_trace
+            mock_monitor_cls.return_value = mock_monitor_instance
+
+            result = await executor.execute_pipeline(
+                pipeline_def, samplesheet, output_dir
+            )
+
+        assert result.status == "completed"
+        assert result.exit_code == 0
+        assert result.pipeline_name == "nf-core/rnaseq"
+        assert result.output_dir == output_dir
+        assert result.output_files == expected_outputs
+        assert result.trace_summary == expected_trace
+        assert result.execution_time_seconds > 0
+        assert result.error == ""
+
+    @pytest.mark.asyncio
+    async def test_execute_pipeline_failure(self, tmp_path):
+        """Mock subprocess with returncode=1, verify status='failed'."""
+        executor = self._make_executor(tmp_path)
+        pipeline_def = self._make_pipeline_def()
+        output_dir = tmp_path / "output"
+        samplesheet = tmp_path / "samplesheet.csv"
+        samplesheet.write_text("sample,fastq_1\n")
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=None)
+        mock_proc.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await executor.execute_pipeline(
+                pipeline_def, samplesheet, output_dir
+            )
+
+        assert result.status == "failed"
+        assert result.exit_code == 1
+        assert "exited with code 1" in result.error
+        assert result.pipeline_name == "nf-core/rnaseq"
+
+    @pytest.mark.asyncio
+    async def test_execute_pipeline_timeout(self, tmp_path):
+        """Mock asyncio.wait_for to raise asyncio.TimeoutError."""
+        executor = self._make_executor(tmp_path)
+        pipeline_def = self._make_pipeline_def()
+        output_dir = tmp_path / "output"
+        samplesheet = tmp_path / "samplesheet.csv"
+        samplesheet.write_text("sample,fastq_1\n")
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=None)
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch(
+                "asyncio.wait_for",
+                side_effect=asyncio.TimeoutError(),
+            ),
+        ):
+            result = await executor.execute_pipeline(
+                pipeline_def, samplesheet, output_dir
+            )
+
+        assert result.status == "timeout"
+        assert "timed out" in result.error
+        mock_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_pipeline_exception(self, tmp_path):
+        """Mock create_subprocess_exec to raise OSError."""
+        executor = self._make_executor(tmp_path)
+        pipeline_def = self._make_pipeline_def()
+        output_dir = tmp_path / "output"
+        samplesheet = tmp_path / "samplesheet.csv"
+        samplesheet.write_text("sample,fastq_1\n")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=OSError("nextflow not found"),
+        ):
+            result = await executor.execute_pipeline(
+                pipeline_def, samplesheet, output_dir
+            )
+
+        assert result.status == "failed"
+        assert "nextflow not found" in result.error
+        assert result.exit_code is None
+
+    @pytest.mark.asyncio
+    async def test_execute_pipeline_with_slurm(self, tmp_path):
+        """Slurm enabled: verify _generate_slurm_config called and -c flag in cmd."""
+        slurm = SlurmConfig(
+            enabled=True,
+            queue="batch",
+            time_limit="12:00:00",
+            memory="32G",
+            cpus_per_task=8,
+        )
+        executor = self._make_executor(tmp_path, slurm=slurm)
+        pipeline_def = self._make_pipeline_def()
+        output_dir = tmp_path / "output"
+        samplesheet = tmp_path / "samplesheet.csv"
+        samplesheet.write_text("sample,fastq_1\n")
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=None)
+        mock_proc.returncode = 0
+
+        captured_cmd = []
+
+        async def capture_cmd(*args, **kwargs):
+            captured_cmd.extend(args)
+            return mock_proc
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=capture_cmd),
+            patch.object(
+                executor.output_parser, "find_outputs", return_value={},
+            ),
+            patch("nextflow.executor.PipelineMonitor") as mock_monitor_cls,
+        ):
+            mock_monitor_instance = MagicMock()
+            mock_monitor_instance.parse_trace_file.return_value = {}
+            mock_monitor_cls.return_value = mock_monitor_instance
+
+            result = await executor.execute_pipeline(
+                pipeline_def, samplesheet, output_dir
+            )
+
+        assert result.status == "completed"
+        # Verify -c flag is in command with slurm.config path
+        assert "-c" in captured_cmd
+        c_idx = captured_cmd.index("-c")
+        assert "slurm.config" in captured_cmd[c_idx + 1]
+        # Verify slurm.config file was generated
+        slurm_config = output_dir / "slurm.config"
+        assert slurm_config.exists()
+        content = slurm_config.read_text()
+        assert "executor = 'slurm'" in content
+        assert "queue = 'batch'" in content
+
+    def test_pipeline_execution_result_to_dict(self):
+        """Test to_dict() method with various field combinations."""
+        from nextflow.executor import PipelineExecutionResult
+
+        # Test with None output_dir
+        result = PipelineExecutionResult(
+            pipeline_name="nf-core/rnaseq",
+            status="failed",
+            exit_code=1,
+            output_dir=None,
+            execution_time_seconds=45.5,
+            output_files={"counts": ["/path/to/counts.tsv"]},
+            error="Pipeline exited with code 1",
+        )
+        d = result.to_dict()
+        assert d["pipeline_name"] == "nf-core/rnaseq"
+        assert d["status"] == "failed"
+        assert d["exit_code"] == 1
+        assert d["output_dir"] is None
+        assert d["execution_time_seconds"] == 45.5
+        assert d["output_files"]["counts"] == ["/path/to/counts.tsv"]
+        assert "exited with code 1" in d["error"]
+
+        # Test with output_dir set
+        result2 = PipelineExecutionResult(
+            pipeline_name="nf-core/scrnaseq",
+            status="completed",
+            exit_code=0,
+            output_dir=Path("/tmp/output"),
+            execution_time_seconds=3600.0,
+            output_files={},
+            error="",
+        )
+        d2 = result2.to_dict()
+        assert d2["output_dir"] == "/tmp/output"
+        assert d2["status"] == "completed"
+        assert d2["output_files"] == {}
+        assert d2["error"] == ""

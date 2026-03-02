@@ -518,3 +518,295 @@ class TestSearchWithSelection:
         ]
         result = runner.invoke(cli, ["search", "test"], input="abc\n")
         assert "잘못된 입력" in result.output
+
+
+# ============================================================
+# CLI Coverage Improvement Tests (Step 3-B)
+# ============================================================
+
+
+class TestRunWithExecutePipeline:
+    """Tests for `run --execute-pipeline` flag."""
+
+    @patch("core.cli.asyncio.run")
+    @patch("core.cli.AsyncPipeline")
+    def test_execute_pipeline_success(self, mock_pipeline_cls, mock_run, runner):
+        """--execute-pipeline with nextflow available."""
+        mock_pipeline = MagicMock()
+        mock_pipeline_cls.return_value = mock_pipeline
+        mock_run.return_value = {}
+
+        with patch("core.cli._load_config", return_value={}):
+            result = runner.invoke(
+                cli,
+                ["run", "12345", "--execute-pipeline", "--genome", "GRCh38"],
+            )
+        assert result.exit_code == 0
+        assert "Pipeline Execution: ON" in result.output
+
+    @patch("core.cli.asyncio.run")
+    @patch("core.cli.AsyncPipeline")
+    def test_execute_pipeline_import_error(self, mock_pipeline_cls, mock_run, runner):
+        """--execute-pipeline fails gracefully when nextflow not available."""
+        mock_pipeline = MagicMock()
+        mock_pipeline_cls.return_value = mock_pipeline
+        mock_run.return_value = {}
+
+        original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+        def nextflow_import_blocker(name, *args, **kwargs):
+            if "nextflow" in name:
+                raise ImportError(f"No module named '{name}'")
+            return original_import(name, *args, **kwargs)
+
+        with patch("core.cli._load_config", return_value={}), \
+             patch("builtins.__import__", side_effect=nextflow_import_blocker):
+            result = runner.invoke(
+                cli,
+                ["run", "12345", "--execute-pipeline"],
+            )
+        assert result.exit_code == 0
+        assert "WARN" in result.output
+
+
+class TestBackendsCommandExtended:
+    """Extended tests for `backends` command."""
+
+    @patch("core.cli._get_llm_server_config",
+           return_value=("http://localhost:11434", "qwen3:30b", 60))
+    def test_backends_ollama_healthy(self, mock_cfg, runner):
+        """Ollama responding with matching model."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "models": [{"name": "qwen3:30b"}, {"name": "llama3:8b"}]
+        }
+        with patch("httpx.get", return_value=mock_resp):
+            result = runner.invoke(cli, ["backends"])
+        assert "HEALTHY" in result.output
+
+    @patch("core.cli._get_llm_server_config",
+           return_value=("http://localhost:11434", "qwen3:30b", 60))
+    def test_backends_ollama_unreachable(self, mock_cfg, runner):
+        """Ollama server unreachable."""
+        with patch("httpx.get", side_effect=Exception("Connection refused")):
+            result = runner.invoke(cli, ["backends"])
+        assert "UNREACHABLE" in result.output
+
+    @patch("core.cli._get_llm_server_config",
+           return_value=("http://localhost:11434", "qwen3:30b", 60))
+    def test_backends_ollama_unhealthy(self, mock_cfg, runner):
+        """Ollama responding with non-200 status."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        with patch("httpx.get", return_value=mock_resp):
+            result = runner.invoke(cli, ["backends"])
+        assert "UNHEALTHY" in result.output
+
+    @patch("core.cli._get_llm_server_config",
+           return_value=("http://localhost:11434", "qwen3:30b", 60))
+    def test_backends_ollama_model_not_found(self, mock_cfg, runner):
+        """Ollama healthy but model not found."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "models": [{"name": "llama3:8b"}]
+        }
+        with patch("httpx.get", return_value=mock_resp):
+            result = runner.invoke(cli, ["backends"])
+        assert "not found" in result.output
+
+
+class TestReportCommand:
+    """Tests for `report` command."""
+
+    def test_report_no_args(self, runner):
+        """report without PMIDs or --all shows usage."""
+        result = runner.invoke(cli, ["report"])
+        assert "PMID를 지정하거나" in result.output
+
+    def test_report_missing_file(self, runner, tmp_path):
+        """report with non-existent JSON file."""
+        result = runner.invoke(
+            cli,
+            ["report", "99999", "--results-dir", str(tmp_path)],
+        )
+        assert "SKIP" in result.output
+
+    @patch("core.cli.ReportGenerator", create=True)
+    def test_report_single_pmid(self, mock_gen_cls, runner, tmp_path):
+        """report generates HTML for a single PMID."""
+        mock_gen = MagicMock()
+        mock_gen.generate_from_json.return_value = tmp_path / "report_12345.html"
+
+        data = {"pmid": "12345", "status": "completed"}
+        (tmp_path / "final_report_12345.json").write_text(json.dumps(data))
+
+        with patch("core.cli.ReportGenerator", return_value=mock_gen):
+            result = runner.invoke(
+                cli,
+                ["report", "12345", "--results-dir", str(tmp_path)],
+            )
+        assert "OK" in result.output
+        assert "1 report" in result.output
+
+    @patch("core.cli.ReportGenerator", create=True)
+    def test_report_multiple_pmids_with_summary(self, mock_gen_cls, runner, tmp_path):
+        """report generates summary for 2+ PMIDs."""
+        mock_gen = MagicMock()
+        mock_gen.generate_from_json.side_effect = [
+            tmp_path / "report_111.html",
+            tmp_path / "report_222.html",
+        ]
+
+        for pmid in ("111", "222"):
+            data = {"pmid": pmid, "status": "completed"}
+            (tmp_path / f"final_report_{pmid}.json").write_text(json.dumps(data))
+
+        with patch("core.cli.ReportGenerator", return_value=mock_gen):
+            result = runner.invoke(
+                cli,
+                ["report", "111", "222", "--results-dir", str(tmp_path)],
+            )
+        assert "summary" in result.output
+        assert "2 report" in result.output
+
+    @patch("core.cli.ReportGenerator", create=True)
+    def test_report_all_flag(self, mock_gen_cls, runner, tmp_path):
+        """report --all generates from all final_report files."""
+        mock_gen = MagicMock()
+        mock_gen.generate_from_json.return_value = tmp_path / "report.html"
+
+        data = {"pmid": "333", "status": "completed"}
+        (tmp_path / "final_report_333.json").write_text(json.dumps(data))
+
+        with patch("core.cli.ReportGenerator", return_value=mock_gen):
+            result = runner.invoke(
+                cli,
+                ["report", "--all", "--results-dir", str(tmp_path)],
+            )
+        assert "1 report" in result.output
+
+
+class TestProjectSubcommands:
+    """Tests for project info and add-pmids."""
+
+    def test_project_info_found(self, runner):
+        """project info with existing project."""
+        mock_pm = MagicMock()
+        mock_proj = MagicMock()
+        mock_proj.name = "Test Project"
+        mock_proj.slug = "test_project"
+        mock_proj.description = "A test project"
+        mock_proj.keywords = ["rnaseq"]
+        mock_proj.pmids = ["12345"]
+        mock_proj.created_at = "2024-01-01T00:00:00"
+        mock_proj.updated_at = "2024-01-02T00:00:00"
+        mock_pm.get_project.return_value = mock_proj
+        mock_pm.get_project_dir.return_value = "/tmp/projects/test_project"
+
+        with patch("core.cli.ProjectManager", return_value=mock_pm):
+            result = runner.invoke(cli, ["project", "info", "test_project"])
+        assert result.exit_code == 0
+        assert "Test Project" in result.output
+        assert "12345" in result.output
+
+    def test_project_info_not_found(self, runner):
+        """project info with non-existent project."""
+        mock_pm = MagicMock()
+        mock_pm.get_project.return_value = None
+        with patch("core.cli.ProjectManager", return_value=mock_pm):
+            result = runner.invoke(cli, ["project", "info", "nope"])
+        assert "찾을 수 없습니다" in result.output
+
+    def test_project_add_pmids_success(self, runner):
+        """project add-pmids success."""
+        mock_pm = MagicMock()
+        mock_proj = MagicMock()
+        mock_proj.name = "Test"
+        mock_proj.pmids = ["12345", "67890"]
+        mock_pm.add_pmids.return_value = mock_proj
+        with patch("core.cli.ProjectManager", return_value=mock_pm):
+            result = runner.invoke(
+                cli, ["project", "add-pmids", "test", "12345", "67890"]
+            )
+        assert result.exit_code == 0
+        assert "67890" in result.output
+
+    def test_project_add_pmids_not_found(self, runner):
+        """project add-pmids with non-existent project."""
+        mock_pm = MagicMock()
+        mock_pm.add_pmids.return_value = None
+        with patch("core.cli.ProjectManager", return_value=mock_pm):
+            result = runner.invoke(
+                cli, ["project", "add-pmids", "nope", "12345"]
+            )
+        assert "찾을 수 없습니다" in result.output
+
+
+class TestSearchQuit:
+    """Tests for search command quit."""
+
+    @patch("core.cli._run_search")
+    def test_search_quit(self, mock_search, runner):
+        """Search then quit."""
+        from search import SearchResult
+        mock_search.return_value = [
+            SearchResult(
+                pmid="12345", title="P1", abstract="A",
+                year=2024, citation_count=10, sources=["pubmed"],
+                relevance_score=0.9,
+            ),
+        ]
+        result = runner.invoke(cli, ["search", "test"], input="q\n")
+        assert "종료합니다" in result.output
+
+    @patch("core.cli._run_search")
+    def test_search_no_pmid_selection(self, mock_search, runner):
+        """Selection with no PMID in results."""
+        from search import SearchResult
+        mock_search.return_value = [
+            SearchResult(
+                pmid=None, title="No PMID Paper", abstract="A",
+                year=2024, citation_count=10, sources=["semantic_scholar"],
+                relevance_score=0.9,
+            ),
+        ]
+        result = runner.invoke(cli, ["search", "test"], input="1\n")
+        assert "PMID가 있는 논문이 없습니다" in result.output
+
+    @patch("core.cli.AsyncPipeline")
+    def test_search_auto_run(self, mock_pipe, runner):
+        """Search with --auto-run."""
+        from unittest.mock import AsyncMock
+
+        from search import SearchResult
+
+        search_results = [
+            SearchResult(
+                pmid="12345", title="P1", abstract="A",
+                year=2024, citation_count=10, sources=["pubmed"],
+                relevance_score=0.9,
+            ),
+        ]
+        mock_pipe_inst = MagicMock()
+        mock_pipe_inst.run = AsyncMock(return_value={})
+        mock_pipe.return_value = mock_pipe_inst
+
+        with patch("core.cli._run_search", new_callable=AsyncMock, return_value=search_results):
+            result = runner.invoke(
+                cli, ["search", "test", "--auto-run"], input="1\n"
+            )
+        assert "파이프라인 실행 완료" in result.output
+
+
+class TestLoadConfig:
+    """Tests for _load_config."""
+
+    def test_returns_empty_when_no_config(self):
+        from core.cli import _load_config
+        with patch("pathlib.Path.exists", return_value=False):
+            result = _load_config()
+        assert result == {}
+
+

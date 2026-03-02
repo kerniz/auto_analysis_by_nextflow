@@ -5,6 +5,7 @@ Async Pipeline Module - Main Orchestrator
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -12,6 +13,8 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 try:
     import httpx
@@ -802,7 +805,9 @@ class AsyncPipeline:
         try:
             from core.pubmed_client import PubMedClient
             client = PubMedClient()
-            metadata = client.fetch_paper_metadata(pmid)
+            metadata = await asyncio.to_thread(
+                client.fetch_paper_metadata, pmid
+            )
             if metadata:
                 with open(cached_file, "w") as f:
                     json.dump(metadata, f, indent=2, default=str)
@@ -826,7 +831,9 @@ class AsyncPipeline:
             from core.sra_explorer import SRAExplorer
             explorer = SRAExplorer(results_dir=str(self.config.results_dir))
             sra_links = pubmed_metadata.get("sra_links", [])
-            result = explorer.explore_sra_datasets(pmid, sra_links)
+            result = await asyncio.to_thread(
+                explorer.explore_sra_datasets, pmid, sra_links
+            )
             if result:
                 with open(cached_file, "w") as f:
                     json.dump(result, f, indent=2, default=str)
@@ -1086,13 +1093,10 @@ Provide a JSON response with:
         return prompt
 
     def _parse_llm_response(self, content: str) -> dict[str, Any]:
-        try:
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start != -1 and end > start:
-                return json.loads(content[start:end])
-        except json.JSONDecodeError:
-            pass
+        from core.json_utils import extract_json_from_llm
+        result = extract_json_from_llm(content)
+        if result:
+            return result
         return {
             "consistency_rating": "WARN",
             "technical_assessment": content[:500]
@@ -1142,26 +1146,28 @@ Provide a JSON response with:
 
                 if not nf_jobs:
                     if waited > 0:
-                        print("  HPC 파이프라인 작업 완료, 토론 시작")
+                        logger.info("HPC 파이프라인 작업 완료, 토론 시작")
                     return
 
                 # sinfo: 노드 CPU 할당률 체크
                 alloc_ratio = await self._get_slurm_cpu_alloc_ratio()
 
-                print(
-                    f"  HPC 파이프라인 작업 {len(nf_jobs)}개 실행 중 "
-                    f"(CPU 할당률: {alloc_ratio:.0f}%), "
-                    f"{check_interval}초 후 재확인... ({waited}/{max_wait}s)"
+                logger.info(
+                    "HPC 파이프라인 작업 %d개 실행 중 "
+                    "(CPU 할당률: %.0f%%), "
+                    "%d초 후 재확인... (%d/%ds)",
+                    len(nf_jobs), alloc_ratio,
+                    check_interval, waited, max_wait,
                 )
 
             except Exception as e:
-                print(f"  Slurm 상태 확인 실패: {e}, 토론 진행")
+                logger.warning("Slurm 상태 확인 실패: %s, 토론 진행", e)
                 return
 
             await asyncio.sleep(check_interval)
             waited += check_interval
 
-        print(f"  HPC 대기 타임아웃 ({max_wait}s), 토론 강제 시작")
+        logger.warning("HPC 대기 타임아웃 (%ds), 토론 강제 시작", max_wait)
 
     @staticmethod
     async def _get_slurm_cpu_alloc_ratio() -> float:

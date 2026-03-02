@@ -3,7 +3,7 @@ Tests for Search Package
 검색 패키지 테스트
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -174,3 +174,144 @@ class TestTopicSearcher:
         results = await searcher.search("test")
         # SS 실패해도 EPMC 결과는 반환
         assert len(results) == 1
+
+
+class TestTopicSearcherEdgeCases:
+    """Edge case tests for TopicSearcher to improve coverage."""
+
+    @pytest.mark.asyncio
+    async def test_search_pubmed_exception_returns_empty(self):
+        """Mock asyncio.to_thread to raise Exception, verify empty result."""
+        mock_pubmed = AsyncMock()
+        mock_pubmed.search_by_topic = MagicMock(side_effect=Exception("PubMed down"))
+        searcher = TopicSearcher(pubmed_client=mock_pubmed)
+
+        with patch("asyncio.to_thread", side_effect=Exception("PubMed down")):
+            results = await searcher.search("cancer")
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_semantic_scholar_failed_response(self):
+        """Return ClientResponse(success=False), verify empty."""
+        mock_ss = AsyncMock()
+        mock_ss.search = AsyncMock(return_value=ClientResponse(
+            success=False,
+            data=None,
+            source="semantic_scholar",
+            query="test",
+            error_message="Rate limited",
+        ))
+        searcher = TopicSearcher(ss_client=mock_ss)
+        results = await searcher.search("test")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_europe_pmc_failed_response(self):
+        """Return ClientResponse(success=False), verify empty."""
+        mock_epmc = AsyncMock()
+        mock_epmc.search = AsyncMock(return_value=ClientResponse(
+            success=False,
+            data=None,
+            source="europe_pmc",
+            query="test",
+            error_message="Service unavailable",
+        ))
+        searcher = TopicSearcher(epmc_client=mock_epmc)
+        results = await searcher.search("test")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_europe_pmc_non_list_data(self):
+        """Return ClientResponse(success=True, data='not a list'), verify handling."""
+        mock_epmc = AsyncMock()
+        mock_epmc.search = AsyncMock(return_value=ClientResponse(
+            success=True,
+            data="not a list",
+            source="europe_pmc",
+            query="test",
+        ))
+        searcher = TopicSearcher(epmc_client=mock_epmc)
+        results = await searcher.search("test")
+        # Non-list data should be handled gracefully (empty papers list)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_brave_exception(self):
+        """Mock brave search to raise, verify empty."""
+        mock_brave = AsyncMock()
+        mock_brave.search = AsyncMock(side_effect=RuntimeError("Network error"))
+        searcher = TopicSearcher(brave_client=mock_brave)
+        results = await searcher.search("genomics")
+        assert results == []
+
+    def test_normalize_ss_no_external_ids(self):
+        """Paper dict without 'externalIds' key."""
+        searcher = TopicSearcher()
+        paper = {
+            "title": "No External IDs Paper",
+            "abstract": "Some abstract",
+            "year": 2023,
+            "citationCount": 5,
+            "authors": [{"name": "Smith J"}],
+        }
+        result = searcher._normalize_ss(paper)
+        assert result.pmid is None
+        assert result.doi is None
+        assert result.title == "No External IDs Paper"
+        assert result.year == 2023
+        assert result.citation_count == 5
+        assert result.authors == ["Smith J"]
+        assert result.sources == ["semantic_scholar"]
+
+    def test_normalize_epmc_no_year(self):
+        """Paper dict without 'pubYear' field."""
+        searcher = TopicSearcher()
+        paper = {
+            "pmid": "99999",
+            "title": "No Year Paper",
+            "abstractText": "Abstract here",
+            "citedByCount": 12,
+            "authorList": {"author": [{"fullName": "Doe J"}]},
+        }
+        result = searcher._normalize_epmc(paper)
+        assert result.year is None
+        assert result.pmid == "99999"
+        assert result.title == "No Year Paper"
+        assert result.authors == ["Doe J"]
+        assert result.citation_count == 12
+
+    @pytest.mark.asyncio
+    async def test_search_mixed_success_and_exception(self):
+        """asyncio.gather returns mix of results and Exception objects."""
+        # SS succeeds
+        mock_ss = AsyncMock()
+        mock_ss.search = AsyncMock(return_value=ClientResponse(
+            success=True,
+            data=[{
+                "title": "Good Paper",
+                "abstract": "Abs",
+                "year": 2024,
+                "citationCount": 10,
+                "authors": [],
+                "externalIds": {"PubMed": "444"},
+            }],
+            source="semantic_scholar",
+            query="test",
+        ))
+        # EPMC raises exception
+        mock_epmc = AsyncMock()
+        mock_epmc.search = AsyncMock(side_effect=ConnectionError("timeout"))
+        # Brave raises exception
+        mock_brave = AsyncMock()
+        mock_brave.search = AsyncMock(side_effect=ValueError("bad response"))
+
+        searcher = TopicSearcher(
+            ss_client=mock_ss, epmc_client=mock_epmc, brave_client=mock_brave
+        )
+        results = await searcher.search("mixed test")
+
+        # Only SS result should come through; EPMC and Brave failures handled
+        assert len(results) == 1
+        assert results[0].pmid == "444"
+        assert results[0].title == "Good Paper"
