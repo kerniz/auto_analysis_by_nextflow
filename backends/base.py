@@ -138,21 +138,32 @@ class LLMBackend(ABC):
         import asyncio
 
         last_error = None
+        last_response = None
 
         for attempt in range(self.config.max_retries):
             try:
                 response = await self.generate(prompt, system_prompt, **kwargs)
                 self._request_count += 1
-                return response
+
+                if response.success:
+                    return response
+
+                # 실패 응답: 재시도 (빈 응답, 서버 오류 등)
+                last_response = response
+                last_error = response.error_message
 
             except Exception as e:
                 self._error_count += 1
                 last_error = e
 
-                if attempt < self.config.max_retries - 1:
-                    # 지수 백오프
-                    wait_time = 2 ** attempt
-                    await asyncio.sleep(wait_time)
+            if attempt < self.config.max_retries - 1:
+                # 지수 백오프
+                wait_time = 2 ** attempt
+                await asyncio.sleep(wait_time)
+
+        # 성공한 응답이 있으면 반환 (success=False라도)
+        if last_response is not None:
+            return last_response
 
         # 모든 재시도 실패
         return LLMResponse(

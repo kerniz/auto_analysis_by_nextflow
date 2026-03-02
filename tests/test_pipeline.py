@@ -2191,6 +2191,42 @@ class TestSavePmidResult:
         output_file = tmp_path / "final_report_12345.json"
         assert output_file.exists()
 
+    async def test_saves_debate_report_in_json(self, tmp_path):
+        """debate_report가 final_report JSON에 포함되는지 확인."""
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        result = PMIDResult(
+            pmid="12345",
+            status=PipelineStatus.COMPLETED,
+            debate_report={
+                "overall_verdict": "PASS",
+                "overall_score": 0.85,
+                "rounds": [{"round_number": 1, "responses": []}],
+            },
+        )
+        with patch("core.pipeline.ReportGenerator", create=True) as mock_gen_cls:
+            mock_gen = MagicMock()
+            mock_gen_cls.return_value = mock_gen
+            await pipeline._save_pmid_result(result)
+
+        output_file = tmp_path / "final_report_12345.json"
+        import json
+        with open(output_file) as f:
+            saved = json.load(f)
+        assert "debate_report" in saved
+        assert saved["debate_report"]["overall_verdict"] == "PASS"
+        assert saved["debate_report"]["overall_score"] == 0.85
+
+
+class TestLLMSemaphore:
+    """Tests for _llm_semaphore preventing concurrent LLM access."""
+
+    def test_llm_semaphore_exists(self, tmp_path):
+        config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        assert hasattr(pipeline, "_llm_semaphore")
+        assert pipeline._llm_semaphore._value == 1
+
 
 class TestRunGatherException:
     """Tests for run() exception handling in gather."""

@@ -4,7 +4,10 @@ Ollama Backend
 """
 
 import asyncio
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 try:
     import httpx
@@ -134,9 +137,26 @@ class OllamaBackend(LLMBackend):
 
                 if response.status_code == 200:
                     data = response.json()
+                    content = data.get("response", "")
+
+                    # 빈 응답 감지: success=False로 처리하여 재시도 유도
+                    if not content or not content.strip():
+                        logger.warning(
+                            "Ollama 빈 응답 (model=%s, prompt_tokens=%d)",
+                            self.config.model,
+                            data.get("prompt_eval_count", 0),
+                        )
+                        return LLMResponse(
+                            content="",
+                            model=self.config.model,
+                            backend_name=self.name,
+                            success=False,
+                            latency_ms=latency_ms,
+                            error_message="Empty response from model",
+                        )
 
                     return LLMResponse(
-                        content=data.get("response", ""),
+                        content=content,
                         model=self.config.model,
                         backend_name=self.name,
                         success=True,
@@ -165,9 +185,24 @@ class OllamaBackend(LLMBackend):
 
                 if response.status_code == 200:
                     data = response.json()
+                    content = data.get("response", "")
+
+                    if not content or not content.strip():
+                        logger.warning(
+                            "Ollama 빈 응답 (sync, model=%s)",
+                            self.config.model,
+                        )
+                        return LLMResponse(
+                            content="",
+                            model=self.config.model,
+                            backend_name=self.name,
+                            success=False,
+                            latency_ms=latency_ms,
+                            error_message="Empty response from model",
+                        )
 
                     return LLMResponse(
-                        content=data.get("response", ""),
+                        content=content,
                         model=self.config.model,
                         backend_name=self.name,
                         success=True,

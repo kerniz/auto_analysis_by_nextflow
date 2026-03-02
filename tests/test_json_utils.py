@@ -1,6 +1,11 @@
 """Tests for core.json_utils — shared JSON parsing utilities."""
 
-from core.json_utils import extract_json_from_llm, repair_json, strip_think_tags
+from core.json_utils import (
+    _find_balanced_json,
+    extract_json_from_llm,
+    repair_json,
+    strip_think_tags,
+)
 
 
 class TestStripThinkTags:
@@ -82,3 +87,87 @@ class TestExtractJsonFromLlm:
         content = '{"a": 1, "b": 2,}'
         result = extract_json_from_llm(content)
         assert result == {"a": 1, "b": 2}
+
+    def test_unclosed_think_tag(self):
+        content = '<think>Still thinking...{"score": 0.5}'
+        result = extract_json_from_llm(content)
+        assert result is None or result.get("score") == 0.5
+
+    def test_nested_json_in_string(self):
+        content = '{"assessment": "The data shows {key: val} patterns", "score": 0.8}'
+        result = extract_json_from_llm(content)
+        assert result is not None
+        assert result["score"] == 0.8
+
+    def test_long_multiline_json(self):
+        content = """```json
+{
+  "assessment": "Comprehensive evaluation of the research paper",
+  "score": 0.75,
+  "confidence": 0.85,
+  "key_points": [
+    "Point 1 about methodology",
+    "Point 2 about results"
+  ],
+  "concerns": [
+    "Concern about sample size",
+    "Concern about reproducibility"
+  ],
+  "questions": ["Question 1"],
+  "rebuttal_to": null
+}
+```"""
+        result = extract_json_from_llm(content)
+        assert result is not None
+        assert result["score"] == 0.75
+        assert len(result["key_points"]) == 2
+
+    def test_json_with_korean_text(self):
+        content = '{"assessment": "멜리틴의 항염증 효과가 유의미함", "score": 0.8}'
+        result = extract_json_from_llm(content)
+        assert result is not None
+        assert result["score"] == 0.8
+        assert "멜리틴" in result["assessment"]
+
+    def test_json_after_text_explanation(self):
+        content = """Based on my analysis, here is my assessment:
+
+{"assessment": "Good study", "score": 0.7, "confidence": 0.8, "key_points": [], "concerns": [], "questions": [], "rebuttal_to": null}"""
+        result = extract_json_from_llm(content)
+        assert result is not None
+        assert result["score"] == 0.7
+
+    def test_rebuttal_to_string_null(self):
+        content = '{"score": 0.6, "rebuttal_to": "null"}'
+        result = extract_json_from_llm(content)
+        assert result is not None
+        assert result["rebuttal_to"] == "null"
+
+
+class TestFindBalancedJson:
+    def test_simple_object(self):
+        text = '{"key": "value"}'
+        assert _find_balanced_json(text) == '{"key": "value"}'
+
+    def test_nested_objects(self):
+        text = '{"outer": {"inner": 1}}'
+        assert _find_balanced_json(text) == '{"outer": {"inner": 1}}'
+
+    def test_braces_in_strings(self):
+        text = '{"key": "value with {braces}"}'
+        result = _find_balanced_json(text)
+        assert result == '{"key": "value with {braces}"}'
+
+    def test_prefix_text(self):
+        text = 'Here is JSON: {"score": 0.5}'
+        result = _find_balanced_json(text)
+        assert result == '{"score": 0.5}'
+
+    def test_no_json(self):
+        assert _find_balanced_json("no json here") is None
+
+    def test_unclosed_returns_rest(self):
+        text = '{"score": 0.5, "items": [1, 2'
+        result = _find_balanced_json(text)
+        assert result is not None
+        assert result.startswith('{"score"')

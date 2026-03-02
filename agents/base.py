@@ -7,7 +7,6 @@ Multi-agent debate system의 핵심 추상 기본 클래스와 데이터 구조�
 
 import json
 import logging
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,7 +14,7 @@ from enum import Enum
 from typing import Any
 
 from backends.router import LLMRouter
-from core.json_utils import repair_json, strip_think_tags
+from core.json_utils import extract_json_from_llm, repair_json, strip_think_tags
 
 logger = logging.getLogger(__name__)
 
@@ -340,49 +339,20 @@ class DebateAgent(ABC):
         """
         parsed = None
 
-        # qwen3 모델의 <think>...</think> 태그 제거
-        cleaned = self._strip_think_tags(llm_content)
+        # 디버그: raw 응답 로깅 (파싱 문제 진단용)
+        logger.debug(
+            "Raw LLM response (agent=%s, round=%d, len=%d): %s",
+            self.name, round_number, len(llm_content),
+            llm_content[:500] if llm_content else "(empty)",
+        )
 
-        # JSON 블록 추출 시도
-        try:
-            # ```json ... ``` 블록에서 추출
-            json_match = re.search(
-                r"```(?:json)?\s*\n?(.*?)\n?\s*```",
-                cleaned,
-                re.DOTALL,
+        # 공유 유틸리티로 JSON 추출 (think 태그 제거 + 복구 포함)
+        parsed = extract_json_from_llm(llm_content)
+        if parsed is None:
+            logger.warning(
+                "JSON 파싱 실패 (agent=%s, round=%d, content_len=%d)",
+                self.name, round_number, len(llm_content),
             )
-            if json_match:
-                parsed = json.loads(json_match.group(1))
-            else:
-                # 순수 JSON으로 파싱 시도
-                # 중괄호로 시작하는 부분 찾기
-                brace_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-                if brace_match:
-                    parsed = json.loads(brace_match.group(0))
-                else:
-                    parsed = json.loads(cleaned)
-        except (json.JSONDecodeError, AttributeError):
-            # 1차 파싱 실패 → JSON 복구 시도
-            try:
-                json_match = re.search(
-                    r"```(?:json)?\s*\n?(.*)",
-                    cleaned,
-                    re.DOTALL,
-                )
-                raw = json_match.group(1) if json_match else cleaned
-                brace_match = re.search(r"\{.*", raw, re.DOTALL)
-                if brace_match:
-                    repaired = self._repair_json(brace_match.group(0))
-                    parsed = json.loads(repaired)
-                    logger.info(
-                        "JSON 복구 성공 (agent=%s, round=%d)",
-                        self.name, round_number,
-                    )
-            except (json.JSONDecodeError, AttributeError, ValueError) as e:
-                logger.warning(
-                    "JSON 파싱 실패 (agent=%s, round=%d): %s",
-                    self.name, round_number, str(e),
-                )
 
         if parsed and isinstance(parsed, dict):
             # 점수 범위 검증 및 클램프

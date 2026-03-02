@@ -414,6 +414,8 @@ class AsyncPipeline:
         self.debate_manager = None
         self.doc_store = None
         self._semaphore = asyncio.Semaphore(config.max_concurrent)
+        # LLM 동시 요청 방지 (qwen3:30b 단일 GPU 보호)
+        self._llm_semaphore = asyncio.Semaphore(1)
         self._http_client: Any | None = None
 
         # Project isolation: redirect results_dir if project_slug is set
@@ -444,6 +446,7 @@ class AsyncPipeline:
             model=llm_srv.model,
             timeout=llm_srv.timeout,
             max_retries=llm_srv.max_retries,
+            max_tokens=4096,
         )
         backends.append(OllamaBackend(
             base_url=llm_srv.url,
@@ -485,7 +488,7 @@ class AsyncPipeline:
                 self.data_aggregator = DataAggregator()
                 await self.data_aggregator.initialize()
             except ImportError:
-                print("[WARN] clients 패키지 없음, 데이터 집계 비활성화")
+                logger.warning("clients 패키지 없음, 데이터 집계 비활성화")
 
         # Debate manager (lazy import)
         if self.config.enable_debate and self.llm_router:
@@ -503,7 +506,7 @@ class AsyncPipeline:
                     self.llm_router, config=debate_config
                 )
             except ImportError:
-                print("[WARN] agents 패키지 없음, 토론 비활성화")
+                logger.warning("agents 패키지 없음, 토론 비활성화")
 
         # RAG document store (lazy import)
         if self.config.rag_dir:
@@ -511,7 +514,7 @@ class AsyncPipeline:
                 from rag.document_store import DocumentStore
                 self.doc_store = DocumentStore(self.config.rag_dir)
             except ImportError:
-                print("[WARN] rag 패키지 없음, RAG 비활성화")
+                logger.warning("rag 패키지 없음, RAG 비활성화")
 
         # Nextflow execution layer (v4.0, lazy, conditional)
         self.nf_executor = None
@@ -541,10 +544,10 @@ class AsyncPipeline:
 
                 prereqs = await self.nf_executor.check_prerequisites()
                 if not prereqs.get("nextflow"):
-                    print("[WARN] Nextflow not installed, pipeline execution disabled")
+                    logger.warning("Nextflow not installed, pipeline execution disabled")
                     self.nf_executor = None
             except ImportError as e:
-                print(f"[WARN] nextflow/analysis packages not available: {e}")
+                logger.warning("nextflow/analysis packages not available: %s", e)
 
         # HTTP client
         if HAS_HTTPX:
@@ -734,49 +737,55 @@ class AsyncPipeline:
                     except Exception as e:
                         result.enrichment_results = {"error": str(e)}
 
-                # Stage 6: LLM 멀티 합의 분석
-                if not self._is_step_done(pmid, "llm_analysis_done"):
-                    llm_analysis = await self._analyze_with_llm_consensus(
-                        pmid, result.pubmed_metadata, result.sequencing_result,
-                        downstream_analysis=result.downstream_analysis,
-                    )
-                    result.llm_analysis = llm_analysis
-                    self._mark_step_done(pmid, "llm_analysis_done")
-                else:
-                    result.llm_analysis = await self._load_cached(
-                        f"deepseek_analysis_{pmid}.json"
-                    )
+                # Stage 6+7: LLM 분석 및 토론 (세마포어로 동시 요청 방지)
+                async with self._llm_semaphore:
+                    # Stage 6: LLM 멀티 합의 분석
+                    if not self._is_step_done(pmid, "llm_analysis_done"):
+                        llm_analysis = await self._analyze_with_llm_consensus(
+                            pmid, result.pubmed_metadata, result.sequencing_result,
+                            downstream_analysis=result.downstream_analysis,
+                        )
+                        result.llm_analysis = llm_analysis
+                        self._mark_step_done(pmid, "llm_analysis_done")
+                    else:
+                        result.llm_analysis = await self._load_cached(
+                            f"deepseek_analysis_{pmid}.json"
+                        )
 
-                # Stage 7: 멀티 에이전트 토론
-                if self.debate_manager:
-                    # HPC 파이프라인 작업과 리소스 경합 방지
-                    await self._wait_for_hpc_idle()
-                    try:
-                        research_data = {
-                            "paper_info": result.pubmed_metadata or {},
-                            "sequencing_type": (
-                                result.sequencing_result.get("sequencing_type", "Unknown")
-                                if isinstance(result.sequencing_result, dict)
-                                else "Unknown"
-                            ),
-                            "pipeline_info": result.sequencing_result or {},
-                            "analysis_results": {
-                                **(result.aggregated_data or {}),
-                                **(result.enrichment_results or {}),
-                                **(result.llm_analysis or {}),
-                            },
-                        }
-                        debate_result = await self.debate_manager.run_debate(research_data)
-                        result.debate_report = debate_result.to_dict()
-                    except Exception as e:
-                        result.debate_report = {"error": str(e)}
+                    # Stage 7: 멀티 에이전트 토론
+                    if self.debate_manager:
+                        # HPC 파이프라인 작업과 리소스 경합 방지
+                        await self._wait_for_hpc_idle()
+                        try:
+                            research_data = {
+                                "paper_info": result.pubmed_metadata or {},
+                                "sequencing_type": (
+                                    result.sequencing_result.get(
+                                        "sequencing_type", "Unknown"
+                                    )
+                                    if isinstance(result.sequencing_result, dict)
+                                    else "Unknown"
+                                ),
+                                "pipeline_info": result.sequencing_result or {},
+                                "analysis_results": {
+                                    **(result.aggregated_data or {}),
+                                    **(result.enrichment_results or {}),
+                                    **(result.llm_analysis or {}),
+                                },
+                            }
+                            debate_result = (
+                                await self.debate_manager.run_debate(research_data)
+                            )
+                            result.debate_report = debate_result.to_dict()
+                        except Exception as e:
+                            result.debate_report = {"error": str(e)}
 
                 # Stage 8: RAG 인덱싱 (옵션)
                 if self.doc_store:
                     try:
                         self._index_result_in_rag(result)
                     except Exception as e:
-                        print(f"[WARN] RAG 인덱싱 실패: {e}")
+                        logger.warning("RAG 인덱싱 실패: %s", e)
 
                 # Stage 9: 완료
                 result.status = PipelineStatus.COMPLETED
@@ -1215,21 +1224,21 @@ Provide a JSON response with:
     async def _save_pmid_result(self, result: PMIDResult):
         output_file = self.config.results_dir / f"final_report_{result.pmid}.json"
         result_dict = result.to_dict()
+        # debate_report 전체 데이터를 JSON에 포함
+        if result.debate_report:
+            result_dict["debate_report"] = result.debate_report
         with open(output_file, "w") as f:
             json.dump(result_dict, f, indent=2, default=str, ensure_ascii=False)
 
         # HTML 리포트 자동 생성
         try:
             from core.report_generator import ReportGenerator
-            # debate_report 전체 데이터를 포함시킴
-            if result.debate_report:
-                result_dict["debate_report"] = result.debate_report
             gen = ReportGenerator()
             html_path = self.config.results_dir / f"report_{result.pmid}.html"
             gen.generate(result_dict, html_path)
-            print(f"  HTML report: {html_path}")
+            logger.info("HTML report: %s", html_path)
         except Exception as e:
-            print(f"  [WARN] HTML 리포트 생성 실패: {e}")
+            logger.warning("HTML 리포트 생성 실패: %s", e)
 
     async def _save_summary(self):
         summary = {
