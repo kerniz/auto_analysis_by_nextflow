@@ -82,8 +82,8 @@ CLI (core/cli.py — Click)
 
 ## 테스트 현황
 
-- **975 passed, 10 skipped** (chromadb 미설치 시 skip)
-- **커버리지 87%**
+- **1095 passed, 10 skipped** (chromadb 미설치 시 skip)
+- **커버리지 89%**
 - asyncio_mode = "auto" (pyproject.toml)
 - 모든 비동기 테스트는 `@pytest.mark.asyncio` 자동 적용
 

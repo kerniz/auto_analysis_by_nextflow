@@ -443,6 +443,56 @@ v4.1.1에서 PMID 31061532 토론 실행 시 debate score가 0.21(FAIL)로 떨�
 
 ---
 
+## v4.1.4 — Slurm 통합 테스트 + 커버리지 89% + 리팩토링 (2026-03-02)
+
+**릴리스일**: 2026-03-02
+**커밋**: `5779e4d`
+
+### 배경
+
+v4.1.3까지 Slurm HPC 연동 코드(`_wait_for_hpc_idle`, `_get_slurm_cpu_alloc_ratio`)가 실제 squeue/sinfo 명령을 직접 호출하는 구조여서 테스트 환경에서 검증이 불가능했다. 또한 `strip_think_tags`, `repair_json` 등 JSON 유틸리티 함수가 `agents/base.py`에 중복 구현되어 있었고, `_fetch_pubmed`/`_explore_sra` 등 블로킹 I/O가 이벤트 루프를 점유하는 문제가 남아 있었다.
+
+### 변경 사항
+
+#### 1. core/json_utils.py (신규) — 공유 JSON 유틸리티
+- `strip_think_tags()`: qwen3 `<think>...</think>` 태그 제거
+- `repair_json()`: 깨진 JSON 복구 (미종결 문자열, trailing comma, 미닫힌 괄호)
+- `extract_json_from_llm()`: LLM 응답에서 JSON 블록 추출 (코드펜스 제거 포함)
+- agents/base.py의 중복 구현을 이 모듈로 통합
+
+#### 2. nextflow/executor.py — Slurm 라이브 통합 테스트 대응
+- `_wait_for_hpc_idle()`: squeue/sinfo 호출 부분을 내부 메서드로 분리하여 mock 가능하도록 리팩토링
+- `_get_slurm_cpu_alloc_ratio()`: CPU 할당률 계산 로직 단위 테스트 10개 추가
+- 실제 Slurm 환경 유무에 따라 자동 스킵하는 통합 테스트 추가
+
+#### 3. core/pipeline.py — 블로킹 해소 + 로깅 전환
+- `_fetch_pubmed()`: `asyncio.to_thread()` 적용 — Biopython Entrez 블로킹 호출을 스레드 풀로 오프로드
+- `_explore_sra()`: `asyncio.to_thread()` 적용 — pandas DataFrame 처리 블로킹 해소
+- `print()` 전량 → `logger.info()`/`logger.warning()`/`logger.error()` 전환
+
+#### 4. backends/router.py — 로깅 전환
+- `print()` 전량 → `logger` 전환
+- 백엔드 선택, 폴백, 오류 등 모든 진단 출력을 로그로 통일
+
+#### 5. 커버리지 개선
+
+| 모듈 | v4.1.3 | v4.1.4 | 개선 |
+|------|--------|--------|------|
+| `core/pipeline.py` | 64% | 80% | +16%p |
+| `core/cli.py` | 65% | 73% | +8%p |
+| `nextflow/executor.py` | 76% | 98% | +22%p |
+| `search/topic_searcher.py` | 74% | 89% | +15%p |
+| 전체 | 86% | 89% | +3%p |
+
+#### 6. 테스트 현황
+
+- 테스트 수: **1000 → 1095 passed** (+95개)
+- Slurm 단위 테스트: `_wait_for_hpc_idle`, `_get_slurm_cpu_alloc_ratio` 각 5개 (총 10개)
+- json_utils 테스트: `strip_think_tags`, `repair_json`, `extract_json_from_llm` 커버
+- pipeline asyncio.to_thread 경로 테스트 추가
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -465,3 +515,5 @@ v4.1.1에서 PMID 31061532 토론 실행 시 debate score가 0.21(FAIL)로 떨�
 | `297db5b` | fix: /workspace 하드코딩 제거 + config.json 자동 로드 + PubMed JSON 파싱 수정 |
 | `4e4155c` | fix: debate JSON 파싱 강화 + Slurm HPC 부하 체크 + 토론 점수 0.21→0.70 |
 | `411668c` | feat: HTML 리포트 생성기 + CLI report 명령 + 테스트 1000개 달성 |
+| `3633c92` | docs: v4.1.3 HTML 리포트 생성기 개발 이력 추가 |
+| `5779e4d` | feat: Slurm 통합 테스트 + 커버리지 89% + 리팩토링 (v4.1.4) |
