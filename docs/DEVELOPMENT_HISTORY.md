@@ -493,6 +493,56 @@ v4.1.3까지 Slurm HPC 연동 코드(`_wait_for_hpc_idle`, `_get_slurm_cpu_alloc
 
 ---
 
+## v4.1.5 — LLM 안정성 강화 + JSON 파싱 완성 (2026-03-02)
+
+**릴리스일**: 2026-03-02
+**커밋**: `94291c8`
+
+### 배경
+
+v4.1.4까지 동시 PMID 처리 시 LLM 요청이 경합하여 qwen3:30b 단일 GPU가 과부하 상태에 빠지는 문제가 있었다. Ollama가 빈 응답을 반환해도 성공으로 처리되어 이후 파이프라인이 빈 데이터로 진행되었다. 또한 `debate_report` 전체 데이터가 `final_report.json`에 저장되지 않는 버그가 있었고, `agents/base.py`에 남아 있던 중복 JSON 파싱 로직도 제거가 필요했다.
+
+### 변경 사항
+
+#### 1. core/pipeline.py — LLM 세마포어 + 버그 수정
+- `_llm_semaphore = asyncio.Semaphore(1)` 추가 — Stage 6(LLM 합의 분석)과 Stage 7(토론)을 동일 세마포어로 감싸 동시 PMID 처리 시 LLM 경합 방지
+- `_save_pmid_result()` 버그 수정: `debate_report` 전체 데이터가 `final_report.json`에 저장되지 않던 문제 수정
+- `max_tokens` 설정값 2000 → 4096으로 상향
+
+#### 2. backends/base.py — generate_with_retry 재시도 로직 강화
+- 기존: `success=False` 응답을 성공으로 간주하여 즉시 반환
+- 변경: `success=False` 응답도 재시도 대상으로 처리
+- 지수 백오프 위치 수정 — 예외 발생과 `success=False` 양쪽 모두 적용
+
+#### 3. backends/ollama_backend.py — 빈 응답 감지
+- `response` 필드가 비어 있을 경우 `success=False` 반환하여 재시도 유도
+- 비동기(`_async_generate`)와 동기(`_sync_generate`) 양쪽 모두 적용
+- 빈 응답 발생 시 model명, prompt_eval_count를 포함하여 `logger.warning` 기록
+
+#### 4. core/json_utils.py — 파싱 견고성 강화
+- `strip_think_tags()`: 닫히지 않은 `<think>` 태그 처리 추가 (`<think>` 이후 응답 끝까지 제거)
+- `repair_json()`: 문자열 내 이스케이프 처리 개선 — 이스케이프 시퀀스(`\\`)를 올바르게 인식하여 괄호 균형 계산 오류 방지, 제어 문자 제거 추가
+- `_find_balanced_json()` 신규 추가 — 중첩 `{}` 를 문자열 컨텍스트를 고려하여 올바르게 매칭, LLM 응답 중간에 삽입된 텍스트에서 JSON 블록 정밀 추출
+
+#### 5. agents/base.py — extract_json_from_llm 공유 유틸 사용
+- 기존 중복 JSON 파싱 로직(`_strip_think_tags`, `_repair_json`, `re.search`) 제거
+- `core/json_utils.extract_json_from_llm()` 단일 호출로 대체
+- 파싱 실패 시 raw 응답 내용을 `logger.debug`로 기록 (진단 지원)
+- `import re` 제거 — 불필요 의존성 정리
+
+#### 6. print() → logger 전환 완료
+- `core/pipeline.py`: 모든 `print()` → `logger.info/warning/error`
+- `backends/ollama_backend.py`: `logging` 모듈 추가, 빈 응답 경고 로깅
+
+### 테스트 현황
+
+- 테스트 수: **1095 → 1109 passed** (+14개)
+- `tests/test_json_utils.py`: `_find_balanced_json`, 닫히지 않은 think 태그, 이스케이프 처리 케이스 추가
+- `tests/test_pipeline.py`: `_llm_semaphore`, `debate_report` 저장, `max_tokens=4096` 케이스 추가
+- 커버리지: **89% → 90%**
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -517,3 +567,5 @@ v4.1.3까지 Slurm HPC 연동 코드(`_wait_for_hpc_idle`, `_get_slurm_cpu_alloc
 | `411668c` | feat: HTML 리포트 생성기 + CLI report 명령 + 테스트 1000개 달성 |
 | `3633c92` | docs: v4.1.3 HTML 리포트 생성기 개발 이력 추가 |
 | `5779e4d` | feat: Slurm 통합 테스트 + 커버리지 89% + 리팩토링 (v4.1.4) |
+| `83bc799` | docs: v4.1.4 Slurm 통합 테스트 + 커버리지 89% 개발 이력 추가 |
+| `94291c8` | fix: debate JSON 파싱 강화 + LLM 동시 요청 방지 + 빈 응답 재시도 (v4.1.5) |

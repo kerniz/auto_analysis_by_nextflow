@@ -38,11 +38,13 @@
 
 | 파일 | 역할 |
 |------|------|
-| `cli.py` | Click CLI 진입점. `run`, `search`, `consult`, `prereqs`, `backends`, `plugins`, `status` 명령 |
-| `pipeline.py` | `AsyncPipeline` 메인 오케스트레이터. PMID별 8+ 스테이지 비동기 실행 |
+| `cli.py` | Click CLI 진입점. `run`, `search`, `consult`, `prereqs`, `backends`, `plugins`, `status`, `report` 명령 |
+| `pipeline.py` | `AsyncPipeline` 메인 오케스트레이터. PMID별 8+ 스테이지 비동기 실행. `_llm_semaphore`로 LLM 경합 방지 |
 | `pubmed_client.py` | Biopython Entrez 기반 PubMed 메타데이터 + 주제 검색 |
 | `sra_explorer.py` | SRA/GEO 데이터셋 탐색, SRR accession 추출 |
 | `progress_manager.py` | JSON 기반 체크포인트/재시작 관리 |
+| `json_utils.py` | LLM 응답 JSON 파싱 공유 유틸 — `strip_think_tags`, `repair_json`, `extract_json_from_llm`, `_find_balanced_json` |
+| `report_generator.py` | 자체 포함 HTML 리포트 생성기 — 반응형 디자인, XSS 방지, 점수 시각화 |
 
 ### backends/ — LLM 백엔드
 
@@ -204,6 +206,7 @@ SRR accessions
 | **Lazy Import** | core/pipeline.py — 선택 모듈 지연 로드 |
 | **Async Subprocess** | nextflow/, analysis/ — asyncio.create_subprocess_exec |
 | **Graceful Degradation** | 모든 선택 기능 — 미설치 시 경고 후 스킵 |
+| **Semaphore (LLM 경합 방지)** | core/pipeline.py — `_llm_semaphore(1)` 로 Stage 6+7 직렬화 |
 
 ---
 
@@ -214,6 +217,7 @@ tests/
 ├── conftest.py                # 공통 fixture
 ├── test_cli.py                # CLI 명령 테스트
 ├── test_pipeline_integration.py # 파이프라인 통합 테스트
+├── test_pipeline.py           # 파이프라인 단위 테스트
 ├── test_backends.py           # LLM 백엔드 테스트
 ├── test_plugins.py            # 시퀀싱 플러그인 테스트
 ├── test_clients.py            # API 클라이언트 테스트
@@ -225,9 +229,11 @@ tests/
 ├── test_samplesheet.py        # Samplesheet 생성 테스트
 ├── test_nextflow.py           # Nextflow 실행 테스트
 ├── test_output_parser.py      # 출력 파서 테스트
-└── test_analysis.py           # 분석 오케스트레이터 테스트
+├── test_analysis.py           # 분석 오케스트레이터 테스트
+├── test_report_generator.py   # HTML 리포트 생성기 테스트
+└── test_json_utils.py         # JSON 유틸리티 테스트
 ```
 
 **모킹 전략**: 외부 API/프로세스는 모두 mock. `asyncio.create_subprocess_exec`, `shutil.which`, `httpx` mock 사용. `tmp_path`로 파일시스템 테스트.
 
-현재: **975 passed, 10 skipped** (chromadb 미설치) — 커버리지 87%
+현재: **1109 passed, 10 skipped** (chromadb 미설치) — 커버리지 90%
