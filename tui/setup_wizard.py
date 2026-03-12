@@ -187,7 +187,6 @@ class WizardState:
                 "containers": f"{self.results_dir}/containers",
                 "results": self.results_dir,
                 "logs": f"{self.results_dir}/logs",
-                "charts": f"{self.results_dir}/charts",
             },
             "rag": {
                 "enabled": self.enable_rag,

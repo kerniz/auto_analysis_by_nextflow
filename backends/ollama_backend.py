@@ -5,7 +5,6 @@ Ollama Backend
 
 import asyncio
 import logging
-import random
 import re
 import time
 
@@ -190,9 +189,9 @@ class OllamaBackend(LLMBackend):
                     "prompt": "Hi",
                     "stream": False,
                     "think": False,
-                    "options": {"num_predict": 10},
+                    "options": {"num_predict": 5},
                 },
-                timeout=min(self.config.timeout, 60),
+                timeout=15,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -205,8 +204,7 @@ class OllamaBackend(LLMBackend):
     async def _resolve_auto_model(self) -> str | None:
         """서버 모델 중 로드 가능한 가장 큰 모델 선택.
 
-        원격 서버의 VRAM은 알 수 없으므로 크기순으로 시도하고
-        실제 응답이 오는 모델을 선택합니다.
+        크기순으로 시도하고 첫 번째 응답 가능한 모델을 즉시 반환합니다.
         """
         models = await self._fetch_models()
 
@@ -223,12 +221,8 @@ class OllamaBackend(LLMBackend):
 
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # 상위 5개 중 랜덤 3개를 크기 역순으로 시도
-        top_pool = candidates[:5]
-        trial = random.sample(top_pool, min(3, len(top_pool)))
-        trial.sort(key=lambda x: x[0], reverse=True)
-
-        for size_gb, name in trial:
+        # 크기순으로 시도, 1개 성공하면 즉시 반환
+        for size_gb, name in candidates:
             logger.info("자동 모델 후보 테스트: %s (%.1f GB)", name, size_gb)
             if await self._quick_test(name):
                 logger.info(
@@ -238,26 +232,15 @@ class OllamaBackend(LLMBackend):
                 return name
             logger.debug("모델 %s 응답 불가, 다음 후보 시도", name)
 
-        # 상위가 모두 실패하면 가장 작은 모델부터 시도
-        for size_gb, name in reversed(candidates):
-            if await self._quick_test(name):
-                logger.info(
-                    "Fallback 모델 선택: %s (%.1f GB)", name, size_gb,
-                )
-                return name
-
         return None
 
     async def health_check(self) -> bool:
-        """Ollama 서버 상태 확인 + auto 모델 결정.
-
-        간헐적 DNS/연결 오류에 대비하여 최대 3회 재시도합니다.
-        """
+        """Ollama 서버 상태 확인 + auto 모델 결정."""
         if not ASYNC_CLIENT:
             self.update_status(False)
             return False
 
-        max_attempts = max(self.config.max_retries or 3, 5)
+        max_attempts = 2
         last_err = None
 
         for attempt in range(1, max_attempts + 1):
@@ -299,7 +282,7 @@ class OllamaBackend(LLMBackend):
                     attempt, max_attempts, e,
                 )
                 if attempt < max_attempts:
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
 
         logger.warning("Ollama health check 실패: %s", last_err)
         self.update_status(False)

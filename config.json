@@ -144,7 +144,6 @@
     "containers": "./results/containers",
     "results": "./results",
     "logs": "./results/logs",
-    "charts": "./results/charts",
     "research_projects": "./research_projects"
   },
   "brave_search": {

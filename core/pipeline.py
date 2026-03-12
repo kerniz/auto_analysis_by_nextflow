@@ -201,7 +201,6 @@ class DirectoriesConfig:
     containers: str = "/workspace/containers"
     results: str = "/workspace/results"
     logs: str = "/workspace/logs"
-    charts: str = "/workspace/charts"
     research_projects: str = "./research_projects"
 
 
@@ -408,7 +407,6 @@ class PipelineConfig:
             containers=directories_data.get("containers", "/workspace/containers"),
             results=directories_data.get("results", "/workspace/results"),
             logs=directories_data.get("logs", "/workspace/logs"),
-            charts=directories_data.get("charts", "/workspace/charts"),
             research_projects=directories_data.get("research_projects", "./research_projects"),
         )
 

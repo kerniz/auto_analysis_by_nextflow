@@ -94,7 +94,6 @@ def full_config_dict():
             "containers": "/workspace/containers",
             "results": "/workspace/results",
             "logs": "/workspace/logs",
-            "charts": "/workspace/charts",
             "research_projects": "./research_projects",
         },
         "rag": {

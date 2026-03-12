@@ -6,6 +6,7 @@ CLI Entry Point - Bioinformatics Research Automation Platform
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -1097,88 +1098,48 @@ async def _run_consult(results_dir: str, debate: bool):
                            + click.style(", ".join(recent_queries), fg="cyan"))
                 print()
 
-    # LLM 연결 테스트 (10초 타임아웃)
-    print_status_bar("LLM 백엔드 연결 테스트 중", "info")
+    # LLM 연결 테스트 + 라우터 초기화 (1단계로 통합)
+    print_status_bar("LLM 백엔드 연결 중", "info")
     cfg = _load_config()
     llm_providers = cfg.get("llm_providers", {})
     backends_data = llm_providers.get("backends", {})
     ollama_cfg = backends_data.get("ollama", {})
     ollama_url = ollama_cfg.get("url", "http://localhost:11434")
-    ollama_model = ollama_cfg.get("model", "")
 
     if not ollama_url:
-        # Legacy config fallback
         legacy = cfg.get("pipeline_config", {}).get("llm_server", {})
         ollama_url = legacy.get("url", "http://localhost:11434")
-        ollama_model = legacy.get("model", "auto")
 
-    # 연결 테스트 (최대 3회 재시도 — 간헐적 DNS 오류 대비)
-    resp = None
-    last_connect_err = None
-    for _attempt in range(3):
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{ollama_url}/api/tags")
-            break
-        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-            last_connect_err = e
-            await asyncio.sleep(2)
-        except Exception as e:
-            last_connect_err = e
-            await asyncio.sleep(1)
-
-    if resp is None:
-        print_status_bar("Ollama 연결 실패 — 3회 재시도 후 포기", "error")
-        click.echo(f"\n  Ollama 서버({ollama_url})에 연결할 수 없습니다.")
-        click.echo(f"  오류: {last_connect_err}")
-        click.echo("  다음을 확인하세요:")
-        click.echo(f"    1. Ollama 실행 여부: {click.style('ollama serve', fg='cyan')}")
-        click.echo(f"    2. 서버 주소: {click.style(ollama_url, fg='cyan')}")
-        click.echo("    3. 방화벽/네트워크/DNS 설정")
-        click.echo()
-        return
-
-    if resp.status_code == 200:
-        models = resp.json().get("models", [])
-        model_names = [m.get("name", "") for m in models]
-        if ollama_model:
-            found = any(
-                ollama_model in n or n.startswith(ollama_model.split(":")[0])
-                for n in model_names
+    # API 연결 테스트 (1회, 빠른 실패)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{ollama_url}/api/tags")
+        if resp.status_code != 200:
+            print_status_bar(
+                f"Ollama 응답 오류 (HTTP {resp.status_code})", "error"
             )
-            if found:
-                print_status_bar(
-                    f"Ollama 연결 OK — {ollama_model}", "success"
-                )
-            else:
-                print_status_bar(
-                    f"Ollama 연결됨, 모델 '{ollama_model}' 없음", "warn"
-                )
-                click.echo(
-                    f"  사용 가능: {', '.join(model_names[:5])}"
-                )
-        else:
-            print_status_bar("Ollama 연결 OK", "success")
-    else:
-        print_status_bar(
-            f"Ollama 응답 오류 (HTTP {resp.status_code})", "error"
-        )
-        click.echo(f"\n  Ollama 서버({ollama_url})에 연결했으나 오류가 발생했습니다.")
-        click.echo("  Ollama가 정상 실행 중인지 확인하세요: ollama serve\n")
-        return
+            click.echo("  Ollama가 정상 실행 중인지 확인하세요: ollama serve\n")
+            return
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        print_status_bar("Ollama 연결 실패", "error")
+        click.echo(f"\n  Ollama 서버({ollama_url})에 연결할 수 없습니다.")
+        click.echo(f"  오류: {e}")
+        click.echo(f"  확인: {click.style('ollama serve', fg='cyan')}\n")
         return
 
-    # LLM 라우터 초기화
-    print_status_bar("LLM 라우터 초기화 중", "info")
+    print_status_bar("Ollama 연결 OK", "success")
+
+    # 라우터 초기화 (연결 확인됨 — health_check에서 재연결 불필요)
     backends_list, router_config = _create_backends_from_config()
     router = LLMRouter(backends=backends_list, config=router_config)
     await router.start()
+
     # 선택된 모델 표시
     for b in backends_list:
         if hasattr(b, 'config') and b.config.model:
             model_name = b.config.model
             if model_name not in ("auto", ""):
-                print_status_bar(f"모델: {model_name}", "info")
+                print_status_bar(f"모델: {model_name}", "success")
                 break
     print_status_bar("상담 준비 완료", "success")
     print()
@@ -1943,6 +1904,65 @@ def tui(pmids, results_dir, config, debate, enrichment, aggregate,
     )
 
 
+def _get_pidfile(service: str = "web") -> Path:
+    """서비스별 PID 파일 경로 반환"""
+    return Path.home() / ".bioauto" / f"{service}.pid"
+
+
+def _find_service_pids(service: str) -> list[int]:
+    """특정 서비스의 실행 중인 PID 목록 반환"""
+    import subprocess
+
+    pids = []
+    pidfile = _get_pidfile(service)
+
+    # 1) PID 파일에서 읽기
+    if pidfile.exists():
+        try:
+            pid = int(pidfile.read_text().strip())
+            os.kill(pid, 0)  # 프로세스 존재 확인
+            pids.append(pid)
+        except (ValueError, ProcessLookupError, PermissionError):
+            pidfile.unlink(missing_ok=True)
+
+    # 2) pgrep으로 추가 탐지 (PID 파일 없이 실행된 경우)
+    patterns = {
+        "web": ["uvicorn.*web\\.app", "bioauto.*web"],
+        "pipeline": ["bioauto.*run"],
+    }
+    my_pid = os.getpid()
+    for pattern in patterns.get(service, [f"bioauto.*{service}"]):
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", pattern],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in result.stdout.strip().splitlines():
+                if not line.strip():
+                    continue
+                pid = int(line.strip())
+                if pid != my_pid and pid not in pids:
+                    try:
+                        os.kill(pid, 0)
+                        pids.append(pid)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+        except Exception:
+            pass
+
+    return pids
+
+
+def _find_all_pids() -> dict[str, list[int]]:
+    """모든 bioauto 서비스의 PID를 반환"""
+    result = {}
+    for service in ["web", "pipeline"]:
+        pids = _find_service_pids(service)
+        if pids:
+            result[service] = pids
+    return result
+
+
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="서버 호스트")
 @click.option("--port", default=8080, type=int, help="서버 포트")
@@ -1954,6 +1974,7 @@ def web(host, port, results_dir):
     브라우저에서 http://host:port 로 접근하여 파이프라인을 모니터링합니다.
 
     예시: bioauto web --port 8080
+    종료: bioauto stop
     """
     try:
         import uvicorn
@@ -1966,25 +1987,100 @@ def web(host, port, results_dir):
         ))
         return
 
+    # PID 파일 기록
+    pidfile = _get_pidfile("web")
+    pidfile.parent.mkdir(parents=True, exist_ok=True)
+    pidfile.write_text(str(os.getpid()))
+
     click.echo("=== BioAuto Web Dashboard ===")
     click.echo(f"Server: http://{host}:{port}")
     click.echo(f"Results: {results_dir}")
-    click.echo("Press Ctrl+C to stop\n")
+    click.echo("Stop: bioauto stop web  /  bioauto stop  /  Ctrl+C\n")
 
-    app = create_app(results_dir=results_dir)
-    uvicorn.run(app, host=host, port=port)
+    try:
+        app = create_app(results_dir=results_dir)
+        uvicorn.run(app, host=host, port=port)
+    finally:
+        pidfile.unlink(missing_ok=True)
+
+
+@cli.command()
+@click.argument("service", required=False, default=None)
+def stop(service):
+    """실행 중인 bioauto 서비스를 종료합니다.
+
+    SERVICE를 지정하면 해당 서비스만, 생략하면 모든 서비스를 종료합니다.
+
+    \b
+    서비스 목록:
+      web       웹 대시보드 서버
+      pipeline  실행 중인 파이프라인
+
+    \b
+    예시:
+      bioauto stop          # 모든 서비스 종료
+      bioauto stop web      # 웹 서버만 종료
+      bioauto stop pipeline # 파이프라인만 종료
+    """
+    import signal
+
+    known_services = ["web", "pipeline"]
+
+    if service and service not in known_services:
+        click.echo(
+            f"  {click.style('!', fg='yellow')}"
+            f" 알 수 없는 서비스: {service}"
+        )
+        click.echo(f"  사용 가능: {', '.join(known_services)}")
+        return
+
+    if service:
+        # 특정 서비스만 종료
+        services = {service: _find_service_pids(service)}
+    else:
+        # 전체 종료
+        services = _find_all_pids()
+
+    if not any(services.values()):
+        if service:
+            click.echo(f"  실행 중인 {service} 서비스가 없습니다.")
+        else:
+            click.echo("  실행 중인 bioauto 서비스가 없습니다.")
+        return
+
+    for svc_name, pids in services.items():
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                click.echo(
+                    f"  {click.style('✓', fg='green')}"
+                    f" {svc_name} 종료: PID {pid}"
+                )
+            except ProcessLookupError:
+                click.echo(f"  {svc_name} PID {pid} 이미 종료됨")
+            except PermissionError:
+                click.echo(
+                    f"  {click.style('!', fg='yellow')}"
+                    f" {svc_name} PID {pid} 종료 권한 없음 (sudo kill {pid})"
+                )
+        # PID 파일 정리
+        _get_pidfile(svc_name).unlink(missing_ok=True)
 
 
 @cli.command()
 def uninstall():
     """bioauto를 완전히 제거합니다.
 
-    결과 데이터(results/)는 보존됩니다.
+    install.sh 설치, pip editable 설치 모두 대응합니다.
+    실행 중인 bioauto 프로세스(웹 서버 등)도 종료합니다.
+    소스 코드, 결과 데이터(results/), 설정 파일(config.json)은 보존됩니다.
 
     예시: bioauto uninstall
     """
     import os
     import shutil
+    import signal
+    import subprocess
 
     home = Path.home()
     install_dir = Path(os.environ.get("BIOAUTO_HOME", home / ".bioauto"))
@@ -1999,10 +2095,48 @@ def uninstall():
     click.echo(click.style("  └──────────────────────────────────┘", bold=True))
     click.echo("")
 
-    # 삭제 대상 표시
+    # ── 실행 중인 bioauto 프로세스 탐지 ──
+    all_services = _find_all_pids()
+    running_pids = []
+    for pids in all_services.values():
+        running_pids.extend(p for p in pids if p not in running_pids)
+
+    # ── pip editable 설치 감지 ──
+    pip_installed = False
+    pip_editable = False
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "show", "bioauto"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            pip_installed = True
+            output = result.stdout.lower()
+            if "editable" in output or "editable" in result.stdout:
+                pip_editable = True
+            # Location에 site-packages가 아닌 경로면 editable
+            for show_line in result.stdout.splitlines():
+                if show_line.startswith("Editable project location"):
+                    pip_editable = True
+                    break
+    except Exception:
+        pass
+
+    # ── 삭제 대상 표시 ──
     targets = []
+
+    if running_pids:
+        targets.append((
+            "실행 중인 프로세스",
+            f"PID {', '.join(str(p) for p in running_pids)}",
+            f"{len(running_pids)}개",
+        ))
+
+    if pip_installed:
+        label = "pip editable 설치" if pip_editable else "pip 설치"
+        targets.append((label, "bioauto 패키지", "pip uninstall"))
+
     if install_dir.exists():
-        # venv 크기 계산
         try:
             venv_size = sum(
                 f.stat().st_size for f in install_dir.rglob("*") if f.is_file()
@@ -2014,6 +2148,16 @@ def uninstall():
 
     if wrapper.exists():
         targets.append(("실행 파일", str(wrapper), "< 1 KB"))
+
+    # egg-info 디렉토리
+    egg_info = None
+    project_dir = Path(__file__).parent.parent
+    for candidate in project_dir.glob("bioauto.egg-info"):
+        if candidate.is_dir():
+            egg_info = candidate
+            break
+    if egg_info:
+        targets.append(("egg-info", str(egg_info), "메타데이터"))
 
     # shell rc에 추가된 PATH 라인
     rc_files_with_bioauto = []
@@ -2061,7 +2205,92 @@ def uninstall():
 
     click.echo("")
 
-    # 1) shell rc에서 bioauto PATH 라인 제거
+    # 1) 실행 중인 프로세스 종료
+    for svc_name, pids in all_services.items():
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                click.echo(
+                    f"  {click.style('✓', fg='green')}"
+                    f" {svc_name} 종료: PID {pid}"
+                )
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                click.echo(
+                    f"  {click.style('!', fg='yellow')}"
+                    f" {svc_name} PID {pid} 종료 권한 없음 (sudo kill 필요)"
+                )
+        _get_pidfile(svc_name).unlink(missing_ok=True)
+
+    # 2) pip uninstall (editable 및 일반 설치 모두)
+    if pip_installed:
+        try:
+            pip_cmd = [
+                sys.executable, "-m", "pip", "uninstall", "-y", "bioauto",
+            ]
+            # PEP 668: externally-managed-environment 대응
+            test_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--dry-run", "pip"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if "externally-managed-environment" in test_result.stderr:
+                pip_cmd.insert(4, "--break-system-packages")
+            subprocess.run(
+                pip_cmd, capture_output=True, text=True, timeout=30,
+            )
+            click.echo(
+                f"  {click.style('✓', fg='green')} pip uninstall bioauto 완료"
+            )
+        except Exception as e:
+            click.echo(
+                f"  {click.style('!', fg='yellow')} pip uninstall 실패: {e}"
+            )
+
+    # 3) egg-info 제거
+    if egg_info and egg_info.exists():
+        try:
+            shutil.rmtree(egg_info)
+            click.echo(
+                f"  {click.style('✓', fg='green')} egg-info 제거: {egg_info}"
+            )
+        except Exception as e:
+            click.echo(
+                f"  {click.style('!', fg='yellow')} egg-info 제거 실패: {e}"
+            )
+
+    # 3.5) site-packages 잔여물 정리 (editable 설치 링크 파일)
+    try:
+        site_packages = Path(subprocess.run(
+            [sys.executable, "-c",
+             "import site; print(site.getsitepackages()[0])"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip())
+        if site_packages.is_dir():
+            remnants = (
+                list(site_packages.glob("bioauto.egg-link"))
+                + list(site_packages.glob("__editable__.bioauto-*.pth"))
+                + list(site_packages.glob("bioauto-*.dist-info"))
+            )
+            for remnant in remnants:
+                try:
+                    if remnant.is_dir():
+                        shutil.rmtree(remnant)
+                    else:
+                        remnant.unlink()
+                    click.echo(
+                        f"  {click.style('✓', fg='green')}"
+                        f" 잔여물 제거: {remnant.name}"
+                    )
+                except Exception as e:
+                    click.echo(
+                        f"  {click.style('!', fg='yellow')}"
+                        f" {remnant.name} 제거 실패: {e}"
+                    )
+    except Exception:
+        pass
+
+    # 4) shell rc에서 bioauto PATH 라인 제거
     for rc_path in rc_files_with_bioauto:
         try:
             lines = rc_path.read_text().splitlines()
@@ -2075,34 +2304,46 @@ def uninstall():
                     skip_next = True  # 다음 줄(export PATH=...)도 스킵
                     continue
                 cleaned.append(line)
-            # 끝에 빈 줄 정리
             while cleaned and cleaned[-1] == "":
                 cleaned.pop()
             cleaned.append("")  # 파일 끝 개행
             rc_path.write_text("\n".join(cleaned))
-            click.echo(f"  {click.style('✓', fg='green')} PATH 제거: {rc_path.name}")
+            click.echo(
+                f"  {click.style('✓', fg='green')} PATH 제거: {rc_path.name}"
+            )
         except Exception as e:
-            click.echo(f"  {click.style('!', fg='yellow')} {rc_path.name} 수정 실패: {e}")
+            click.echo(
+                f"  {click.style('!', fg='yellow')} {rc_path.name} 수정 실패: {e}"
+            )
 
-    # 2) 래퍼 스크립트 제거
+    # 5) 래퍼 스크립트 제거
     if wrapper.exists():
         try:
             wrapper.unlink()
-            click.echo(f"  {click.style('✓', fg='green')} 실행 파일 제거: {wrapper}")
+            click.echo(
+                f"  {click.style('✓', fg='green')} 실행 파일 제거: {wrapper}"
+            )
         except Exception as e:
-            click.echo(f"  {click.style('!', fg='yellow')} 실행 파일 제거 실패: {e}")
+            click.echo(
+                f"  {click.style('!', fg='yellow')} 실행 파일 제거 실패: {e}"
+            )
 
-    # 3) 설치 디렉토리 제거 (~/.bioauto)
+    # 6) 설치 디렉토리 제거 (~/.bioauto)
     if install_dir.exists():
         try:
             shutil.rmtree(install_dir)
-            click.echo(f"  {click.style('✓', fg='green')} 설치 디렉토리 제거: {install_dir}")
+            click.echo(
+                f"  {click.style('✓', fg='green')} 설치 디렉토리 제거: {install_dir}"
+            )
         except Exception as e:
-            click.echo(f"  {click.style('!', fg='yellow')} 설치 디렉토리 제거 실패: {e}")
+            click.echo(
+                f"  {click.style('!', fg='yellow')} 설치 디렉토리 제거 실패: {e}"
+            )
 
     click.echo("")
     click.echo(click.style("  제거 완료!", fg="green", bold=True))
-    click.echo("  분석 결과(results/)는 그대로 보존되어 있습니다.")
+    click.echo("  소스 코드, 분석 결과(results/), 설정(config.json)은 보존되어 있습니다.")
+    click.echo("  재설치: pip install -e . 또는 bash install.sh")
     click.echo("")
 
 
