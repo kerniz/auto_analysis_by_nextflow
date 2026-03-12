@@ -543,6 +543,63 @@ v4.1.4까지 동시 PMID 처리 시 LLM 요청이 경합하여 qwen3:30b 단일 
 
 ---
 
+## v4.1.6 — PMID 서브폴더 구조 + 종합보고서 + 한국어 보고서 + 프로젝트 아이덴티티 통합 (2026-03-02)
+
+**릴리스일**: 2026-03-02
+
+### 배경
+
+v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID가 많아지면 관리가 어려웠다. 또한 다중 PMID 실행 시 종합보고서가 없었고, HTML 보고서가 영어 중심이어서 에이전트 의견이 점수로만 축약되는 문제가 있었다. 프로젝트 아이덴티티를 "올인원 연구 자동화 시스템"으로 확립하고 문서를 통일할 필요가 있었다.
+
+### 변경 사항
+
+#### 1. core/pipeline.py — PMID 서브폴더 구조
+- `_pmid_dir(pmid)` 메서드 추가 — `results/{PMID}/` 서브폴더 자동 생성
+- `_save_pmid_result()`: PMID 서브폴더에 JSON + HTML 저장
+- `_fetch_pubmed()`, `_explore_sra()`: 캐시 파일을 PMID 서브폴더에 저장
+- `_analyze_with_llm_consensus()`: 분석 캐시를 PMID 서브폴더에 저장
+- `_load_cached()`: PMID 서브폴더 → 루트 폴백 (하위 호환)
+- `run()`: 2+ PMID 실행 시 `project_report.html` 종합보고서 자동 생성 (project_slug 불필요)
+- `__init__`: `research_projects/` 리디렉트 로직 제거
+
+#### 2. core/report_generator.py — 한국어 보고서 + 에이전트 의견 전문
+- `_section_debate()`: 한국어 라운드 라벨 (초기 평가, 교차 검토, 최종 판단)
+- 에이전트 assessment 전문 표시 (300자 truncation 제거)
+- key_points, concerns, questions 섹션별 상세 표시
+- rebuttal_to 표시 (교차 검토 시)
+- 논문 정보 섹션 한국어 라벨
+- `generate_project_report()` + 7개 섹션 메서드 신규 추가
+- `_proj_debate_synthesis()`: PMID별 에이전트 의견 요약 + 공통 주제 통합
+
+#### 3. core/cli.py — 프로젝트 명령 제거 + 보고서 개선
+- `project` CLI 그룹 제거 (create, list, info, add-pmids)
+- `ProjectManager` import 제거
+- `report --project` 옵션 제거 → `report --all`로 PMID 서브폴더 탐색
+- `run --project` → 단순 레이블용 (보고서 제목에만 사용)
+
+#### 4. core/__init__.py — ProjectManager 제거
+- `ProjectManager`, `ResearchProject` import 제거
+
+#### 5. 파일 정리
+- `research_projects/ra_bee_venom/` 삭제 (테스트 데이터)
+- `results/` 루트 테스트 잔재 삭제
+- `charts/`, `bioauto.egg-info/` 삭제
+- `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.coverage` 삭제
+
+#### 6. 문서 통합
+- CLAUDE.md: 프로젝트 아이덴티티 + 결과 저장 구조 + 필수 규칙 업데이트
+- README.md: 전면 재작성 — 올인원 시스템 중심
+- docs/ARCHITECTURE.md: PMID 서브폴더 구조 + 한국어 보고서 반영
+- docs/DEVELOPMENT_HISTORY.md: v4.1.6 이력 추가
+
+### 테스트 현황
+
+- 테스트 수: **1109 → 1104 passed** (ProjectManager 테스트 13개 제거, 보고서 테스트 8개 추가)
+- 전체 리팩토링 후 모든 테스트 통과
+- 커버리지: **90%**
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |

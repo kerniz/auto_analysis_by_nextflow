@@ -15,6 +15,9 @@ from backends.base import BackendStatus, LLMResponse
 from backends.router import RouterConfig
 from core.pipeline import (
     AsyncPipeline,
+    LLMBackendConfig,
+    LLMProvidersConfig,
+    LLMRouterSettings,
     PipelineConfig,
     PipelineStatus,
     PMIDResult,
@@ -267,8 +270,8 @@ class TestPipelineConfig:
         """llm_server defaults when not provided."""
         config = PipelineConfig.from_dict({"pmids": ["12345"]})
         assert config.llm_server.url == "http://localhost:11434"
-        assert config.llm_server.model == "deepseek-coder:33b"
-        assert config.llm_server.timeout == 60
+        assert config.llm_server.model == "auto"
+        assert config.llm_server.timeout == 120
         assert config.llm_server.max_retries == 3
 
     def test_debate_config_mapping(self):
@@ -996,7 +999,7 @@ class TestAsyncPipelineUtilityMethods:
             end_time=datetime(2025, 1, 1, 0, 5),
         )
         await pipeline._save_pmid_result(result)
-        output_file = tmp_path / "final_report_12345.json"
+        output_file = tmp_path / "12345" / "final_report_12345.json"
         assert output_file.exists()
         data = json.loads(output_file.read_text())
         assert data["pmid"] == "12345"
@@ -1137,11 +1140,13 @@ class TestAsyncPipelineFetchMethods:
 
     @pytest.mark.asyncio
     async def test_fetch_pubmed_cached(self, tmp_path):
-        """_fetch_pubmed returns cached data when file exists."""
+        """_fetch_pubmed returns cached data from PMID subfolder."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
         cached = {"pmid": "12345", "title": "Cached Paper"}
-        (tmp_path / "pubmed_12345.json").write_text(json.dumps(cached))
+        pmid_dir = tmp_path / "12345"
+        pmid_dir.mkdir()
+        (pmid_dir / "pubmed_12345.json").write_text(json.dumps(cached))
         result = await pipeline._fetch_pubmed("12345")
         assert result == cached
 
@@ -1157,11 +1162,13 @@ class TestAsyncPipelineFetchMethods:
 
     @pytest.mark.asyncio
     async def test_explore_sra_cached(self, tmp_path):
-        """_explore_sra returns cached data when file exists."""
+        """_explore_sra returns cached data from PMID subfolder."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
         cached = {"pmid": "12345", "sra_ids": ["SRR111"]}
-        (tmp_path / "sra_exploration_12345.json").write_text(json.dumps(cached))
+        pmid_dir = tmp_path / "12345"
+        pmid_dir.mkdir()
+        (pmid_dir / "sra_exploration_12345.json").write_text(json.dumps(cached))
         result = await pipeline._explore_sra("12345", {})
         assert result == cached
 
@@ -1181,7 +1188,9 @@ class TestAsyncPipelineFetchMethods:
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
         cached = {"consistency_rating": "PASS", "consistency_score": 0.9}
-        (tmp_path / "deepseek_analysis_12345.json").write_text(json.dumps(cached))
+        pmid_dir = tmp_path / "12345"
+        pmid_dir.mkdir(exist_ok=True)
+        (pmid_dir / "deepseek_analysis_12345.json").write_text(json.dumps(cached))
         result = await pipeline._analyze_with_llm_consensus(
             "12345", {"title": "Test"}, {"sequencing_type": "scrna_seq"}
         )
@@ -1747,12 +1756,13 @@ class TestFetchPubmed:
     """Tests for _fetch_pubmed method."""
 
     async def test_returns_cached_data(self, tmp_path):
-        """Returns cached data when file exists."""
+        """Returns cached data when file exists in PMID subfolder."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
         cached = {"pmid": "12345", "title": "Cached", "abstract": "Data"}
-        cached_file = tmp_path / "pubmed_12345.json"
-        cached_file.write_text(json.dumps(cached))
+        pmid_dir = tmp_path / "12345"
+        pmid_dir.mkdir()
+        (pmid_dir / "pubmed_12345.json").write_text(json.dumps(cached))
         result = await pipeline._fetch_pubmed("12345")
         assert result["title"] == "Cached"
 
@@ -1768,13 +1778,13 @@ class TestFetchPubmed:
             mock_thread.return_value = {"pmid": "12345", "title": "Fetched"}
             result = await pipeline._fetch_pubmed("12345")
         assert result["title"] == "Fetched"
-        assert (tmp_path / "pubmed_12345.json").exists()
+        assert (tmp_path / "12345" / "pubmed_12345.json").exists()
 
     async def test_import_error_returns_fallback(self, tmp_path):
         """Returns fallback when PubMedClient not available."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
-        with patch("builtins.__import__", side_effect=ImportError("no module")):
+        with patch.dict("sys.modules", {"core.pubmed_client": None}):
             result = await pipeline._fetch_pubmed("12345")
         assert result["source"] == "unavailable"
 
@@ -1783,11 +1793,13 @@ class TestExploreSra:
     """Tests for _explore_sra method."""
 
     async def test_returns_cached_data(self, tmp_path):
-        """Returns cached SRA data."""
+        """Returns cached SRA data from PMID subfolder."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
         cached = {"pmid": "12345", "sra_ids": ["SRR123"]}
-        (tmp_path / "sra_exploration_12345.json").write_text(json.dumps(cached))
+        pmid_dir = tmp_path / "12345"
+        pmid_dir.mkdir()
+        (pmid_dir / "sra_exploration_12345.json").write_text(json.dumps(cached))
         result = await pipeline._explore_sra("12345", {"sra_links": []})
         assert result["sra_ids"] == ["SRR123"]
 
@@ -1795,7 +1807,7 @@ class TestExploreSra:
         """Returns fallback when SRAExplorer not available."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
-        with patch("builtins.__import__", side_effect=ImportError):
+        with patch.dict("sys.modules", {"core.sra_explorer": None}):
             result = await pipeline._explore_sra("12345", {"sra_links": []})
         assert result["source"] == "unavailable"
 
@@ -1815,11 +1827,13 @@ class TestAnalyzeWithLLMConsensus:
         assert "No LLM router" in result["error"]
 
     async def test_cached_result(self, tmp_path):
-        """Returns cached analysis when file exists."""
+        """Returns cached analysis when file exists in PMID subfolder."""
         config = PipelineConfig(pmids=["12345"], results_dir=tmp_path)
         pipeline = AsyncPipeline(config)
         cached = {"consistency_rating": "PASS", "consistency_score": 0.9}
-        (tmp_path / "deepseek_analysis_12345.json").write_text(json.dumps(cached))
+        pmid_dir = tmp_path / "12345"
+        pmid_dir.mkdir(exist_ok=True)
+        (pmid_dir / "deepseek_analysis_12345.json").write_text(json.dumps(cached))
         result = await pipeline._analyze_with_llm_consensus(
             "12345", {}, {}
         )
@@ -2188,7 +2202,7 @@ class TestSavePmidResult:
             mock_gen = MagicMock()
             mock_gen_cls.return_value = mock_gen
             await pipeline._save_pmid_result(result)
-        output_file = tmp_path / "final_report_12345.json"
+        output_file = tmp_path / "12345" / "final_report_12345.json"
         assert output_file.exists()
 
     async def test_saves_debate_report_in_json(self, tmp_path):
@@ -2209,7 +2223,7 @@ class TestSavePmidResult:
             mock_gen_cls.return_value = mock_gen
             await pipeline._save_pmid_result(result)
 
-        output_file = tmp_path / "final_report_12345.json"
+        output_file = tmp_path / "12345" / "final_report_12345.json"
         import json
         with open(output_file) as f:
             saved = json.load(f)
@@ -2361,3 +2375,364 @@ class TestIsStepDone:
         pipeline.progress.mark_pmid_step_completed.assert_called_once_with(
             "12345", "pubmed_done"
         )
+
+
+# ============================================================
+# LLM Providers Config Tests (v4.2)
+# ============================================================
+
+class TestLLMProvidersConfig:
+    """llm_providers config parsing tests."""
+
+    def test_from_dict_with_llm_providers(self):
+        data = {
+            "pmids": ["12345"],
+            "llm_providers": {
+                "backends": {
+                    "ollama": {
+                        "enabled": True,
+                        "url": "http://myhost:11434",
+                        "model": "qwen3:30b",
+                        "timeout": 300,
+                        "max_retries": 5,
+                        "max_tokens": 8192,
+                        "temperature": 0.2,
+                        "top_p": 0.95,
+                    },
+                    "openai": {
+                        "enabled": True,
+                        "api_key_env": "MY_OPENAI_KEY",
+                        "model": "gpt-4-turbo",
+                        "timeout": 60,
+                    },
+                },
+                "router": {
+                    "strategy": "round_robin",
+                    "priority_order": ["openai", "ollama"],
+                    "enable_auto_failover": False,
+                    "health_check_interval": 30,
+                },
+            },
+        }
+        config = PipelineConfig.from_dict(data)
+        assert config.llm_providers is not None
+        assert len(config.llm_providers.backends) == 2
+        ollama = config.llm_providers.backends["ollama"]
+        assert ollama.model == "qwen3:30b"
+        assert ollama.timeout == 300
+        assert ollama.max_tokens == 8192
+        assert ollama.temperature == 0.2
+        assert ollama.top_p == 0.95
+        openai = config.llm_providers.backends["openai"]
+        assert openai.enabled is True
+        assert openai.api_key_env == "MY_OPENAI_KEY"
+        assert openai.model == "gpt-4-turbo"
+        assert config.llm_providers.router.strategy == "round_robin"
+        assert config.llm_providers.router.priority_order == [
+            "openai", "ollama"
+        ]
+        assert config.llm_providers.router.enable_auto_failover is False
+
+    def test_from_dict_without_llm_providers_is_none(self):
+        config = PipelineConfig.from_dict({"pmids": ["12345"]})
+        assert config.llm_providers is None
+
+    def test_from_dict_llm_providers_defaults(self):
+        data = {
+            "pmids": ["12345"],
+            "llm_providers": {
+                "backends": {
+                    "ollama": {"enabled": True, "model": "llama3"},
+                },
+            },
+        }
+        config = PipelineConfig.from_dict(data)
+        bcfg = config.llm_providers.backends["ollama"]
+        assert bcfg.timeout == 120
+        assert bcfg.max_retries == 3
+        assert bcfg.temperature == 0.1
+        assert bcfg.top_p == 0.9
+        assert bcfg.max_tokens == 4096
+        # Router defaults
+        assert config.llm_providers.router.strategy == "priority"
+        assert config.llm_providers.router.priority_order == [
+            "ollama", "openai", "anthropic"
+        ]
+
+    def test_backward_compat_llm_server_still_works(self):
+        data = {
+            "pmids": ["12345"],
+            "pipeline_config": {
+                "llm_server": {
+                    "url": "http://legacy:11434",
+                    "model": "old-model",
+                },
+            },
+        }
+        config = PipelineConfig.from_dict(data)
+        assert config.llm_providers is None
+        assert config.llm_server.url == "http://legacy:11434"
+        assert config.llm_server.model == "old-model"
+
+    def test_llm_providers_with_three_backends(self):
+        data = {
+            "pmids": ["12345"],
+            "llm_providers": {
+                "backends": {
+                    "ollama": {"enabled": True, "model": "qwen3:30b"},
+                    "openai": {
+                        "enabled": True,
+                        "api_key_env": "OPENAI_API_KEY",
+                        "model": "gpt-4",
+                    },
+                    "anthropic": {
+                        "enabled": True,
+                        "api_key_env": "ANTHROPIC_API_KEY",
+                        "model": "claude-sonnet-4-20250514",
+                    },
+                },
+            },
+        }
+        config = PipelineConfig.from_dict(data)
+        assert len(config.llm_providers.backends) == 3
+
+    def test_llm_providers_base_url_for_openai(self):
+        data = {
+            "pmids": ["12345"],
+            "llm_providers": {
+                "backends": {
+                    "openai": {
+                        "enabled": True,
+                        "model": "gpt-4",
+                        "api_key_env": "AZURE_OPENAI_KEY",
+                        "base_url": "https://myazure.openai.azure.com/",
+                    },
+                },
+            },
+        }
+        config = PipelineConfig.from_dict(data)
+        openai = config.llm_providers.backends["openai"]
+        assert openai.base_url == "https://myazure.openai.azure.com/"
+
+
+class TestInitializeMultiProvider:
+    """AsyncPipeline.initialize() with llm_providers config."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_ollama_only(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_resume=False,
+            enable_data_aggregation=False,
+            enable_debate=False,
+            llm_providers=LLMProvidersConfig(
+                backends={
+                    "ollama": LLMBackendConfig(
+                        enabled=True,
+                        url="http://test:11434",
+                        model="qwen3:30b",
+                    ),
+                    "openai": LLMBackendConfig(enabled=False),
+                },
+                router=LLMRouterSettings(
+                    priority_order=["ollama", "openai"],
+                ),
+            ),
+        )
+        pipeline = AsyncPipeline(config)
+        with patch("core.pipeline.OllamaBackend") as mock_ollama, \
+             patch("core.pipeline.OpenAIBackend") as mock_openai, \
+             patch("core.pipeline.LLMRouter") as mock_router_cls:
+            mock_ollama.return_value = MagicMock()
+            mock_router = MagicMock()
+            mock_router.start = AsyncMock()
+            mock_router.stop = AsyncMock()
+            mock_router_cls.return_value = mock_router
+
+            await pipeline.initialize()
+            mock_ollama.assert_called_once()
+            mock_openai.assert_not_called()
+            await pipeline.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_initialize_openai_with_api_key(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_resume=False,
+            enable_data_aggregation=False,
+            enable_debate=False,
+            llm_providers=LLMProvidersConfig(
+                backends={
+                    "openai": LLMBackendConfig(
+                        enabled=True,
+                        model="gpt-4-turbo",
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                },
+                router=LLMRouterSettings(
+                    priority_order=["openai"],
+                ),
+            ),
+        )
+        pipeline = AsyncPipeline(config)
+        with patch("core.pipeline.OpenAIBackend") as mock_openai, \
+             patch("core.pipeline.LLMRouter") as mock_router_cls, \
+             patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+            mock_openai.return_value = MagicMock()
+            mock_router = MagicMock()
+            mock_router.start = AsyncMock()
+            mock_router.stop = AsyncMock()
+            mock_router_cls.return_value = mock_router
+
+            await pipeline.initialize()
+            mock_openai.assert_called_once()
+            await pipeline.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_initialize_openai_no_key_skipped(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_resume=False,
+            enable_data_aggregation=False,
+            enable_debate=False,
+            llm_providers=LLMProvidersConfig(
+                backends={
+                    "openai": LLMBackendConfig(
+                        enabled=True,
+                        model="gpt-4",
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                },
+                router=LLMRouterSettings(
+                    priority_order=["openai"],
+                ),
+            ),
+        )
+        pipeline = AsyncPipeline(config)
+        env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+        with patch("core.pipeline.OpenAIBackend") as mock_openai, \
+             patch("core.pipeline.LLMRouter") as mock_router_cls, \
+             patch.dict(os.environ, env, clear=True):
+            mock_openai.return_value = MagicMock()
+            mock_router = MagicMock()
+            mock_router.start = AsyncMock()
+            mock_router.stop = AsyncMock()
+            mock_router_cls.return_value = mock_router
+
+            await pipeline.initialize()
+            mock_openai.assert_not_called()
+            await pipeline.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_initialize_custom_router_settings(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_resume=False,
+            enable_data_aggregation=False,
+            enable_debate=False,
+            llm_providers=LLMProvidersConfig(
+                backends={
+                    "ollama": LLMBackendConfig(
+                        enabled=True, model="test",
+                    ),
+                },
+                router=LLMRouterSettings(
+                    strategy="round_robin",
+                    enable_auto_failover=False,
+                    max_concurrent_requests=20,
+                ),
+            ),
+        )
+        pipeline = AsyncPipeline(config)
+        with patch("core.pipeline.OllamaBackend") as mock_ollama, \
+             patch("core.pipeline.LLMRouter") as mock_router_cls:
+            mock_ollama.return_value = MagicMock()
+            mock_router = MagicMock()
+            mock_router.start = AsyncMock()
+            mock_router.stop = AsyncMock()
+            mock_router_cls.return_value = mock_router
+
+            await pipeline.initialize()
+            call_kwargs = mock_router_cls.call_args
+            rc = call_kwargs.kwargs.get(
+                "config"
+            ) or call_kwargs[1]["config"]
+            assert rc.strategy == "round_robin"
+            assert rc.enable_auto_failover is False
+            assert rc.max_concurrent_requests == 20
+            await pipeline.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_initialize_per_provider_config(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_resume=False,
+            enable_data_aggregation=False,
+            enable_debate=False,
+            llm_providers=LLMProvidersConfig(
+                backends={
+                    "ollama": LLMBackendConfig(
+                        enabled=True,
+                        url="http://test:11434",
+                        model="qwen3:30b",
+                        temperature=0.7,
+                        top_p=0.8,
+                        max_tokens=2048,
+                        timeout=300,
+                        max_retries=5,
+                    ),
+                },
+                router=LLMRouterSettings(
+                    priority_order=["ollama"],
+                ),
+            ),
+        )
+        pipeline = AsyncPipeline(config)
+        with patch("core.pipeline.OllamaBackend") as mock_ollama, \
+             patch("core.pipeline.LLMRouter") as mock_router_cls:
+            mock_ollama.return_value = MagicMock()
+            mock_router = MagicMock()
+            mock_router.start = AsyncMock()
+            mock_router.stop = AsyncMock()
+            mock_router_cls.return_value = mock_router
+
+            await pipeline.initialize()
+            call_args = mock_ollama.call_args
+            llm_cfg = call_args.kwargs.get(
+                "config"
+            ) or call_args[1]["config"]
+            assert llm_cfg.model == "qwen3:30b"
+            assert llm_cfg.temperature == 0.7
+            assert llm_cfg.top_p == 0.8
+            assert llm_cfg.max_tokens == 2048
+            assert llm_cfg.timeout == 300
+            assert llm_cfg.max_retries == 5
+            await pipeline.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_legacy_path_when_no_llm_providers(self, tmp_path):
+        config = PipelineConfig(
+            pmids=["12345"],
+            results_dir=tmp_path,
+            enable_resume=False,
+            enable_data_aggregation=False,
+            enable_debate=False,
+        )
+        assert config.llm_providers is None
+        pipeline = AsyncPipeline(config)
+        with patch("core.pipeline.OllamaBackend") as mock_ollama, \
+             patch("core.pipeline.LLMRouter") as mock_router_cls:
+            mock_ollama.return_value = MagicMock()
+            mock_router = MagicMock()
+            mock_router.start = AsyncMock()
+            mock_router.stop = AsyncMock()
+            mock_router_cls.return_value = mock_router
+
+            await pipeline.initialize()
+            mock_ollama.assert_called_once()
+            await pipeline.shutdown()

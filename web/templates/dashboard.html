@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioAuto Dashboard</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --surface2: #1c2129;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-dim: #8b949e;
+            --green: #3fb950;
+            --red: #f85149;
+            --yellow: #d29922;
+            --blue: #58a6ff;
+            --cyan: #39d2e5;
+            --purple: #bc8cff;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { font-size: 18px; font-weight: 600; }
+        header h1 span { color: var(--blue); }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-badge.running { background: rgba(63,185,80,0.15); color: var(--green); }
+        .status-badge.idle { background: rgba(139,148,158,0.15); color: var(--text-dim); }
+
+        /* Tab Navigation */
+        .tab-bar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            padding: 0 24px;
+            gap: 0;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-dim);
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active {
+            color: var(--blue);
+            border-bottom-color: var(--blue);
+        }
+        .tab-content { display: none; flex: 1; overflow: auto; }
+        .tab-content.active { display: flex; flex-direction: column; }
+
+        /* ── Results Tab ── */
+        .results-view { padding: 20px 24px; flex: 1; overflow-y: auto; }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .results-header h2 { font-size: 15px; font-weight: 600; }
+        .results-stats { font-size: 12px; color: var(--text-dim); }
+        .rescan-btn {
+            padding: 6px 14px;
+            background: var(--surface2);
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .rescan-btn:hover { color: var(--text); border-color: var(--blue); }
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-dim);
+            font-size: 14px;
+        }
+
+        /* Queue Card */
+        .queue-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .queue-header {
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .queue-header:hover { background: var(--surface2); }
+        .queue-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .queue-chevron {
+            color: var(--text-dim);
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+        .queue-card.open .queue-chevron { transform: rotate(90deg); }
+        .queue-name { font-size: 14px; font-weight: 600; }
+        .queue-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .queue-meta .count { color: var(--text); }
+        .queue-status-completed { color: var(--green); }
+        .queue-status-partial { color: var(--yellow); }
+        .queue-status-failed { color: var(--red); }
+
+        /* Queue Body (expandable) */
+        .queue-body {
+            display: none;
+            border-top: 1px solid var(--border);
+            padding: 0;
+        }
+        .queue-card.open .queue-body { display: block; }
+
+        .pmid-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .pmid-table th {
+            text-align: left;
+            color: var(--text-dim);
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 500;
+            background: var(--surface2);
+        }
+        .pmid-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+        .pmid-table tr:last-child td { border-bottom: none; }
+        .pmid-link { color: var(--blue); text-decoration: none; font-weight: 600; }
+        .pmid-link:hover { text-decoration: underline; }
+        .pmid-title {
+            color: var(--text);
+            max-width: 350px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .verdict-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .verdict-PASS { background: rgba(63,185,80,0.15); color: var(--green); }
+        .verdict-WARN { background: rgba(210,153,34,0.15); color: var(--yellow); }
+        .verdict-FAIL { background: rgba(248,81,73,0.15); color: var(--red); }
+        .report-btn {
+            padding: 4px 10px;
+            background: var(--surface2);
+            color: var(--blue);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 11px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .report-btn:hover { border-color: var(--blue); }
+        .queue-actions {
+            padding: 10px 16px;
+            border-top: 1px solid var(--border);
+            background: var(--surface2);
+        }
+
+        /* ── Run Tab ── */
+        .run-view { display: flex; flex-direction: column; height: 100%; }
+        .summary-bar {
+            display: flex;
+            gap: 24px;
+            padding: 12px 24px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+        .summary-item { font-size: 13px; }
+        .summary-item .label { color: var(--text-dim); margin-right: 6px; }
+        .summary-item .value { font-weight: 600; }
+        .summary-item .value.green { color: var(--green); }
+        .summary-item .value.red { color: var(--red); }
+        .run-pmid-section { flex: 0 0 auto; padding: 16px 24px; overflow-x: auto; }
+        .run-pmid-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .run-pmid-table th {
+            text-align: left;
+            color: var(--text-dim);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 500;
+        }
+        .run-pmid-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .progress-bar {
+            width: 120px; height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--green);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .log-section {
+            flex: 1;
+            padding: 0 24px 16px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .log-header {
+            font-size: 13px;
+            color: var(--text-dim);
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .log-panel {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.6;
+            padding-top: 8px;
+        }
+        .log-entry { padding: 1px 0; }
+        .log-ts { color: var(--text-dim); margin-right: 8px; }
+        .log-info { color: var(--text); }
+        .log-success { color: var(--green); }
+        .log-error { color: var(--red); }
+
+        /* Run Input Panel */
+        .run-panel {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .run-panel input {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+        }
+        .run-panel input:focus { outline: none; border-color: var(--blue); }
+        .run-panel button {
+            padding: 8px 20px;
+            background: var(--green);
+            color: var(--bg);
+            border: none;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .run-panel button:hover { opacity: 0.9; }
+        .run-panel button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span>BioAuto</span> Pipeline Dashboard</h1>
+        <span id="status-badge" class="status-badge idle">IDLE</span>
+    </header>
+
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('results')">Results</button>
+        <button class="tab-btn" onclick="switchTab('run')">Run Pipeline</button>
+    </div>
+
+    <div class="main-content">
+        <!-- ══ Results Tab ══ -->
+        <div id="tab-results" class="tab-content active">
+            <div class="results-view">
+                <div class="results-header">
+                    <div>
+                        <h2>Analysis Results</h2>
+                        <span class="results-stats" id="results-stats">
+                            {{ queues|length }} queue(s), {{ total_pmids }} PMID(s)
+                        </span>
+                    </div>
+                    <button class="rescan-btn" onclick="rescanResults()">Rescan</button>
+                </div>
+                <div id="queues-container">
+                    {% if queues %}
+                        {% for q in queues %}
+                        <div class="queue-card open" data-queue-id="{{ q.queue_id }}">
+                            <div class="queue-header" onclick="toggleQueue(this)">
+                                <div class="queue-title">
+                                    <span class="queue-chevron">&#9654;</span>
+                                    <span class="queue-name">{{ q.name }}</span>
+                                </div>
+                                <div class="queue-meta">
+                                    <span><span class="count">{{ q.pmids|length }}</span> PMID(s)</span>
+                                    <span>{{ q.timestamp[:10] }}</span>
+                                    <span class="queue-status-{{ q.status }}">
+                                        {% if q.status == 'completed' %}Completed
+                                        {% elif q.status == 'partial' %}Partial
+                                        {% elif q.status == 'failed' %}Failed
+                                        {% else %}{{ q.status }}{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="queue-body">
+                                <table class="pmid-table">
+                                    <thead>
+                                        <tr>
+                                            <th>PMID</th>
+                                            <th>Title</th>
+                                            <th>Type</th>
+                                            <th>LLM</th>
+                                            <th>Debate</th>
+                                            <th>Score</th>
+                                            <th>Report</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for pmid in q.pmids %}
+                                        {% set ps = q.pmid_summaries.get(pmid, {}) %}
+                                        <tr>
+                                            <td><a class="pmid-link" href="/api/results/{{ pmid }}" target="_blank">{{ pmid }}</a></td>
+                                            <td class="pmid-title" title="{{ ps.get('title', '') }}">{{ ps.get('title', '-')[:60] }}</td>
+                                            <td>{{ ps.get('sequencing_type', '-') }}</td>
+                                            <td>{{ ps.get('llm_rating', '-') }}</td>
+                                            <td>
+                                                {% set verdict = ps.get('debate_verdict', '') %}
+                                                {% if verdict %}
+                                                <span class="verdict-badge verdict-{{ verdict }}">{{ verdict }}</span>
+                                                {% else %}-{% endif %}
+                                            </td>
+                                            <td>{{ '%.2f'|format(ps.get('debate_score', 0)) if ps.get('debate_score') else '-' }}</td>
+                                            <td><a class="report-btn" href="/reports/{{ pmid }}" target="_blank">View</a></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                                {% if q.has_project_report %}
+                                <div class="queue-actions">
+                                    <a class="report-btn" href="/reports/project" target="_blank">Project Report</a>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <div class="no-results" id="no-results">
+                        No analysis results found.<br>
+                        Use the "Run Pipeline" tab to start an analysis.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- ══ Run Tab ══ -->
+        <div id="tab-run" class="tab-content">
+            <div class="run-view">
+                <div class="summary-bar" id="summary-bar">
+                    <div class="summary-item">
+                        <span class="label">PMIDs:</span>
+                        <span class="value" id="total-count">{{ state.total }}</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="label">Completed:</span>
+                        <span class="value green" id="completed-count">{{ state.completed }}</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="label">Failed:</span>
+                        <span class="value red" id="failed-count">{{ state.failed }}</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="label">Elapsed:</span>
+                        <span class="value" id="elapsed-time">{{ state.elapsed or '--:--:--' }}</span>
+                    </div>
+                </div>
+
+                <div class="run-pmid-section">
+                    <table class="run-pmid-table">
+                        <thead>
+                            <tr><th>PMID</th><th>Stage</th><th>Progress</th><th>Status</th></tr>
+                        </thead>
+                        <tbody id="run-pmid-tbody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="log-section">
+                    <div class="log-header">Event Log</div>
+                    <div class="log-panel" id="log-panel"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="run-panel">
+        <input type="text" id="pmid-input" placeholder="PMIDs (comma or space separated, e.g. 33564749 32416070)">
+        <button id="run-btn" onclick="startPipeline()">Run Pipeline</button>
+    </div>
+
+    <script>
+        // ── Tab Switching ──
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
+        }
+
+        // ── Queue Accordion ──
+        function toggleQueue(header) {
+            header.closest('.queue-card').classList.toggle('open');
+        }
+
+        // ── SSE Connection ──
+        const evtSource = new EventSource('/api/stream');
+        evtSource.addEventListener('status', function(e) {
+            const state = JSON.parse(e.data);
+            updateRunView(state);
+
+            // Auto-switch to Run tab when pipeline starts
+            if (state.running && !document.getElementById('tab-run').classList.contains('active')) {
+                switchTab('run');
+            }
+
+            // Update status badge
+            const badge = document.getElementById('status-badge');
+            if (state.running) {
+                badge.textContent = 'RUNNING';
+                badge.className = 'status-badge running';
+            } else {
+                badge.textContent = 'IDLE';
+                badge.className = 'status-badge idle';
+            }
+        });
+        evtSource.addEventListener('ping', function(e) {});
+
+        function updateRunView(state) {
+            document.getElementById('total-count').textContent = state.total;
+            document.getElementById('completed-count').textContent = state.completed;
+            document.getElementById('failed-count').textContent = state.failed;
+            document.getElementById('elapsed-time').textContent = state.elapsed || '--:--:--';
+
+            const tbody = document.getElementById('run-pmid-tbody');
+            tbody.innerHTML = '';
+            for (const pmid of state.pmids) {
+                const ps = state.pmid_status[pmid] || {};
+                const pct = Math.round((ps.completed || 0) / (ps.total || 8) * 100);
+                const statusIcon = ps.status === 'completed' ? '&#x2705;' :
+                                   ps.status === 'running' ? '&#x1F504;' :
+                                   ps.status === 'failed' ? '&#x274C;' : '&#x23F3;';
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${pmid}</strong></td>
+                    <td>${ps.current_stage || 'pending'}</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${pct}%"></div>
+                        </div>
+                        <span style="margin-left:8px;font-size:12px;color:var(--text-dim)">
+                            ${ps.completed||0}/${ps.total||8}
+                        </span>
+                    </td>
+                    <td>${statusIcon}</td>
+                `;
+                tbody.appendChild(row);
+            }
+
+            const logPanel = document.getElementById('log-panel');
+            logPanel.innerHTML = '';
+            for (const log of state.logs) {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.innerHTML = `<span class="log-ts">${log.timestamp}</span><span class="log-${log.level}">${log.message}</span>`;
+                logPanel.appendChild(entry);
+            }
+            logPanel.scrollTop = logPanel.scrollHeight;
+
+            document.getElementById('run-btn').disabled = state.running;
+        }
+
+        // ── Start Pipeline ──
+        async function startPipeline() {
+            const input = document.getElementById('pmid-input').value.trim();
+            if (!input) return;
+            const pmids = input.split(/[\s,]+/).filter(p => p.length > 0);
+            if (pmids.length === 0) return;
+
+            document.getElementById('run-btn').disabled = true;
+            switchTab('run');
+
+            try {
+                const resp = await fetch('/api/run', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pmids: pmids}),
+                });
+                const result = await resp.json();
+                if (!resp.ok) {
+                    alert(result.error || 'Error');
+                    document.getElementById('run-btn').disabled = false;
+                }
+            } catch (e) {
+                alert('Connection error');
+                document.getElementById('run-btn').disabled = false;
+            }
+        }
+
+        document.getElementById('pmid-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') startPipeline();
+        });
+
+        // ── Rescan Results ──
+        async function rescanResults() {
+            try {
+                const resp = await fetch('/api/queues/rescan', {method: 'POST'});
+                const data = await resp.json();
+                renderQueues(data.queues, data.total_pmids);
+            } catch (e) {
+                console.error('Rescan failed:', e);
+            }
+        }
+
+        function renderQueues(queues, totalPmids) {
+            const container = document.getElementById('queues-container');
+            const stats = document.getElementById('results-stats');
+            stats.textContent = `${queues.length} queue(s), ${totalPmids} PMID(s)`;
+
+            if (queues.length === 0) {
+                container.innerHTML = '<div class="no-results">No analysis results found.<br>Use the "Run Pipeline" tab to start an analysis.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            for (const q of queues) {
+                const card = document.createElement('div');
+                card.className = 'queue-card open';
+                card.dataset.queueId = q.queue_id;
+
+                const statusClass = 'queue-status-' + q.status;
+                const statusLabel = q.status === 'completed' ? 'Completed' :
+                                    q.status === 'partial' ? 'Partial' :
+                                    q.status === 'failed' ? 'Failed' : q.status;
+
+                let rowsHtml = '';
+                for (const pmid of q.pmids) {
+                    const ps = q.pmid_summaries[pmid] || {};
+                    const title = (ps.title || '-').substring(0, 60);
+                    const verdict = ps.debate_verdict || '';
+                    const verdictHtml = verdict ?
+                        `<span class="verdict-badge verdict-${verdict}">${verdict}</span>` : '-';
+                    const score = ps.debate_score ? ps.debate_score.toFixed(2) : '-';
+                    rowsHtml += `<tr>
+                        <td><a class="pmid-link" href="/api/results/${pmid}" target="_blank">${pmid}</a></td>
+                        <td class="pmid-title" title="${ps.title||''}">${title}</td>
+                        <td>${ps.sequencing_type||'-'}</td>
+                        <td>${ps.llm_rating||'-'}</td>
+                        <td>${verdictHtml}</td>
+                        <td>${score}</td>
+                        <td><a class="report-btn" href="/reports/${pmid}" target="_blank">View</a></td>
+                    </tr>`;
+                }
+
+                const projReport = q.has_project_report ?
+                    `<div class="queue-actions"><a class="report-btn" href="/reports/project" target="_blank">Project Report</a></div>` : '';
+
+                card.innerHTML = `
+                    <div class="queue-header" onclick="toggleQueue(this)">
+                        <div class="queue-title">
+                            <span class="queue-chevron">&#9654;</span>
+                            <span class="queue-name">${q.name}</span>
+                        </div>
+                        <div class="queue-meta">
+                            <span><span class="count">${q.pmids.length}</span> PMID(s)</span>
+                            <span>${(q.timestamp||'').substring(0,10)}</span>
+                            <span class="${statusClass}">${statusLabel}</span>
+                        </div>
+                    </div>
+                    <div class="queue-body">
+                        <table class="pmid-table">
+                            <thead><tr><th>PMID</th><th>Title</th><th>Type</th><th>LLM</th><th>Debate</th><th>Score</th><th>Report</th></tr></thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                        ${projReport}
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+        }
+    </script>
+</body>
+</html>

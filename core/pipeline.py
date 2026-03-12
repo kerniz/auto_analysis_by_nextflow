@@ -14,6 +14,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from backends import LLMConfig, LLMRouter, OllamaBackend, OpenAIBackend
+from backends.base import BackendStatus
+from backends.router import RouterConfig
+from core.progress_manager import ProgressManager
+from plugins import PluginRegistry, register_default_plugins
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -21,12 +27,6 @@ try:
     HAS_HTTPX = True
 except ImportError:
     HAS_HTTPX = False
-
-from backends import LLMConfig, LLMRouter, OllamaBackend, OpenAIBackend
-from backends.base import BackendStatus
-from backends.router import RouterConfig
-from core.progress_manager import ProgressManager
-from plugins import PluginRegistry, register_default_plugins
 
 
 class PipelineStatus(Enum):
@@ -93,9 +93,43 @@ class PMIDResult:
 class LLMServerConfig:
     """LLM server settings from config.json pipeline_config.llm_server"""
     url: str = "http://localhost:11434"
-    model: str = "deepseek-coder:33b"
-    timeout: int = 60
+    model: str = "auto"
+    timeout: int = 120
     max_retries: int = 3
+
+
+@dataclass
+class LLMBackendConfig:
+    """프로바이더별 LLM 백엔드 설정 (llm_providers.backends.{name})"""
+    enabled: bool = False
+    model: str = ""
+    timeout: int = 120
+    max_retries: int = 3
+    max_tokens: int = 4096
+    temperature: float = 0.1
+    top_p: float = 0.9
+    url: str = ""                   # Ollama 전용
+    api_key_env: str = ""           # OpenAI/Anthropic
+    base_url: str | None = None     # OpenAI (Azure 호환)
+
+
+@dataclass
+class LLMRouterSettings:
+    """Router 설정 (llm_providers.router)"""
+    strategy: str = "priority"
+    priority_order: list[str] = field(
+        default_factory=lambda: ["ollama", "openai", "anthropic"]
+    )
+    enable_auto_failover: bool = True
+    health_check_interval: int = 60
+    max_concurrent_requests: int = 10
+
+
+@dataclass
+class LLMProvidersConfig:
+    """llm_providers 섹션 전체"""
+    backends: dict[str, LLMBackendConfig] = field(default_factory=dict)
+    router: LLMRouterSettings = field(default_factory=LLMRouterSettings)
 
 
 @dataclass
@@ -121,10 +155,29 @@ class DebateSettings:
     enable_cross_examination: bool = True
     timeout_per_agent: int = 120
     parallel_assessment: bool = True
+    specialist_max_rounds: int = 1
     agent_weights: dict[str, float] = field(default_factory=lambda: {
-        "phd_expert": 0.5,
-        "undergraduate": 0.3,
-        "layperson": 0.2,
+        "phd_expert": 0.20, "undergraduate": 0.12, "layperson": 0.08,
+        "statistical_skeptic": 0.18, "biological_realist": 0.15,
+        "experimental_critic": 0.13, "translation_evaluator": 0.14,
+    })
+
+
+@dataclass
+class ResearchEvaluationConfig:
+    """Research evaluation settings from config.json research_evaluation section"""
+    enabled: bool = True
+    meta_agent_enabled: bool = True
+    dimensions: dict[str, dict] = field(default_factory=lambda: {
+        "literature_redundancy": {"weight": 20},
+        "data_support": {"weight": 25},
+        "cross_dataset_reproducibility": {"weight": 20},
+        "biological_plausibility": {"weight": 15},
+        "technical_feasibility": {"weight": 10},
+        "clinical_industrial_impact": {"weight": 10},
+    })
+    verdict_thresholds: dict[str, int] = field(default_factory=lambda: {
+        "go": 75, "revise": 45, "drop": 0,
     })
 
 
@@ -223,11 +276,17 @@ class PipelineConfig:
     rag_config: RAGConfig = field(default_factory=RAGConfig)
     search_config: SearchConfig = field(default_factory=SearchConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    research_evaluation: ResearchEvaluationConfig = field(
+        default_factory=ResearchEvaluationConfig
+    )
+    # Multi-provider LLM config (v4.2)
+    llm_providers: LLMProvidersConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PipelineConfig":
         pipeline_cfg = data.get("pipeline_config", {})
         debate_data = data.get("debate", {})
+        res_eval_data = data.get("research_evaluation", {})
         enrichment_data = data.get("enrichment", {})
         directories_data = data.get("directories", {})
         brave_data = data.get("brave_search", {})
@@ -235,14 +294,54 @@ class PipelineConfig:
         search_data = data.get("search", {})
         execution_data = data.get("execution", {})
 
-        # LLM server config
+        # LLM server config (legacy)
         llm_srv_data = pipeline_cfg.get("llm_server", {})
         llm_server = LLMServerConfig(
             url=llm_srv_data.get("url", "http://localhost:11434"),
-            model=llm_srv_data.get("model", "deepseek-coder:33b"),
-            timeout=llm_srv_data.get("timeout", 60),
+            model=llm_srv_data.get("model", "auto"),
+            timeout=llm_srv_data.get("timeout", 120),
             max_retries=llm_srv_data.get("max_retries", 3),
         )
+
+        # Multi-provider LLM config (v4.2)
+        llm_providers = None
+        llm_providers_data = data.get("llm_providers")
+        if llm_providers_data:
+            backends_data = llm_providers_data.get("backends", {})
+            parsed_backends = {}
+            for name, bcfg in backends_data.items():
+                parsed_backends[name] = LLMBackendConfig(
+                    enabled=bcfg.get("enabled", False),
+                    model=bcfg.get("model", ""),
+                    timeout=bcfg.get("timeout", 120),
+                    max_retries=bcfg.get("max_retries", 3),
+                    max_tokens=bcfg.get("max_tokens", 4096),
+                    temperature=bcfg.get("temperature", 0.1),
+                    top_p=bcfg.get("top_p", 0.9),
+                    url=bcfg.get("url", ""),
+                    api_key_env=bcfg.get("api_key_env", ""),
+                    base_url=bcfg.get("base_url"),
+                )
+            router_data = llm_providers_data.get("router", {})
+            router_settings = LLMRouterSettings(
+                strategy=router_data.get("strategy", "priority"),
+                priority_order=router_data.get(
+                    "priority_order", ["ollama", "openai", "anthropic"]
+                ),
+                enable_auto_failover=router_data.get(
+                    "enable_auto_failover", True
+                ),
+                health_check_interval=router_data.get(
+                    "health_check_interval", 60
+                ),
+                max_concurrent_requests=router_data.get(
+                    "max_concurrent_requests", 10
+                ),
+            )
+            llm_providers = LLMProvidersConfig(
+                backends=parsed_backends,
+                router=router_settings,
+            )
 
         # Container runtime config
         cr_data = pipeline_cfg.get("container_runtime", {})
@@ -266,8 +365,28 @@ class PipelineConfig:
             enable_cross_examination=debate_data.get("enable_cross_examination", True),
             timeout_per_agent=debate_data.get("timeout_per_agent", 120),
             parallel_assessment=debate_data.get("parallel_assessment", True),
+            specialist_max_rounds=debate_data.get("specialist_max_rounds", 1),
             agent_weights=debate_data.get("agent_weights", {
-                "phd_expert": 0.5, "undergraduate": 0.3, "layperson": 0.2,
+                "phd_expert": 0.20, "undergraduate": 0.12, "layperson": 0.08,
+                "statistical_skeptic": 0.18, "biological_realist": 0.15,
+                "experimental_critic": 0.13, "translation_evaluator": 0.14,
+            }),
+        )
+
+        # Research evaluation config
+        res_eval_config = ResearchEvaluationConfig(
+            enabled=res_eval_data.get("enabled", True),
+            meta_agent_enabled=res_eval_data.get("meta_agent_enabled", True),
+            dimensions=res_eval_data.get("dimensions", {
+                "literature_redundancy": {"weight": 20},
+                "data_support": {"weight": 25},
+                "cross_dataset_reproducibility": {"weight": 20},
+                "biological_plausibility": {"weight": 15},
+                "technical_feasibility": {"weight": 10},
+                "clinical_industrial_impact": {"weight": 10},
+            }),
+            verdict_thresholds=res_eval_data.get("verdict_thresholds", {
+                "go": 75, "revise": 45, "drop": 0,
             }),
         )
 
@@ -356,7 +475,7 @@ class PipelineConfig:
         else:
             rag_dir = None
 
-        return cls(
+        instance = cls(
             pmids=data.get("pmids", pipeline_cfg.get("test_pmids", [])),
             results_dir=Path(results_dir_str),
             max_concurrent=max_concurrent,
@@ -380,7 +499,12 @@ class PipelineConfig:
             rag_config=rag_config,
             search_config=search_config,
             execution=exec_cfg,
+            research_evaluation=res_eval_config,
+            llm_providers=llm_providers,
         )
+        # 원본 config dict 보존 (language 등 추가 설정 참조용)
+        instance._raw_config = data
+        return instance
 
     @classmethod
     def from_json(cls, config_path: str) -> "PipelineConfig":
@@ -413,16 +537,15 @@ class AsyncPipeline:
         self.data_aggregator = None
         self.debate_manager = None
         self.doc_store = None
+        self.error_tracker = None
         self._semaphore = asyncio.Semaphore(config.max_concurrent)
         # LLM 동시 요청 방지 (qwen3:30b 단일 GPU 보호)
         self._llm_semaphore = asyncio.Semaphore(1)
         self._http_client: Any | None = None
-
-        # Project isolation: redirect results_dir if project_slug is set
-        if config.project_slug:
-            from core.project_manager import ProjectManager
-            pm = ProjectManager()
-            self.config.results_dir = pm.get_results_dir(config.project_slug)
+        # Event bus for TUI / Web UI (optional)
+        self.event_bus: Any | None = None
+        # 터미널 상단 고정 상태바 (optional)
+        self._sticky_header = None
 
         self.config.results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -438,45 +561,120 @@ class AsyncPipeline:
             )
             self.progress = ProgressManager(progress_file)
 
-        # LLM backends (use config values instead of hardcoded)
+        # LLM backends
         backends = []
-        llm_srv = self.config.llm_server
 
-        ollama_config = LLMConfig(
-            model=llm_srv.model,
-            timeout=llm_srv.timeout,
-            max_retries=llm_srv.max_retries,
-            max_tokens=4096,
-        )
-        backends.append(OllamaBackend(
-            base_url=llm_srv.url,
-            config=ollama_config
-        ))
-
-        if os.environ.get("OPENAI_API_KEY"):
-            openai_config = LLMConfig(
-                model="gpt-4",
+        if self.config.llm_providers:
+            # === Config-driven multi-provider (v4.2) ===
+            providers_cfg = self.config.llm_providers
+            for provider_name in providers_cfg.router.priority_order:
+                bcfg = providers_cfg.backends.get(provider_name)
+                if not bcfg or not bcfg.enabled:
+                    continue
+                llm_config = LLMConfig(
+                    model=bcfg.model,
+                    temperature=bcfg.temperature,
+                    top_p=bcfg.top_p,
+                    max_tokens=bcfg.max_tokens,
+                    timeout=bcfg.timeout,
+                    max_retries=bcfg.max_retries,
+                )
+                if provider_name == "ollama":
+                    backends.append(OllamaBackend(
+                        base_url=bcfg.url or "http://localhost:11434",
+                        config=llm_config,
+                    ))
+                elif provider_name == "openai":
+                    api_key = (
+                        os.environ.get(bcfg.api_key_env)
+                        if bcfg.api_key_env else None
+                    )
+                    if api_key:
+                        backends.append(OpenAIBackend(
+                            config=llm_config,
+                            api_key=api_key,
+                            base_url=bcfg.base_url,
+                        ))
+                    else:
+                        logger.warning(
+                            "OpenAI enabled but %s not set, skipping",
+                            bcfg.api_key_env,
+                        )
+                elif provider_name == "anthropic":
+                    try:
+                        from backends import AnthropicBackend
+                        api_key = (
+                            os.environ.get(bcfg.api_key_env)
+                            if bcfg.api_key_env else None
+                        )
+                        if api_key:
+                            backends.append(AnthropicBackend(
+                                config=llm_config,
+                                api_key=api_key,
+                            ))
+                        else:
+                            logger.warning(
+                                "Anthropic enabled but %s not set, skipping",
+                                bcfg.api_key_env,
+                            )
+                    except ImportError:
+                        logger.warning(
+                            "anthropic package not installed, skipping"
+                        )
+                else:
+                    logger.warning(
+                        "Unknown provider: %s, skipping", provider_name
+                    )
+            router_config = RouterConfig(
+                strategy=providers_cfg.router.strategy,
+                health_check_interval=(
+                    providers_cfg.router.health_check_interval
+                ),
+                enable_auto_failover=(
+                    providers_cfg.router.enable_auto_failover
+                ),
+                max_concurrent_requests=(
+                    providers_cfg.router.max_concurrent_requests
+                ),
+            )
+        else:
+            # === Legacy path (backward compatible) ===
+            llm_srv = self.config.llm_server
+            ollama_config = LLMConfig(
+                model=llm_srv.model,
                 timeout=llm_srv.timeout,
                 max_retries=llm_srv.max_retries,
+                max_tokens=4096,
             )
-            backends.append(OpenAIBackend(config=openai_config))
-
-        try:
-            from backends import AnthropicBackend
-            if os.environ.get("ANTHROPIC_API_KEY"):
-                anthropic_config = LLMConfig(
-                    model="claude-sonnet-4-20250514",
-                    timeout=llm_srv.timeout,
-                    max_retries=llm_srv.max_retries,
-                )
-                backends.append(AnthropicBackend(config=anthropic_config))
-        except ImportError:
-            pass
-
-        router_config = self.config.llm_router_config or RouterConfig(
-            strategy="priority",
-            enable_auto_failover=True
-        )
+            backends.append(OllamaBackend(
+                base_url=llm_srv.url,
+                config=ollama_config,
+            ))
+            if os.environ.get("OPENAI_API_KEY"):
+                backends.append(OpenAIBackend(
+                    config=LLMConfig(
+                        model="gpt-4o",
+                        timeout=llm_srv.timeout,
+                        max_retries=llm_srv.max_retries,
+                    ),
+                ))
+            try:
+                from backends import AnthropicBackend
+                if os.environ.get("ANTHROPIC_API_KEY"):
+                    anthropic_config = LLMConfig(
+                        model="claude-sonnet-4-20250514",
+                        timeout=llm_srv.timeout,
+                        max_retries=llm_srv.max_retries,
+                    )
+                    backends.append(AnthropicBackend(
+                        config=anthropic_config,
+                    ))
+            except ImportError:
+                pass
+            router_config = self.config.llm_router_config or RouterConfig(
+                strategy="priority",
+                enable_auto_failover=True,
+            )
 
         self.llm_router = LLMRouter(backends=backends, config=router_config)
         await self.llm_router.start()
@@ -491,8 +689,11 @@ class AsyncPipeline:
                 logger.warning("clients 패키지 없음, 데이터 집계 비활성화")
 
         # Debate manager (lazy import)
+        self.research_evaluator = None
+        self.meta_agent = None
         if self.config.enable_debate and self.llm_router:
             try:
+                from agents.base import AgentRole
                 from agents.debate_manager import DebateConfig, DebateManager
                 ds = self.config.debate_settings
                 debate_config = DebateConfig(
@@ -501,12 +702,53 @@ class AsyncPipeline:
                     enable_cross_examination=ds.enable_cross_examination,
                     timeout_per_agent=ds.timeout_per_agent,
                     parallel_assessment=ds.parallel_assessment,
+                    specialist_max_rounds=ds.specialist_max_rounds,
                 )
+                # config의 agent_weights (str 키) → AgentRole enum 키 변환
+                role_weights = None
+                if ds.agent_weights:
+                    role_map = {r.value: r for r in AgentRole if r != AgentRole.META_AGENT}
+                    role_weights = {}
+                    for k, v in ds.agent_weights.items():
+                        if k in role_map:
+                            role_weights[role_map[k]] = v
                 self.debate_manager = DebateManager.create_default_panel(
-                    self.llm_router, config=debate_config
+                    self.llm_router, config=debate_config,
+                    role_weights=role_weights,
                 )
             except ImportError:
                 logger.warning("agents 패키지 없음, 토론 비활성화")
+
+            # Research Evaluation Scorer + Meta-Agent
+            res_cfg = self.config.research_evaluation
+            if res_cfg.enabled:
+                try:
+                    from agents.research_evaluation import ResearchEvaluationScorer
+                    dim_weights = {
+                        k: v.get("weight", 0)
+                        for k, v in res_cfg.dimensions.items()
+                    }
+                    self.research_evaluator = ResearchEvaluationScorer(
+                        dimension_weights=dim_weights,
+                        verdict_thresholds=res_cfg.verdict_thresholds,
+                    )
+                except ImportError:
+                    logger.warning("research_evaluation 모듈 없음, RES 비활성화")
+
+            if res_cfg.meta_agent_enabled and self.llm_router:
+                try:
+                    from agents.meta_agent import MetaAgent
+                    self.meta_agent = MetaAgent(self.llm_router)
+                except ImportError:
+                    logger.warning("meta_agent 모듈 없음, 메타 에이전트 비활성화")
+
+        # Error tracker
+        self.error_tracker = None
+        try:
+            from core.error_tracker import ErrorTracker
+            self.error_tracker = ErrorTracker(self.config.results_dir)
+        except Exception:
+            pass
 
         # RAG document store (lazy import)
         if self.config.rag_dir:
@@ -555,8 +797,34 @@ class AsyncPipeline:
                 timeout=float(self.config.llm_server.timeout),
             )
 
+    def _emit(self, event_type: str, pmid: str = "", stage: str = "",
+              message: str = "", **data):
+        """이벤트 버스에 이벤트 발행 (TUI/Web UI용) + 상단 테이블 업데이트"""
+        if self._sticky_header and pmid and stage:
+            if "stage_start" in event_type:
+                self._sticky_header.update(pmid=pmid, stage=stage)
+            elif "stage_complete" in event_type:
+                self._sticky_header.mark_done(pmid=pmid, stage=stage)
+            elif "stage_fail" in event_type or "stage_error" in event_type:
+                self._sticky_header.mark_fail(pmid=pmid, stage=stage)
+
+        if not self.event_bus:
+            return
+        try:
+            from core.events import EventType, PipelineEvent
+            self.event_bus.emit(PipelineEvent(
+                event_type=EventType(event_type),
+                pmid=pmid, stage=stage, message=message,
+                data=data,
+            ))
+        except Exception:
+            pass
+
     async def shutdown(self):
         """리소스 정리"""
+        if self._sticky_header:
+            self._sticky_header.stop()
+            self._sticky_header = None
         if self.llm_router:
             await self.llm_router.stop()
         if self._http_client:
@@ -568,25 +836,119 @@ class AsyncPipeline:
         """전체 파이프라인 실행"""
         await self.initialize()
 
+        # 터미널 상단 고정 상태바 시작
         try:
-            tasks = [
-                self._process_pmid(pmid)
-                for pmid in self.config.pmids
-            ]
+            from core.terminal_fx import StickyHeader
+            model_name = ""
+            if self.llm_router and self.llm_router.backends:
+                for b in self.llm_router.backends:
+                    if hasattr(b, "config") and b.config.model:
+                        m = b.config.model
+                        if m not in ("auto", ""):
+                            model_name = m
+                            break
+            self._sticky_header = StickyHeader(
+                model=model_name,
+                total_pmids=len(self.config.pmids),
+                pmids=list(self.config.pmids),
+            )
+            self._sticky_header.start()
+        except Exception:
+            self._sticky_header = None
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        # LLM 백엔드 사전 검증 — 실패 시 즉시 중단
+        if self.llm_router:
+            llm_ok = False
+            for backend in self.llm_router.backends.values():
+                try:
+                    if await backend.health_check():
+                        llm_ok = True
+                        break
+                except Exception:
+                    continue
+            if not llm_ok:
+                # 1회 추가 재시도 (간헐적 DNS 오류 대비)
+                logger.warning("LLM 사전 검증 1차 실패, 3초 후 재시도")
+                await asyncio.sleep(3)
+                for backend in self.llm_router.backends.values():
+                    try:
+                        if await backend.health_check():
+                            llm_ok = True
+                            break
+                    except Exception:
+                        continue
+            if not llm_ok:
+                logger.error("LLM 백엔드 사전 검증 실패 — 파이프라인 중단")
+                self._emit(
+                    "pipeline_error",
+                    message="LLM 백엔드에 연결할 수 없습니다. "
+                            "Ollama 서버 상태를 확인하세요.",
+                )
+                await self.shutdown()
+                return self.results
 
-            for pmid, result in zip(self.config.pmids, results):
-                if isinstance(result, Exception):
+        self._emit(
+            "pipeline_start",
+            message=f"파이프라인 시작: {len(self.config.pmids)}개 PMID",
+            pmid_count=len(self.config.pmids),
+            pmids=self.config.pmids,
+        )
+
+        try:
+            # 순차 처리: PMID를 하나씩 실행, 실패 시 전체 중단
+            abort = False
+            for pmid in self.config.pmids:
+                if abort:
                     self.results[pmid] = PMIDResult(
                         pmid=pmid,
                         status=PipelineStatus.FAILED,
-                        error=str(result)
+                        error="이전 PMID 실패로 중단됨",
                     )
-                else:
+                    if self._sticky_header:
+                        self._sticky_header.mark_skip(pmid)
+                    continue
+
+                try:
+                    result = await self._process_pmid(pmid)
                     self.results[pmid] = result
 
+                    # LLM 단계(Stage 6+7) 완전 실패 감지 → 중단
+                    if (result.status == PipelineStatus.FAILED
+                            and "백엔드 실패" in (result.error or "")):
+                        logger.error(
+                            "PMID %s LLM 백엔드 실패 — 나머지 PMID 중단", pmid
+                        )
+                        abort = True
+
+                except Exception as exc:
+                    self.results[pmid] = PMIDResult(
+                        pmid=pmid,
+                        status=PipelineStatus.FAILED,
+                        error=str(exc),
+                    )
+                    # 연결 오류는 전체 중단
+                    err_str = str(exc).lower()
+                    if any(k in err_str for k in (
+                        "connection", "dns", "resolution", "refused",
+                    )):
+                        logger.error("연결 오류로 파이프라인 중단: %s", exc)
+                        abort = True
+
             await self._save_summary()
+            await self._save_queue_manifest()
+
+            # 종합보고서 자동 생성 (2개 이상 성공)
+            success_count = sum(
+                1 for r in self.results.values()
+                if r.status == PipelineStatus.COMPLETED
+            )
+            if success_count >= 2:
+                await self._generate_project_report()
+
+            self._emit(
+                "pipeline_complete",
+                message=f"파이프라인 완료: {len(self.results)}개 결과",
+            )
 
             return self.results
 
@@ -601,12 +963,14 @@ class AsyncPipeline:
                 status=PipelineStatus.RUNNING,
                 start_time=datetime.now()
             )
+            self._emit("pmid_start", pmid=pmid, message=f"PMID {pmid} 처리 시작")
 
             if self.progress:
                 self.progress.set_current_pmid(pmid)
 
             try:
                 # Stage 1: PubMed 메타데이터
+                self._emit("pmid_stage_start", pmid=pmid, stage="pubmed")
                 if not self._is_step_done(pmid, "pubmed_done"):
                     pubmed_metadata = await self._fetch_pubmed(pmid)
                     result.pubmed_metadata = pubmed_metadata
@@ -615,8 +979,13 @@ class AsyncPipeline:
                     result.pubmed_metadata = await self._load_cached(
                         f"pubmed_{pmid}.json"
                     )
+                self._emit(
+                    "pmid_stage_complete", pmid=pmid, stage="pubmed",
+                    message=result.pubmed_metadata.get("title", "")[:80],
+                )
 
                 # Stage 2: SRA 탐색
+                self._emit("pmid_stage_start", pmid=pmid, stage="sra")
                 if not self._is_step_done(pmid, "sra_discovery_done"):
                     sra_results = await self._explore_sra(pmid, result.pubmed_metadata)
                     result.sra_results = sra_results
@@ -625,8 +994,10 @@ class AsyncPipeline:
                     result.sra_results = await self._load_cached(
                         f"sra_exploration_{pmid}.json"
                     )
+                self._emit("pmid_stage_complete", pmid=pmid, stage="sra")
 
                 # Stage 3: 시퀀싱 타입 탐지
+                self._emit("pmid_stage_start", pmid=pmid, stage="sequencing")
                 if self.plugin_registry:
                     detection, _ = self.plugin_registry.detect(
                         result.pubmed_metadata, result.sra_results
@@ -640,6 +1011,13 @@ class AsyncPipeline:
                             if detection.recommended_pipeline else None
                         ),
                     }
+
+                self._emit(
+                    "pmid_stage_complete", pmid=pmid, stage="sequencing",
+                    message=result.sequencing_result.get(
+                        "sequencing_type", ""
+                    ) if isinstance(result.sequencing_result, dict) else "",
+                )
 
                 # Stage 3.5: SRA 데이터 다운로드 (nf-core/fetchngs)
                 if (self.fetchngs_runner
@@ -719,6 +1097,7 @@ class AsyncPipeline:
                         result.downstream_analysis = {"error": str(e)}
 
                 # Stage 4: 데이터 통합
+                self._emit("pmid_stage_start", pmid=pmid, stage="data_aggregation")
                 if self.data_aggregator:
                     try:
                         aggregated = await self.data_aggregator.aggregate(
@@ -729,7 +1108,13 @@ class AsyncPipeline:
                     except Exception as e:
                         result.aggregated_data = {"error": str(e)}
 
+                self._emit(
+                    "pmid_stage_complete", pmid=pmid,
+                    stage="data_aggregation",
+                )
+
                 # Stage 5: 농축 분석
+                self._emit("pmid_stage_start", pmid=pmid, stage="enrichment")
                 if self.config.enable_enrichment:
                     try:
                         enrichment = await self._run_enrichment(result)
@@ -737,9 +1122,14 @@ class AsyncPipeline:
                     except Exception as e:
                         result.enrichment_results = {"error": str(e)}
 
+                self._emit("pmid_stage_complete", pmid=pmid, stage="enrichment")
+
                 # Stage 6+7: LLM 분석 및 토론 (세마포어로 동시 요청 방지)
                 async with self._llm_semaphore:
                     # Stage 6: LLM 멀티 합의 분석
+                    self._emit(
+                        "pmid_stage_start", pmid=pmid, stage="llm_consensus",
+                    )
                     if not self._is_step_done(pmid, "llm_analysis_done"):
                         llm_analysis = await self._analyze_with_llm_consensus(
                             pmid, result.pubmed_metadata, result.sequencing_result,
@@ -752,7 +1142,13 @@ class AsyncPipeline:
                             f"deepseek_analysis_{pmid}.json"
                         )
 
+                    self._emit(
+                        "pmid_stage_complete", pmid=pmid,
+                        stage="llm_consensus",
+                    )
+
                     # Stage 7: 멀티 에이전트 토론
+                    self._emit("pmid_stage_start", pmid=pmid, stage="debate")
                     if self.debate_manager:
                         # HPC 파이프라인 작업과 리소스 경합 방지
                         await self._wait_for_hpc_idle()
@@ -777,35 +1173,123 @@ class AsyncPipeline:
                                 await self.debate_manager.run_debate(research_data)
                             )
                             result.debate_report = debate_result.to_dict()
+
+                            # Stage 7.5: RES + Meta-Agent
+                            await self._run_research_evaluation(
+                                result, research_data, debate_result,
+                            )
                         except Exception as e:
                             result.debate_report = {"error": str(e)}
+                            self._emit(
+                                "pmid_stage_error", pmid=pmid,
+                                stage="debate", message=str(e),
+                            )
+                    self._emit(
+                        "pmid_stage_complete", pmid=pmid, stage="debate",
+                    )
+
+                # Stage 7.8: 토론 보고서 번역 (language 설정 참조)
+                lang_cfg = getattr(self.config, "_raw_config", {}).get(
+                    "language", {},
+                )
+                translate_debate = lang_cfg.get("translate_debate", True)
+                primary_lang = lang_cfg.get("primary", "en")
+                secondary_lang = lang_cfg.get("secondary", "ko")
+                trans_model = lang_cfg.get("translation_model", "auto")
+
+                if (translate_debate
+                        and primary_lang != secondary_lang
+                        and result.debate_report
+                        and not result.debate_report.get("error")):
+                    try:
+                        from core.translator import translate_debate_report
+                        ollama_url = self.config.llm_server.url
+                        ko_report = await translate_debate_report(
+                            result.debate_report, ollama_url,
+                            model=trans_model if trans_model != "auto" else None,
+                            source_lang=primary_lang,
+                            target_lang=secondary_lang,
+                        )
+                        if ko_report:
+                            result.debate_report["debate_ko"] = ko_report
+                    except Exception as e:
+                        logger.warning("토론 번역 실패: %s", e)
 
                 # Stage 8: RAG 인덱싱 (옵션)
+                self._emit("pmid_stage_start", pmid=pmid, stage="rag_indexing")
                 if self.doc_store:
                     try:
                         self._index_result_in_rag(result)
                     except Exception as e:
                         logger.warning("RAG 인덱싱 실패: %s", e)
+                        if self.error_tracker:
+                            self.error_tracker.record(
+                                stage="rag_indexing", pmid=pmid,
+                                error=e, severity="WARNING",
+                            )
+                self._emit(
+                    "pmid_stage_complete", pmid=pmid, stage="rag_indexing",
+                )
 
                 # Stage 9: 완료
-                result.status = PipelineStatus.COMPLETED
+                self._emit("pmid_stage_start", pmid=pmid, stage="report")
+
+                # LLM 분석 + 토론 모두 실패 → 전체 실패 처리
+                llm_failed = (
+                    isinstance(result.llm_analysis, dict)
+                    and result.llm_analysis.get("error")
+                    and not result.llm_analysis.get("consensus")
+                )
+                debate_failed = (
+                    isinstance(result.debate_report, dict)
+                    and result.debate_report.get("error")
+                )
+                if llm_failed and debate_failed:
+                    result.status = PipelineStatus.FAILED
+                    result.error = (
+                        f"LLM 백엔드 실패: "
+                        f"{result.llm_analysis.get('error', 'unknown')}"
+                    )
+                else:
+                    result.status = PipelineStatus.COMPLETED
+
                 self._mark_step_done(pmid, "final_report_done")
+                self._emit(
+                    "pmid_stage_complete", pmid=pmid, stage="report",
+                )
 
             except Exception as e:
                 result.status = PipelineStatus.FAILED
                 result.error = str(e)
+                self._emit(
+                    "pmid_stage_error", pmid=pmid,
+                    message=str(e),
+                )
                 if self.progress:
                     self.progress.add_failed_step(
                         f"pmid_{pmid}", str(e)
                     )
+                if self.error_tracker:
+                    self.error_tracker.record(
+                        stage="pipeline",
+                        pmid=pmid,
+                        error=e,
+                        severity="ERROR",
+                    )
 
             result.end_time = datetime.now()
+            self._emit(
+                "pmid_complete", pmid=pmid,
+                message=result.status.value,
+                status=result.status.value,
+            )
             await self._save_pmid_result(result)
             return result
 
     async def _fetch_pubmed(self, pmid: str) -> dict[str, Any]:
         """PubMed 메타데이터 수집 (캐시 지원)"""
-        cached_file = self.config.results_dir / f"pubmed_{pmid}.json"
+        pmid_dir = self._pmid_dir(pmid)
+        cached_file = pmid_dir / f"pubmed_{pmid}.json"
 
         if cached_file.exists():
             with open(cached_file) as f:
@@ -830,7 +1314,8 @@ class AsyncPipeline:
         self, pmid: str, pubmed_metadata: dict[str, Any]
     ) -> dict[str, Any]:
         """SRA 데이터 탐색 (캐시 지원)"""
-        cached_file = self.config.results_dir / f"sra_exploration_{pmid}.json"
+        pmid_dir = self._pmid_dir(pmid)
+        cached_file = pmid_dir / f"sra_exploration_{pmid}.json"
 
         if cached_file.exists():
             with open(cached_file) as f:
@@ -838,7 +1323,10 @@ class AsyncPipeline:
 
         try:
             from core.sra_explorer import SRAExplorer
-            explorer = SRAExplorer(results_dir=str(self.config.results_dir))
+            explorer = SRAExplorer(
+                results_dir=str(self.config.results_dir),
+                download_timeout=self.config.sra_download.timeout_minutes * 60,
+            )
             sra_links = pubmed_metadata.get("sra_links", [])
             result = await asyncio.to_thread(
                 explorer.explore_sra_datasets, pmid, sra_links
@@ -860,7 +1348,8 @@ class AsyncPipeline:
         downstream_analysis: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """LLM 멀티 합의: 모든 건강한 백엔드에 동시 쿼리 후 가중 합의"""
-        cached_file = self.config.results_dir / f"deepseek_analysis_{pmid}.json"
+        pmid_dir = self._pmid_dir(pmid)
+        cached_file = pmid_dir / f"deepseek_analysis_{pmid}.json"
 
         if cached_file.exists():
             with open(cached_file) as f:
@@ -971,6 +1460,51 @@ class AsyncPipeline:
             },
         }
 
+    async def _run_research_evaluation(
+        self,
+        result: PMIDResult,
+        research_data: dict[str, Any],
+        debate_result: Any,
+    ):
+        """Stage 7.5: RES 평가 + 메타 에이전트 종합 판정"""
+        debate_dict = debate_result.to_dict()
+
+        # RES 평가
+        if self.research_evaluator:
+            try:
+                agent_scores = debate_dict.get("per_agent_scores", {})
+                multi_pmid = len(self.config.pmids) > 1
+                res_result = self.research_evaluator.evaluate(
+                    research_data=research_data,
+                    agent_scores=agent_scores,
+                    enrichment_data=result.enrichment_results or {},
+                    novelty_data={
+                        "score": (result.enrichment_results or {}).get(
+                            "novelty_score", 0.5
+                        ),
+                    },
+                    aggregated_data=result.aggregated_data or {},
+                    multi_pmid=multi_pmid,
+                )
+                result.debate_report["research_evaluation"] = res_result.to_dict()
+            except Exception as e:
+                logger.warning("RES 평가 실패: %s", e)
+                result.debate_report["research_evaluation"] = {"error": str(e)}
+
+        # 메타 에이전트 판정
+        if self.meta_agent:
+            try:
+                res_dict = result.debate_report.get("research_evaluation")
+                meta_verdict = await self.meta_agent.synthesize(
+                    research_data=research_data,
+                    debate_result=debate_dict,
+                    res_result=res_dict if isinstance(res_dict, dict) else None,
+                )
+                result.debate_report["meta_verdict"] = meta_verdict.to_dict()
+            except Exception as e:
+                logger.warning("메타 에이전트 판정 실패: %s", e)
+                result.debate_report["meta_verdict"] = {"error": str(e)}
+
     async def _run_enrichment(self, result: PMIDResult) -> dict[str, Any]:
         """농축 분석 실행 (GSEA, DEG, Pathway)"""
         try:
@@ -1064,6 +1598,45 @@ class AsyncPipeline:
                 verdict=result.debate_report["overall_verdict"],
                 score=result.debate_report.get("overall_score", 0.0),
             )
+
+        # Enrichment 결과 인덱싱
+        if result.enrichment_results and not result.enrichment_results.get("error"):
+            try:
+                text = json.dumps(result.enrichment_results, ensure_ascii=False)
+                top_pathways = []
+                if "top_pathways" in result.enrichment_results:
+                    top_pathways = [
+                        p.get("name", str(p)) if isinstance(p, dict) else str(p)
+                        for p in result.enrichment_results["top_pathways"][:10]
+                    ]
+                self.doc_store.add_enrichment(
+                    pmid=pmid,
+                    enrichment_text=text,
+                    top_pathways=top_pathways,
+                    novelty_score=result.enrichment_results.get("novelty_score", 0.0),
+                )
+            except Exception as e:
+                logger.debug("Enrichment RAG 인덱싱 실패: %s", e)
+
+        # 파이프라인 실행 메타데이터 인덱싱
+        seq_type = "unknown"
+        if isinstance(result.sequencing_result, dict):
+            seq_type = result.sequencing_result.get("sequencing_type", "unknown")
+        try:
+            params = {
+                "genome": getattr(self.config, "genome", ""),
+                "sequencing_type": seq_type,
+                "enable_debate": self.config.enable_debate,
+                "enable_enrichment": self.config.enable_enrichment,
+            }
+            self.doc_store.add_pipeline_run(
+                pmid=pmid,
+                pipeline_type=seq_type,
+                params_summary=json.dumps(params, ensure_ascii=False),
+                success=result.status == PipelineStatus.COMPLETED,
+            )
+        except Exception as e:
+            logger.debug("Pipeline run RAG 인덱싱 실패: %s", e)
 
     def _build_analysis_prompt(
         self,
@@ -1206,6 +1779,16 @@ Provide a JSON response with:
         return 0.0
 
     async def _load_cached(self, filename: str) -> dict[str, Any]:
+        """캐시 파일 로드 (PMID 서브폴더 → 루트 폴백)"""
+        # filename 예: "pubmed_31061532.json" → PMID 추출
+        import re
+        m = re.search(r'(\d{5,})', filename)
+        if m:
+            pmid_dir_path = self.config.results_dir / m.group(1) / filename
+            if pmid_dir_path.exists():
+                with open(pmid_dir_path) as f:
+                    return json.load(f)
+        # 루트 폴백 (하위 호환)
         cached_file = self.config.results_dir / filename
         if cached_file.exists():
             with open(cached_file) as f:
@@ -1221,8 +1804,15 @@ Provide a JSON response with:
         if self.progress:
             self.progress.mark_pmid_step_completed(pmid, step)
 
+    def _pmid_dir(self, pmid: str) -> Path:
+        """PMID별 결과 서브폴더"""
+        d = self.config.results_dir / pmid
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     async def _save_pmid_result(self, result: PMIDResult):
-        output_file = self.config.results_dir / f"final_report_{result.pmid}.json"
+        pmid_dir = self._pmid_dir(result.pmid)
+        output_file = pmid_dir / f"final_report_{result.pmid}.json"
         result_dict = result.to_dict()
         # debate_report 전체 데이터를 JSON에 포함
         if result.debate_report:
@@ -1234,11 +1824,44 @@ Provide a JSON response with:
         try:
             from core.report_generator import ReportGenerator
             gen = ReportGenerator()
-            html_path = self.config.results_dir / f"report_{result.pmid}.html"
+            html_path = pmid_dir / f"report_{result.pmid}.html"
             gen.generate(result_dict, html_path)
             logger.info("HTML report: %s", html_path)
         except Exception as e:
             logger.warning("HTML 리포트 생성 실패: %s", e)
+
+    async def _generate_project_report(self):
+        """종합보고서 자동 생성 (2+ PMID)"""
+        try:
+            from core.report_generator import ReportGenerator
+
+            # 각 PMID의 final_report JSON 로드
+            reports = []
+            for pmid in self.results:
+                json_path = self._pmid_dir(pmid) / f"final_report_{pmid}.json"
+                if json_path.exists():
+                    with open(json_path) as f:
+                        reports.append(json.load(f))
+
+            if len(reports) < 2:
+                return
+
+            # 프로젝트 메타데이터 구성
+            project_meta = {
+                "name": self.config.project_slug or "Analysis",
+                "slug": self.config.project_slug or "analysis",
+                "description": f"{len(reports)} PMIDs 종합 분석",
+                "keywords": [],
+                "pmids": list(self.results.keys()),
+                "created_at": datetime.now().isoformat(),
+            }
+
+            gen = ReportGenerator()
+            output = self.config.results_dir / "project_report.html"
+            gen.generate_project_report(project_meta, reports, output)
+            logger.info("종합보고서 생성: %s (%d PMIDs)", output, len(reports))
+        except Exception as e:
+            logger.warning("종합보고서 생성 실패: %s", e)
 
     async def _save_summary(self):
         summary = {
@@ -1266,6 +1889,38 @@ Provide a JSON response with:
         output_file = self.config.results_dir / "execution_summary.json"
         with open(output_file, "w") as f:
             json.dump(summary, f, indent=2, default=str, ensure_ascii=False)
+
+    async def _save_queue_manifest(self):
+        """Queue 매니페스트 저장 (웹 대시보드 결과 탐색용)"""
+        queue_dir = self.config.results_dir / ".queues"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        slug = self.config.project_slug or "analysis"
+        queue_id = f"{ts}_{slug}"
+
+        completed = sum(
+            1 for r in self.results.values()
+            if r.status == PipelineStatus.COMPLETED
+        )
+        failed = sum(
+            1 for r in self.results.values()
+            if r.status == PipelineStatus.FAILED
+        )
+
+        manifest = {
+            "queue_id": queue_id,
+            "name": self.config.project_slug or f"Analysis {ts[:8]}",
+            "pmids": list(self.results.keys()),
+            "timestamp": datetime.now().isoformat(),
+            "status": "completed" if completed == len(self.results) else "partial",
+            "completed": completed,
+            "failed": failed,
+        }
+
+        output = queue_dir / f"{queue_id}.json"
+        with open(output, "w") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
 
 
 async def main():

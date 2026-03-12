@@ -61,6 +61,16 @@ class TestAgentRole:
         assert AgentRole.UNDERGRADUATE.value == "undergraduate"
         assert AgentRole.PHD_EXPERT.value == "phd_expert"
 
+    def test_specialist_roles(self):
+        assert AgentRole.STATISTICAL_SKEPTIC.value == "statistical_skeptic"
+        assert AgentRole.BIOLOGICAL_REALIST.value == "biological_realist"
+        assert AgentRole.EXPERIMENTAL_CRITIC.value == "experimental_critic"
+        assert AgentRole.TRANSLATION_EVALUATOR.value == "translation_evaluator"
+        assert AgentRole.META_AGENT.value == "meta_agent"
+
+    def test_all_roles_count(self):
+        assert len(AgentRole) == 8  # 3 core + 4 specialist + 1 meta
+
 
 class TestAgentResponse:
     def test_create(self):
@@ -186,11 +196,15 @@ class TestDebateConfig:
 class TestDebateManager:
     def test_create_default_panel(self, mock_llm_router):
         manager = DebateManager.create_default_panel(mock_llm_router)
-        assert len(manager.agents) == 3
+        assert len(manager.agents) == 7
         roles = [a.role for a in manager.agents]
         assert AgentRole.LAYPERSON in roles
         assert AgentRole.UNDERGRADUATE in roles
         assert AgentRole.PHD_EXPERT in roles
+        assert AgentRole.STATISTICAL_SKEPTIC in roles
+        assert AgentRole.BIOLOGICAL_REALIST in roles
+        assert AgentRole.EXPERIMENTAL_CRITIC in roles
+        assert AgentRole.TRANSLATION_EVALUATOR in roles
 
     @pytest.mark.asyncio
     async def test_run_debate(self, mock_llm_router, sample_research_data):
@@ -210,13 +224,34 @@ class TestDebateManager:
         assert manager._determine_verdict(0.3) == "FAIL"
 
     def test_weighted_scoring(self, mock_llm_router):
+        from agents.debate_manager import DEFAULT_ROLE_WEIGHTS
         manager = DebateManager.create_default_panel(mock_llm_router)
         scores = {
             AgentRole.PHD_EXPERT.value: 0.8,
             AgentRole.UNDERGRADUATE.value: 0.6,
             AgentRole.LAYPERSON.value: 0.7,
+            AgentRole.STATISTICAL_SKEPTIC.value: 0.75,
+            AgentRole.BIOLOGICAL_REALIST.value: 0.65,
+            AgentRole.EXPERIMENTAL_CRITIC.value: 0.70,
+            AgentRole.TRANSLATION_EVALUATOR.value: 0.60,
         }
         overall = manager._calculate_overall_score(scores)
-        # PhD=0.5, Undergrad=0.3, Layperson=0.2
-        expected = 0.8 * 0.5 + 0.6 * 0.3 + 0.7 * 0.2
+        # 가중 평균 검증
+        expected = sum(
+            scores.get(role.value, 0.5) * weight
+            for role, weight in DEFAULT_ROLE_WEIGHTS.items()
+        )
+        total_weight = sum(DEFAULT_ROLE_WEIGHTS.values())
+        expected /= total_weight
         assert abs(overall - expected) < 0.05
+
+    def test_custom_role_weights(self, mock_llm_router):
+        custom_weights = {
+            AgentRole.PHD_EXPERT: 0.5,
+            AgentRole.UNDERGRADUATE: 0.3,
+            AgentRole.LAYPERSON: 0.2,
+        }
+        manager = DebateManager.create_default_panel(
+            mock_llm_router, role_weights=custom_weights
+        )
+        assert manager.role_weights == custom_weights

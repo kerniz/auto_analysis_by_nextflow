@@ -325,6 +325,120 @@ class TestScoreBar:
         assert "0%" in bar
 
 
+class TestProjectReport:
+    """프로젝트 종합 보고서 테스트"""
+
+    @pytest.fixture
+    def project_data(self):
+        return {
+            "name": "RA Bee Venom Study",
+            "slug": "ra_bee_venom",
+            "description": "류마티스와 봉독의 유전체 연관성",
+            "keywords": ["rheumatoid arthritis", "bee venom", "RNA-seq"],
+            "pmids": ["12345", "99999"],
+            "created_at": "2026-02-27T16:00:00",
+        }
+
+    def test_generate_project_report_basic(
+        self, project_data, sample_report, minimal_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        result = gen.generate_project_report(
+            project_data, [sample_report, minimal_report], output
+        )
+        assert result == output
+        assert output.exists()
+        content = output.read_text()
+        assert "<!DOCTYPE html>" in content
+        assert "RA Bee Venom Study" in content
+
+    def test_generate_project_report_sections(
+        self, project_data, sample_report, minimal_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        gen.generate_project_report(
+            project_data, [sample_report, minimal_report], output
+        )
+        content = output.read_text()
+        # 주요 섹션 존재 확인
+        assert "Research Overview" in content
+        assert "PMID Analysis Summary" in content
+        assert "References" in content
+        assert "rheumatoid arthritis" in content
+
+    def test_generate_project_report_dashboard(
+        self, project_data, sample_report, minimal_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        gen.generate_project_report(
+            project_data, [sample_report, minimal_report], output
+        )
+        content = output.read_text()
+        assert "Total PMIDs" in content
+        assert "Avg Debate Score" in content
+        assert "Avg Duration" in content
+
+    def test_generate_project_report_single_pmid(
+        self, project_data, sample_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        gen.generate_project_report(
+            project_data, [sample_report], output
+        )
+        assert output.exists()
+        content = output.read_text()
+        assert "12345" in content
+
+    def test_generate_project_report_no_debate(
+        self, project_data, minimal_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        gen.generate_project_report(
+            project_data, [minimal_report], output
+        )
+        assert output.exists()
+        content = output.read_text()
+        assert "99999" in content
+
+    def test_generate_project_report_empty(
+        self, project_data, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        gen.generate_project_report(project_data, [], output)
+        assert output.exists()
+        content = output.read_text()
+        assert "No data" in content
+
+    def test_generate_project_report_debate_synthesis(
+        self, project_data, sample_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "project_report.html"
+        gen.generate_project_report(
+            project_data, [sample_report], output
+        )
+        content = output.read_text()
+        assert "Debate Synthesis" in content
+        assert "Novel approach" in content
+        assert "Small sample" in content
+
+    def test_generate_project_report_creates_parent_dirs(
+        self, project_data, sample_report, tmp_path
+    ):
+        gen = ReportGenerator()
+        output = tmp_path / "sub" / "nested" / "project_report.html"
+        gen.generate_project_report(
+            project_data, [sample_report], output
+        )
+        assert output.exists()
+
+
 class TestPipelineSection:
     def test_no_pipeline(self, tmp_path):
         gen = ReportGenerator()

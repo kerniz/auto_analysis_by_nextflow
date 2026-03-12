@@ -7,7 +7,8 @@ for literature-aware AI analysis.
 벡터 기반 문서 저장소와 문헌 인식 AI 분석을 위한 컨텍스트 빌더를 제공합니다.
 """
 
+from .auto_collector import AutoRAGCollector
 from .document_store import DocumentStore
 from .rag_context import RAGContext
 
-__all__ = ["DocumentStore", "RAGContext"]
+__all__ = ["AutoRAGCollector", "DocumentStore", "RAGContext"]

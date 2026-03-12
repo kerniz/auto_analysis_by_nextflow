@@ -23,10 +23,17 @@ class AgentRole(Enum):
     """
     에이전트 역할 정의
     Agent role enumeration for the multi-agent debate system.
+
+    기존 3인 (일반인, 학부생, 박사급) + 전문가 4인 + 메타 에이전트.
     """
     LAYPERSON = "layperson"
     UNDERGRADUATE = "undergraduate"
     PHD_EXPERT = "phd_expert"
+    STATISTICAL_SKEPTIC = "statistical_skeptic"
+    BIOLOGICAL_REALIST = "biological_realist"
+    EXPERIMENTAL_CRITIC = "experimental_critic"
+    TRANSLATION_EVALUATOR = "translation_evaluator"
+    META_AGENT = "meta_agent"
 
 
 @dataclass

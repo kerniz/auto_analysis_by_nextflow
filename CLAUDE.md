@@ -2,9 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 프로젝트
+## 프로젝트 아이덴티티
 
-**bioauto** — PMID 기반 논문 분석 → SRA 탐색 → 시퀀싱 타입 감지 → 다중 LLM 합의 → 멀티 에이전트 토론 → nf-core 파이프라인 실행 → R/Python 다운스트림 분석까지 자동화하는 올인원 바이오인포매틱스 CLI 플랫폼.
+**bioauto** — 하나의 주제를 넣으면 관련 논문·유전체 데이터 수집 → 모델링 → 어노테이션 → 토론 → 아이디어 검증까지 자동으로 해주는 올인원 바이오인포매틱스 연구 자동화 시스템.
+
+- **입력**: PMID, 키워드, 또는 연구 주제
+- **출력**: `results/{PMID}/` 폴더에 PMID별 보고서(JSON + HTML), 2개 이상 PMID 시 종합보고서 자동 생성
+- **실행 단위**: 한 번의 `bioauto run` 호출이 하나의 큐(queue). 결과는 `results/` 폴더에 모임.
 
 ## 개발 명령어
 
@@ -54,12 +58,27 @@ CLI (core/cli.py — Click)
        Stage 8: 보고서 + RAG 인덱싱      ← rag/ (ChromaDB)
 ```
 
+### 결과 저장 구조
+
+```
+results/
+├── {PMID}/                    # PMID별 서브폴더
+│   ├── final_report_{PMID}.json
+│   ├── report_{PMID}.html
+│   ├── pubmed_{PMID}.json     # 캐시
+│   └── sra_exploration_{PMID}.json
+├── project_report.html         # 2+ PMID 시 종합보고서 자동 생성
+├── execution_summary.json
+└── progress.json
+```
+
 ### 핵심 디자인 패턴
 
 - **ABC + Plugin Registry**: `backends/base.py`, `plugins/base.py`, `clients/base.py`, `agents/base.py` — 새 구현은 반드시 추상 클래스 상속 후 레지스트리 등록
 - **Router + Failover**: `backends/router.py` — 멀티 LLM 백엔드 라우팅, 장애 시 자동 전환
 - **Lazy Import + Graceful Degradation**: optional 모듈(`chromadb`, `openai`, `anthropic`, `scanpy`)은 try/except로 지연 로드, 미설치 시 경고 후 스킵
 - **Async Subprocess**: `nextflow/`, `analysis/` — `asyncio.create_subprocess_exec`로 Nextflow/R/Python 외부 프로세스 실행
+- **LLM Semaphore**: `_llm_semaphore(1)` — Stage 6+7 직렬화, 동시 PMID 처리 시 LLM 경합 방지
 
 ### 설정 연결 (config.json → PipelineConfig)
 
@@ -79,10 +98,11 @@ CLI (core/cli.py — Click)
 5. **환경변수**: API 키는 절대 하드코딩 금지 (OPENAI_API_KEY, ANTHROPIC_API_KEY, BRAVE_API_KEY)
 6. **테스트 격리**: 외부 API/프로세스 호출은 반드시 mock (`httpx`, `asyncio.create_subprocess_exec`, `shutil.which`)
 7. **ruff lint**: `python3 -m ruff check .` 0 warning 유지 (line-length=100, ignore E501)
+8. **결과 폴더**: 모든 결과는 `results/{PMID}/` 서브폴더에 저장. 루트 results에 직접 쓰지 않음.
 
 ## 테스트 현황
 
-- **1109 passed, 10 skipped** (chromadb 미설치 시 skip)
+- **1104 passed, 10 skipped** (chromadb 미설치 시 skip)
 - **커버리지 90%**
 - asyncio_mode = "auto" (pyproject.toml)
 - 모든 비동기 테스트는 `@pytest.mark.asyncio` 자동 적용

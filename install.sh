@@ -1,0 +1,264 @@
+#!/usr/bin/env bash
+#
+# bioauto installer
+#
+# Usage:
+#   Local:   bash install.sh
+#   Remote:  curl -fsSL <URL>/install.sh | bash
+#
+set -euo pipefail
+
+REPO_URL="https://github.com/your-org/bioauto.git"  # TODO: 실제 URL로 변경
+INSTALL_DIR="${BIOAUTO_HOME:-$HOME/.bioauto}"
+BIN_DIR="${BIOAUTO_BIN:-$HOME/.local/bin}"
+MIN_PYTHON="3.10"
+
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { echo -e "${CYAN}${BOLD}==>${NC} $*"; }
+ok()    { echo -e "${GREEN}${BOLD} ✓${NC} $*"; }
+warn()  { echo -e "${YELLOW}${BOLD} !${NC} $*"; }
+err()   { echo -e "${RED}${BOLD} ✗${NC} $*" >&2; }
+die()   { err "$@"; exit 1; }
+
+# --- Banner ---
+echo ""
+echo -e "${BOLD}  ┌──────────────────────────────────┐${NC}"
+echo -e "${BOLD}  │      ${CYAN}bioauto${NC}${BOLD} installer v4.1      │${NC}"
+echo -e "${BOLD}  │  올인원 바이오인포매틱스 연구 자동화  │${NC}"
+echo -e "${BOLD}  └──────────────────────────────────┘${NC}"
+echo ""
+
+# --- Detect OS ---
+detect_os() {
+    case "$(uname -s)" in
+        Linux*)  OS="linux" ;;
+        Darwin*) OS="macos" ;;
+        *)       die "지원하지 않는 OS: $(uname -s)" ;;
+    esac
+
+    case "$(uname -m)" in
+        x86_64|amd64)  ARCH="x86_64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *)             die "지원하지 않는 아키텍처: $(uname -m)" ;;
+    esac
+
+    info "OS: ${OS}/${ARCH}"
+}
+
+# --- Find Python 3.10+ ---
+find_python() {
+    local candidates=("python3.13" "python3.12" "python3.11" "python3.10" "python3" "python")
+
+    for cmd in "${candidates[@]}"; do
+        if command -v "$cmd" &>/dev/null; then
+            local ver
+            ver=$("$cmd" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null) || continue
+            local major minor
+            major=$(echo "$ver" | cut -d. -f1)
+            minor=$(echo "$ver" | cut -d. -f2)
+            if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]]; then
+                PYTHON="$cmd"
+                PYTHON_VERSION="$ver"
+                ok "Python ${PYTHON_VERSION} ($(command -v "$cmd"))"
+                return 0
+            fi
+        fi
+    done
+
+    die "Python >=${MIN_PYTHON} 필요. 설치: https://www.python.org/downloads/"
+}
+
+# --- Find source directory ---
+find_source() {
+    # 1) 스크립트가 있는 디렉토리에 pyproject.toml이 있으면 로컬 설치
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+    if [[ -f "${script_dir}/pyproject.toml" ]]; then
+        SOURCE_DIR="$script_dir"
+        info "로컬 소스: ${SOURCE_DIR}"
+        return 0
+    fi
+
+    # 2) 현재 디렉토리에 pyproject.toml이 있으면 로컬 설치
+    if [[ -f "./pyproject.toml" ]]; then
+        SOURCE_DIR="$(pwd)"
+        info "로컬 소스: ${SOURCE_DIR}"
+        return 0
+    fi
+
+    # 3) curl | bash로 실행된 경우 → git clone
+    if command -v git &>/dev/null; then
+        info "소스 다운로드 중..."
+        git clone --depth 1 "${REPO_URL}" "${INSTALL_DIR}/src" 2>/dev/null \
+            || die "git clone 실패. REPO_URL을 확인하세요: ${REPO_URL}"
+        SOURCE_DIR="${INSTALL_DIR}/src"
+        ok "소스 다운로드 완료"
+    else
+        die "git이 필요합니다: apt install git / brew install git"
+    fi
+}
+
+# --- Create venv & install ---
+install_bioauto() {
+    local venv_dir="${INSTALL_DIR}/venv"
+
+    mkdir -p "${INSTALL_DIR}"
+
+    # 기존 venv가 있으면 재사용
+    if [[ -d "${venv_dir}" ]] && [[ -f "${venv_dir}/bin/python3" ]]; then
+        warn "기존 설치 발견 — 업그레이드합니다"
+    else
+        info "가상환경 생성 중..."
+        rm -rf "${venv_dir}" 2>/dev/null || true
+
+        if "${PYTHON}" -m venv "${venv_dir}" 2>/dev/null; then
+            ok "가상환경 생성 완료"
+        elif "${PYTHON}" -m venv --without-pip "${venv_dir}" 2>/dev/null; then
+            warn "ensurepip 없음 — get-pip.py로 pip 설치"
+            curl -fsSL https://bootstrap.pypa.io/get-pip.py | "${venv_dir}/bin/python3" -q
+            ok "가상환경 생성 완료 (without-pip + get-pip)"
+        else
+            # venv 모듈 자체가 없는 경우
+            die "venv 생성 실패. 다음 명령어로 설치하세요:\n  sudo apt install python3-venv  (또는 python3.${PYTHON_VERSION##*.}-venv)"
+        fi
+    fi
+
+    # pip 업그레이드 + 패키지 설치
+    info "bioauto 설치 중..."
+    "${venv_dir}/bin/pip" install --upgrade pip -q 2>/dev/null
+    "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}" -q
+    ok "bioauto 코어 설치 완료"
+
+    # RAG 지식 DB (자동 축적 시스템 — 강력 추천)
+    info "RAG 지식 DB 설치 중 (자동 연구 축적)..."
+    if "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[rag]" -q 2>/dev/null; then
+        ok "RAG 지식 DB 설치 완료 (chromadb + sentence-transformers)"
+        RAG_OK=true
+    else
+        warn "RAG 설치 실패 — 지식 자동 축적 비활성화 (나중에 수동 설치 가능)"
+        RAG_OK=false
+    fi
+
+    # 선택적 의존성 설치 (실패해도 무시)
+    info "선택적 의존성 설치 중 (실패해도 OK)..."
+    "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[openai,anthropic,tui,web]" -q 2>/dev/null || true
+
+    # biopython (PubMed 접근용)
+    "${venv_dir}/bin/pip" install biopython -q 2>/dev/null || true
+
+    ok "의존성 설치 완료"
+}
+
+# --- Create wrapper script ---
+create_wrapper() {
+    mkdir -p "${BIN_DIR}"
+
+    cat > "${BIN_DIR}/bioauto" << WRAPPER
+#!/usr/bin/env bash
+# bioauto wrapper — auto-generated by install.sh
+exec "${INSTALL_DIR}/venv/bin/bioauto" "\$@"
+WRAPPER
+
+    chmod +x "${BIN_DIR}/bioauto"
+    ok "bioauto 명령어 설치: ${BIN_DIR}/bioauto"
+}
+
+# --- Update PATH in shell rc ---
+setup_path() {
+    # 이미 PATH에 있으면 스킵
+    if echo "$PATH" | tr ':' '\n' | grep -qx "${BIN_DIR}"; then
+        return 0
+    fi
+
+    local line="export PATH=\"${BIN_DIR}:\$PATH\""
+    local updated=false
+
+    for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+        if [[ -f "$rc" ]]; then
+            if ! grep -qF "${BIN_DIR}" "$rc" 2>/dev/null; then
+                echo "" >> "$rc"
+                echo "# bioauto" >> "$rc"
+                echo "$line" >> "$rc"
+                updated=true
+            fi
+        fi
+    done
+
+    if $updated; then
+        warn "PATH 업데이트됨 — 새 터미널에서 적용됩니다"
+        warn "지금 바로 사용하려면: export PATH=\"${BIN_DIR}:\$PATH\""
+    fi
+}
+
+# --- Verify ---
+verify() {
+    echo ""
+    if "${BIN_DIR}/bioauto" --version &>/dev/null; then
+        local ver
+        ver=$("${BIN_DIR}/bioauto" --version 2>&1)
+        ok "설치 완료! ${ver}"
+    else
+        warn "설치는 됐지만 실행 확인 실패 — 수동으로 확인하세요"
+    fi
+
+    # RAG 상태 표시
+    if ${RAG_OK:-false}; then
+        ok "지식 자동 축적 활성화 (사용할수록 똑똑해집니다)"
+    else
+        warn "지식 자동 축적 비활성화"
+        echo -e "    수동 설치: ${CYAN}pip install chromadb sentence-transformers${NC}"
+    fi
+}
+
+# --- Print usage ---
+print_usage() {
+    echo ""
+    echo -e "${BOLD}  사용법:${NC}"
+    echo ""
+    echo -e "  ${BOLD}  연구 실행${NC}"
+    echo -e "    ${CYAN}bioauto run${NC} <PMID> [PMID ...]     # PMID로 분석"
+    echo -e "    ${CYAN}bioauto search${NC} \"키워드\"             # 주제로 논문 검색 → 분석"
+    echo -e "    ${CYAN}bioauto consult${NC}                    # LLM 상담 모드"
+    echo ""
+    echo -e "  ${BOLD}  지식 관리${NC}"
+    echo -e "    ${CYAN}bioauto knowledge${NC}                  # 축적된 지식 DB 통계"
+    echo -e "    ${CYAN}bioauto knowledge -q${NC} \"키워드\"       # 과거 연구에서 검색"
+    echo ""
+    echo -e "  ${BOLD}  설정 & 상태${NC}"
+    echo -e "    ${CYAN}bioauto setup${NC}                      # 초기 설정 마법사"
+    echo -e "    ${CYAN}bioauto backends${NC}                   # LLM 백엔드 상태 확인"
+    echo -e "    ${CYAN}bioauto prereqs${NC}                    # 사전 요구사항 확인"
+    echo ""
+    echo -e "  ${YELLOW}※ 사용할수록 지식 DB가 자동 축적됩니다 (RAG)${NC}"
+    echo -e "  더 많은 옵션: ${CYAN}bioauto --help${NC}"
+    echo ""
+}
+
+# --- Uninstall info ---
+print_uninstall() {
+    echo -e "  ${BOLD}제거:${NC} bioauto uninstall"
+    echo ""
+}
+
+# --- Main ---
+main() {
+    detect_os
+    find_python
+    find_source
+    install_bioauto
+    create_wrapper
+    setup_path
+    verify
+    print_usage
+    print_uninstall
+}
+
+main "$@"

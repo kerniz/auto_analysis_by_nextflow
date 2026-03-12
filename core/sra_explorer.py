@@ -14,12 +14,28 @@ import requests
 
 
 class SRAExplorer:
-    def __init__(self, results_dir: str = "./results"):
-        """SRA 탐색기 초기화"""
+    # SRA 다운로드 기본 타임아웃 (초)
+    DEFAULT_DOWNLOAD_TIMEOUT = 1800  # 30분
+
+    def __init__(
+        self,
+        results_dir: str = "./results",
+        download_timeout: int | None = None,
+        api_timeout: int = 30,
+    ):
+        """SRA 탐색기 초기화
+
+        Args:
+            results_dir: 결과 저장 디렉토리
+            download_timeout: SRA 다운로드 타임아웃 (초). None이면 기본값 사용.
+            api_timeout: NCBI API 요청 타임아웃 (초).
+        """
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self.sra_base_url = "https://www.ncbi.nlm.nih.gov/sra"
         self.raw_data_dir = os.path.join(results_dir, "raw_data")
         self.samplesheet_dir = results_dir
+        self.download_timeout = download_timeout or self.DEFAULT_DOWNLOAD_TIMEOUT
+        self.api_timeout = api_timeout
 
         # 디렉토리 생성
         os.makedirs(self.raw_data_dir, exist_ok=True)
@@ -86,7 +102,7 @@ class SRAExplorer:
                     "retmode": "json"
                 }
 
-                response = requests.get(url, params=params, timeout=30)
+                response = requests.get(url, params=params, timeout=self.api_timeout)
                 if response.status_code == 200:
                     data = response.json()
                     if "result" in data and sra_id in data["result"]:
@@ -206,12 +222,18 @@ class SRAExplorer:
         try:
             # prefetch로 SRA 파일 다운로드
             cmd = ["prefetch", "--progress", sra_id]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30분 타임아웃
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=self.download_timeout,
+            )
 
             if result.returncode == 0:
                 # fasterq-dump로 FASTQ 변환
                 cmd = ["fasterq-dump", "--split-files", "--progress", sra_id]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    timeout=self.download_timeout,
+                )
 
                 if result.returncode == 0:
                     # 압축

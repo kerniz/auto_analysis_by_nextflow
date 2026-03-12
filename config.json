@@ -1,9 +1,16 @@
 {
+  "locale": "ko",
+  "language": {
+    "primary": "en",
+    "secondary": "ko",
+    "translate_debate": true,
+    "translation_model": "auto"
+  },
   "pipeline_config": {
     "test_pmids": ["40315330", "32416070"],
     "llm_server": {
       "url": "http://REDACTED-HOST-X86:11436",
-      "model": "qwen3:30b",
+      "model": "auto",
       "timeout": 259200,
       "max_retries": 3
     },
@@ -23,6 +30,48 @@
       "max_parallel": 4,
       "timeout_minutes": 30,
       "max_samples": 50
+    }
+  },
+  "llm_providers": {
+    "backends": {
+      "ollama": {
+        "enabled": true,
+        "url": "http://REDACTED-HOST-X86:11436",
+        "model": "auto",
+        "timeout": 259200,
+        "max_retries": 3,
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "top_p": 0.9
+      },
+      "openai": {
+        "enabled": false,
+        "api_key_env": "OPENAI_API_KEY",
+        "base_url": null,
+        "model": "gpt-4",
+        "timeout": 120,
+        "max_retries": 3,
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "top_p": 0.9
+      },
+      "anthropic": {
+        "enabled": false,
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "model": "claude-sonnet-4-20250514",
+        "timeout": 120,
+        "max_retries": 3,
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "top_p": 0.9
+      }
+    },
+    "router": {
+      "strategy": "priority",
+      "priority_order": ["ollama", "openai", "anthropic"],
+      "enable_auto_failover": true,
+      "health_check_interval": 60,
+      "max_concurrent_requests": 10
     }
   },
   "data_sources": {
@@ -56,11 +105,29 @@
     "enable_cross_examination": true,
     "timeout_per_agent": 259200,
     "parallel_assessment": false,
+    "specialist_max_rounds": 1,
     "agent_weights": {
-      "phd_expert": 0.5,
-      "undergraduate": 0.3,
-      "layperson": 0.2
+      "phd_expert": 0.20,
+      "undergraduate": 0.12,
+      "layperson": 0.08,
+      "statistical_skeptic": 0.18,
+      "biological_realist": 0.15,
+      "experimental_critic": 0.13,
+      "translation_evaluator": 0.14
     }
+  },
+  "research_evaluation": {
+    "enabled": true,
+    "meta_agent_enabled": true,
+    "dimensions": {
+      "literature_redundancy": {"weight": 20},
+      "data_support": {"weight": 25},
+      "cross_dataset_reproducibility": {"weight": 20},
+      "biological_plausibility": {"weight": 15},
+      "technical_feasibility": {"weight": 10},
+      "clinical_industrial_impact": {"weight": 10}
+    },
+    "verdict_thresholds": {"go": 75, "revise": 45, "drop": 0}
   },
   "enrichment": {
     "gsea_gene_set_db": "KEGG_2021_Human",

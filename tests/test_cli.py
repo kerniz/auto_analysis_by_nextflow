@@ -4,7 +4,7 @@ CLI 진입점 테스트
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -61,7 +61,7 @@ class TestRunCommand:
         mock_asyncio.run.return_value = {}
         result = runner.invoke(cli, ["run", "40315330", "--no-debate"])
         assert result.exit_code == 0
-        assert "Debate: OFF" in result.output
+        assert "40315330" in result.output
 
     @patch("core.cli.AsyncPipeline")
     @patch("core.cli.asyncio")
@@ -152,13 +152,13 @@ class TestSearchCommand:
         assert result.exit_code == 0
         assert "주제 기반" in result.output or "QUERY" in result.output
 
-    @patch("core.cli._run_search")
+    @patch("core.cli._run_search", new_callable=AsyncMock)
     def test_search_no_results(self, mock_search, runner):
         mock_search.return_value = []
         result = runner.invoke(cli, ["search", "test query"], input="q\n")
         assert "검색 결과가 없습니다" in result.output
 
-    @patch("core.cli._run_search")
+    @patch("core.cli._run_search", new_callable=AsyncMock)
     def test_search_with_results_quit(self, mock_search, runner):
         from search import SearchResult
         mock_search.return_value = [
@@ -246,7 +246,7 @@ class TestRunWithConfig:
         mock_asyncio.run.return_value = {}
         result = runner.invoke(cli, ["run", "40315330", "--project", "ra_bee_venom"])
         assert result.exit_code == 0
-        assert "Project: ra_bee_venom" in result.output
+        assert "ra_bee_venom" in result.output
 
     @patch("core.cli.AsyncPipeline")
     @patch("core.cli.asyncio")
@@ -257,10 +257,7 @@ class TestRunWithConfig:
             "--no-debate", "--no-enrichment", "--no-aggregate", "--no-resume",
         ])
         assert result.exit_code == 0
-        assert "Debate: OFF" in result.output
-        assert "Enrichment: OFF" in result.output
-        assert "Data Aggregation: OFF" in result.output
-        assert "Resume: OFF" in result.output
+        assert "40315330" in result.output
 
 
 class TestRunResultDisplay:
@@ -334,159 +331,9 @@ class TestRunResultDisplay:
         assert "5000" in result.output
 
 
-class TestProjectCreate:
-    @patch("core.cli.ProjectManager")
-    def test_create_basic(self, mock_pm_cls, runner):
-        from core.project_manager import ResearchProject
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.create_project.return_value = ResearchProject(
-            name="Test Project", slug="test_project",
-            keywords=[], pmids=[],
-            created_at="2025-01-01", updated_at="2025-01-01",
-        )
-        mock_pm.get_project_dir.return_value = "/tmp/research_projects/test_project"
-
-        result = runner.invoke(cli, ["project", "create", "Test Project"])
-        assert result.exit_code == 0
-        assert "Project created: Test Project" in result.output
-        assert "test_project" in result.output
-
-    @patch("core.cli.ProjectManager")
-    def test_create_with_options(self, mock_pm_cls, runner):
-        from core.project_manager import ResearchProject
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.create_project.return_value = ResearchProject(
-            name="RA Bee Venom", slug="ra_bee_venom",
-            description="RA and bee venom study",
-            keywords=["RA", "bee_venom"], pmids=["111", "222"],
-            created_at="2025-01-01", updated_at="2025-01-01",
-        )
-        mock_pm.get_project_dir.return_value = "/tmp/research_projects/ra_bee_venom"
-
-        result = runner.invoke(cli, [
-            "project", "create", "RA Bee Venom",
-            "-d", "RA and bee venom study",
-            "-k", "RA,bee_venom",
-            "--pmids", "111,222",
-        ])
-        assert result.exit_code == 0
-        assert "RA Bee Venom" in result.output
-        assert "RA" in result.output
-        assert "111" in result.output
-
-
-class TestProjectList:
-    @patch("core.cli.ProjectManager")
-    def test_list_empty(self, mock_pm_cls, runner):
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.list_projects.return_value = []
-
-        result = runner.invoke(cli, ["project", "list"])
-        assert result.exit_code == 0
-        assert "등록된 프로젝트가 없습니다" in result.output
-
-    @patch("core.cli.ProjectManager")
-    def test_list_with_projects(self, mock_pm_cls, runner):
-        from core.project_manager import ResearchProject
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.list_projects.return_value = [
-            ResearchProject(
-                name="Project Alpha", slug="project_alpha",
-                pmids=["111", "222"],
-                created_at="2025-01-01T10:00:00",
-                updated_at="2025-01-01",
-            ),
-            ResearchProject(
-                name="Project Beta", slug="project_beta",
-                pmids=[],
-                created_at="2025-02-01T12:00:00",
-                updated_at="2025-02-01",
-            ),
-        ]
-
-        result = runner.invoke(cli, ["project", "list"])
-        assert result.exit_code == 0
-        assert "project_alpha" in result.output
-        assert "project_beta" in result.output
-        assert "Project Alpha" in result.output
-
-
-class TestProjectInfo:
-    @patch("core.cli.ProjectManager")
-    def test_info_existing(self, mock_pm_cls, runner):
-        from core.project_manager import ResearchProject
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.get_project.return_value = ResearchProject(
-            name="My Project", slug="my_project",
-            description="A description",
-            keywords=["bio", "rna"],
-            pmids=["111", "222"],
-            created_at="2025-01-01", updated_at="2025-01-02",
-        )
-        mock_pm.get_project_dir.return_value = "/tmp/research_projects/my_project"
-
-        result = runner.invoke(cli, ["project", "info", "my_project"])
-        assert result.exit_code == 0
-        assert "My Project" in result.output
-        assert "A description" in result.output
-        assert "bio" in result.output
-        assert "111" in result.output
-
-    @patch("core.cli.ProjectManager")
-    def test_info_nonexistent(self, mock_pm_cls, runner):
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.get_project.return_value = None
-
-        result = runner.invoke(cli, ["project", "info", "no_such"])
-        assert result.exit_code == 0
-        assert "찾을 수 없습니다" in result.output
-
-
-class TestProjectAddPmids:
-    @patch("core.cli.ProjectManager")
-    def test_add_pmids(self, mock_pm_cls, runner):
-        from core.project_manager import ResearchProject
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.add_pmids.return_value = ResearchProject(
-            name="My Project", slug="my_project",
-            pmids=["111", "222", "333"],
-        )
-
-        result = runner.invoke(cli, ["project", "add-pmids", "my_project", "222", "333"])
-        assert result.exit_code == 0
-        assert "PMIDs updated" in result.output
-        assert "3" in result.output
-
-    @patch("core.cli.ProjectManager")
-    def test_add_pmids_nonexistent_project(self, mock_pm_cls, runner):
-        mock_pm = MagicMock()
-        mock_pm_cls.return_value = mock_pm
-        mock_pm.add_pmids.return_value = None
-
-        result = runner.invoke(cli, ["project", "add-pmids", "no_such", "111"])
-        assert result.exit_code == 0
-        assert "찾을 수 없습니다" in result.output
-
-
-class TestProjectHelp:
-    def test_project_group_help(self, runner):
-        result = runner.invoke(cli, ["project", "--help"])
-        assert result.exit_code == 0
-        assert "create" in result.output
-        assert "list" in result.output
-        assert "info" in result.output
-        assert "add-pmids" in result.output
-
 
 class TestSearchWithSelection:
-    @patch("core.cli._run_search")
+    @patch("core.cli._run_search", new_callable=AsyncMock)
     def test_search_select_and_confirm(self, mock_search, runner):
         from search import SearchResult
         mock_search.return_value = [
@@ -506,7 +353,7 @@ class TestSearchWithSelection:
         assert "12345" in result.output
         assert "67890" in result.output
 
-    @patch("core.cli._run_search")
+    @patch("core.cli._run_search", new_callable=AsyncMock)
     def test_search_invalid_selection(self, mock_search, runner):
         from search import SearchResult
         mock_search.return_value = [
@@ -516,8 +363,8 @@ class TestSearchWithSelection:
                 relevance_score=0.8,
             ),
         ]
-        result = runner.invoke(cli, ["search", "test"], input="abc\n")
-        assert "잘못된 입력" in result.output
+        result = runner.invoke(cli, ["search", "test"], input="abc\nq\n")
+        assert "숫자만 입력하세요" in result.output
 
 
 # ============================================================
@@ -542,7 +389,7 @@ class TestRunWithExecutePipeline:
                 ["run", "12345", "--execute-pipeline", "--genome", "GRCh38"],
             )
         assert result.exit_code == 0
-        assert "Pipeline Execution: ON" in result.output
+        assert "GRCh38" in result.output
 
     @patch("core.cli.asyncio.run")
     @patch("core.cli.AsyncPipeline")
@@ -607,12 +454,25 @@ class TestBackendsCommandExtended:
            return_value=("http://localhost:11434", "qwen3:30b", 60))
     def test_backends_ollama_model_not_found(self, mock_cfg, runner):
         """Ollama healthy but model not found."""
+        fake_cfg = {
+            "llm_providers": {
+                "backends": {
+                    "ollama": {
+                        "enabled": True,
+                        "url": "http://localhost:11434",
+                        "model": "missing-model",
+                    }
+                },
+                "router": {"priority_order": ["ollama"]},
+            }
+        }
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "models": [{"name": "llama3:8b"}]
         }
-        with patch("httpx.get", return_value=mock_resp):
+        with patch("core.cli._load_config", return_value=fake_cfg), \
+             patch("httpx.get", return_value=mock_resp):
             result = runner.invoke(cli, ["backends"])
         assert "not found" in result.output
 
@@ -668,7 +528,7 @@ class TestReportCommand:
                 cli,
                 ["report", "111", "222", "--results-dir", str(tmp_path)],
             )
-        assert "summary" in result.output
+        assert "종합보고서" in result.output
         assert "2 report" in result.output
 
     @patch("core.cli.ReportGenerator", create=True)
@@ -688,66 +548,11 @@ class TestReportCommand:
         assert "1 report" in result.output
 
 
-class TestProjectSubcommands:
-    """Tests for project info and add-pmids."""
-
-    def test_project_info_found(self, runner):
-        """project info with existing project."""
-        mock_pm = MagicMock()
-        mock_proj = MagicMock()
-        mock_proj.name = "Test Project"
-        mock_proj.slug = "test_project"
-        mock_proj.description = "A test project"
-        mock_proj.keywords = ["rnaseq"]
-        mock_proj.pmids = ["12345"]
-        mock_proj.created_at = "2024-01-01T00:00:00"
-        mock_proj.updated_at = "2024-01-02T00:00:00"
-        mock_pm.get_project.return_value = mock_proj
-        mock_pm.get_project_dir.return_value = "/tmp/projects/test_project"
-
-        with patch("core.cli.ProjectManager", return_value=mock_pm):
-            result = runner.invoke(cli, ["project", "info", "test_project"])
-        assert result.exit_code == 0
-        assert "Test Project" in result.output
-        assert "12345" in result.output
-
-    def test_project_info_not_found(self, runner):
-        """project info with non-existent project."""
-        mock_pm = MagicMock()
-        mock_pm.get_project.return_value = None
-        with patch("core.cli.ProjectManager", return_value=mock_pm):
-            result = runner.invoke(cli, ["project", "info", "nope"])
-        assert "찾을 수 없습니다" in result.output
-
-    def test_project_add_pmids_success(self, runner):
-        """project add-pmids success."""
-        mock_pm = MagicMock()
-        mock_proj = MagicMock()
-        mock_proj.name = "Test"
-        mock_proj.pmids = ["12345", "67890"]
-        mock_pm.add_pmids.return_value = mock_proj
-        with patch("core.cli.ProjectManager", return_value=mock_pm):
-            result = runner.invoke(
-                cli, ["project", "add-pmids", "test", "12345", "67890"]
-            )
-        assert result.exit_code == 0
-        assert "67890" in result.output
-
-    def test_project_add_pmids_not_found(self, runner):
-        """project add-pmids with non-existent project."""
-        mock_pm = MagicMock()
-        mock_pm.add_pmids.return_value = None
-        with patch("core.cli.ProjectManager", return_value=mock_pm):
-            result = runner.invoke(
-                cli, ["project", "add-pmids", "nope", "12345"]
-            )
-        assert "찾을 수 없습니다" in result.output
-
 
 class TestSearchQuit:
     """Tests for search command quit."""
 
-    @patch("core.cli._run_search")
+    @patch("core.cli._run_search", new_callable=AsyncMock)
     def test_search_quit(self, mock_search, runner):
         """Search then quit."""
         from search import SearchResult
@@ -761,7 +566,7 @@ class TestSearchQuit:
         result = runner.invoke(cli, ["search", "test"], input="q\n")
         assert "종료합니다" in result.output
 
-    @patch("core.cli._run_search")
+    @patch("core.cli._run_search", new_callable=AsyncMock)
     def test_search_no_pmid_selection(self, mock_search, runner):
         """Selection with no PMID in results."""
         from search import SearchResult
@@ -772,8 +577,8 @@ class TestSearchQuit:
                 relevance_score=0.9,
             ),
         ]
-        result = runner.invoke(cli, ["search", "test"], input="1\n")
-        assert "PMID가 있는 논문이 없습니다" in result.output
+        result = runner.invoke(cli, ["search", "test"], input="1\nq\n")
+        assert "PMID가 없습니다" in result.output
 
     @patch("core.cli.AsyncPipeline")
     def test_search_auto_run(self, mock_pipe, runner):

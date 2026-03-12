@@ -5,7 +5,11 @@ Ollama Backend
 
 import asyncio
 import logging
+import random
+import re
 import time
+
+from .base import LLMBackend, LLMConfig, LLMResponse
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +20,36 @@ except ImportError:
     import requests
     ASYNC_CLIENT = False
 
-from .base import LLMBackend, LLMConfig, LLMResponse
+_THINK_TAG_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_THINK_OPEN_RE = re.compile(r"<think>.*", re.DOTALL)
+# qwen3 등에서 <think> 태그 없이 텍스트로 출력하는 사고 과정 패턴
+# "Hmm, ...\n\n실제답변" 또는 "Okay, ...\n\n실제답변" 형태
+_THINK_TEXT_RE = re.compile(
+    r"^(?:Hmm|Okay|Let me|So,|Well,|First,|I need|The user|Wait|Alright)"
+    r".*?(?:\n\n|\n(?=[A-Z\u3131-\u318E\uac00-\ud7a3]))",
+    re.DOTALL,
+)
+
+
+def _strip_think(text: str) -> str:
+    """Remove thinking content from model output.
+
+    Handles:
+    1. <think>...</think> 완전한 태그
+    2. <think>... 닫히지 않은 태그 (토큰 제한으로 잘린 경우)
+    3. 태그 없이 텍스트로 나오는 사고 과정 (qwen3)
+    """
+    # 1) 완전한 <think>...</think> 블록 제거
+    text = _THINK_TAG_RE.sub("", text)
+    # 2) 닫히지 않은 <think>... 제거
+    text = _THINK_OPEN_RE.sub("", text)
+    # 3) 텍스트 사고 패턴 제거 (반복 적용)
+    for _ in range(5):
+        m = _THINK_TEXT_RE.match(text)
+        if not m:
+            break
+        text = text[m.end():]
+    return text.strip()
 
 
 class OllamaBackend(LLMBackend):
@@ -24,27 +57,29 @@ class OllamaBackend(LLMBackend):
     Ollama API 백엔드
 
     로컬 또는 원격 Ollama 서버에 연결하여 텍스트 생성을 수행합니다.
-    DeepSeek, Llama, Mistral 등 Ollama가 지원하는 모든 모델 사용 가능.
+    model="auto"이면 서버에서 사용 가능한 모델 중 가장 큰 모델을 자동 선택합니다.
     """
+
+    # 텍스트 생성에 적합하지 않은 모델 패턴 (임베딩, 번역 전용 등)
+    _EXCLUDE_PATTERNS = (
+        "embed", "snowflake", "translate", "rerank",
+    )
+    # 가용 메모리 대비 모델 크기 비율 상한
+    _MEM_RATIO = 0.7
 
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
         config: LLMConfig | None = None
     ):
-        """
-        Ollama 백엔드 초기화
-
-        Args:
-            base_url: Ollama 서버 URL
-            config: LLM 설정 (기본값: deepseek-coder:33b)
-        """
         if config is None:
-            config = LLMConfig(model="deepseek-coder:33b")
+            config = LLMConfig(model="auto")
 
         super().__init__(config)
         self.base_url = base_url.rstrip("/")
         self._client = None
+        self._auto_model = config.model in ("auto", "")
+        self._model_resolved = False
 
     @property
     def name(self) -> str:
@@ -58,33 +93,217 @@ class OllamaBackend(LLMBackend):
             return self._client
         return None
 
-    async def health_check(self) -> bool:
-        """Ollama 서버 상태 확인"""
+    async def _fetch_models(self) -> list[dict]:
+        """서버에서 모델 목록 가져오기."""
+        if not ASYNC_CLIENT:
+            return []
+        client = await self._get_client()
+        resp = await client.get(f"{self.base_url}/api/tags")
+        if resp.status_code == 200:
+            return resp.json().get("models", [])
+        return []
+
+    def _is_generation_model(self, model_info: dict) -> bool:
+        """텍스트 생성용 모델인지 판별."""
+        name = model_info.get("name", "").lower()
+        return not any(p in name for p in self._EXCLUDE_PATTERNS)
+
+    async def _estimate_max_model_gb(self) -> float:
+        """서버 환경에 맞는 최대 모델 크기(GB) 추정.
+
+        1) Ollama /api/ps에서 현재 VRAM 사용량 확인
+        2) nvidia-smi 정보가 있으면 GPU VRAM 총량 사용
+        3) 없으면 시스템 메모리 기반 (Mac 통합 메모리 고려)
+        """
+        client = await self._get_client()
+
+        # 1) GPU VRAM: Ollama가 보고하는 로드 모델에서 추정
         try:
-            if ASYNC_CLIENT:
-                client = await self._get_client()
-                response = await client.get(f"{self.base_url}/api/tags")
-
-                if response.status_code == 200:
-                    models = response.json().get("models", [])
-                    model_names = [m.get("name", "") for m in models]
-
-                    # 요청한 모델이 있는지 확인
-                    model_available = any(
-                        self.config.model in name or name.startswith(self.config.model.split(":")[0])
-                        for name in model_names
+            ps_resp = await client.get(
+                f"{self.base_url}/api/ps", timeout=min(self.config.timeout, 10)
+            )
+            if ps_resp.status_code == 200:
+                ps_data = ps_resp.json()
+                loaded = ps_data.get("models", [])
+                if loaded:
+                    # 로드된 모델의 size_vram 합계로 가용 VRAM 추정
+                    total_vram = sum(
+                        m.get("size_vram", 0) for m in loaded
                     )
+                    if total_vram > 0:
+                        vram_gb = total_vram / (1024 ** 3)
+                        logger.debug(
+                            "현재 VRAM 사용: %.1f GB", vram_gb
+                        )
+        except Exception:
+            pass
 
-                    self.update_status(model_available)
-                    return model_available
+        # 2) 시스템 메모리 기반 추정
+        #    Mac: 통합 메모리의 ~70%를 GPU에 할당 가능
+        #    Linux: GPU VRAM 별도이므로 시스템 메모리의 ~70%
+        import platform
+        try:
+            import psutil
+            total_mem_gb = psutil.virtual_memory().total / (1024 ** 3)
+            avail_mem_gb = psutil.virtual_memory().available / (1024 ** 3)
+        except ImportError:
+            # psutil 없으면 /proc/meminfo 또는 기본값
+            total_mem_gb = 64.0
+            avail_mem_gb = 48.0
+            try:
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            total_mem_gb = (
+                                int(line.split()[1]) / (1024 ** 2)
+                            )
+                        elif line.startswith("MemAvailable:"):
+                            avail_mem_gb = (
+                                int(line.split()[1]) / (1024 ** 2)
+                            )
+            except OSError:
+                pass
 
+        is_mac = platform.system() == "Darwin"
+        if is_mac:
+            # Mac 통합 메모리: 전체의 ~70% GPU 사용 가능
+            max_gb = total_mem_gb * self._MEM_RATIO
+        else:
+            # Linux/Windows: 가용 메모리의 70%
+            max_gb = avail_mem_gb * self._MEM_RATIO
+
+        logger.debug(
+            "모델 크기 상한: %.1f GB (총 %.1f GB, 가용 %.1f GB, %s)",
+            max_gb, total_mem_gb, avail_mem_gb,
+            "Mac" if is_mac else "Linux",
+        )
+        return max_gb
+
+    async def _quick_test(self, model_name: str) -> bool:
+        """모델이 실제 응답 가능한지 빠르게 테스트."""
+        try:
+            client = await self._get_client()
+            resp = await client.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": model_name,
+                    "prompt": "Hi",
+                    "stream": False,
+                    "think": False,
+                    "options": {"num_predict": 10},
+                },
+                timeout=min(self.config.timeout, 60),
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data.get("response", "") or data.get("thinking", "")
+                return bool(content.strip())
+        except Exception:
+            pass
+        return False
+
+    async def _resolve_auto_model(self) -> str | None:
+        """서버 모델 중 로드 가능한 가장 큰 모델 선택.
+
+        원격 서버의 VRAM은 알 수 없으므로 크기순으로 시도하고
+        실제 응답이 오는 모델을 선택합니다.
+        """
+        models = await self._fetch_models()
+
+        # generation 모델만 크기순 정렬
+        candidates = []
+        for m in models:
+            if not self._is_generation_model(m):
+                continue
+            size_gb = m.get("size", 0) / (1024 ** 3)
+            candidates.append((size_gb, m["name"]))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # 상위 5개 중 랜덤 3개를 크기 역순으로 시도
+        top_pool = candidates[:5]
+        trial = random.sample(top_pool, min(3, len(top_pool)))
+        trial.sort(key=lambda x: x[0], reverse=True)
+
+        for size_gb, name in trial:
+            logger.info("자동 모델 후보 테스트: %s (%.1f GB)", name, size_gb)
+            if await self._quick_test(name):
+                logger.info(
+                    "자동 모델 선택: %s (%.1f GB) — 후보 %d개 중",
+                    name, size_gb, len(candidates),
+                )
+                return name
+            logger.debug("모델 %s 응답 불가, 다음 후보 시도", name)
+
+        # 상위가 모두 실패하면 가장 작은 모델부터 시도
+        for size_gb, name in reversed(candidates):
+            if await self._quick_test(name):
+                logger.info(
+                    "Fallback 모델 선택: %s (%.1f GB)", name, size_gb,
+                )
+                return name
+
+        return None
+
+    async def health_check(self) -> bool:
+        """Ollama 서버 상태 확인 + auto 모델 결정.
+
+        간헐적 DNS/연결 오류에 대비하여 최대 3회 재시도합니다.
+        """
+        if not ASYNC_CLIENT:
             self.update_status(False)
             return False
 
-        except Exception as e:
-            print(f"Ollama health check 실패: {e}")
-            self.update_status(False)
-            return False
+        max_attempts = max(self.config.max_retries or 3, 5)
+        last_err = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                models = await self._fetch_models()
+                if not models:
+                    last_err = "모델 목록이 비어 있음"
+                    if attempt < max_attempts:
+                        await asyncio.sleep(1)
+                    continue
+
+                # auto 모드: 모델 자동 선택
+                if self._auto_model and not self._model_resolved:
+                    chosen = await self._resolve_auto_model()
+                    if chosen:
+                        self.config.model = chosen
+                        self._model_resolved = True
+                        logger.info("Ollama 모델 결정: %s", chosen)
+                    else:
+                        last_err = "auto 모델 선택 실패"
+                        if attempt < max_attempts:
+                            await asyncio.sleep(1)
+                        continue
+
+                model_names = [m.get("name", "") for m in models]
+                model_available = any(
+                    self.config.model in n
+                    or n.startswith(self.config.model.split(":")[0])
+                    for n in model_names
+                )
+
+                self.update_status(model_available)
+                return model_available
+
+            except Exception as e:
+                last_err = str(e)
+                logger.warning(
+                    "Ollama health check 시도 %d/%d 실패: %s",
+                    attempt, max_attempts, e,
+                )
+                if attempt < max_attempts:
+                    await asyncio.sleep(2)
+
+        logger.warning("Ollama health check 실패: %s", last_err)
+        self.update_status(False)
+        return False
 
     async def generate(
         self,
@@ -114,7 +333,11 @@ class OllamaBackend(LLMBackend):
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "top_p": kwargs.get("top_p", self.config.top_p),
                 "num_predict": kwargs.get("max_tokens", self.config.max_tokens),
-            }
+                "repeat_penalty": kwargs.get("repeat_penalty", 1.3),
+                "repeat_last_n": 128,
+            },
+            # thinking 모델(qwen3 등)에서 사고를 별도 필드로 분리
+            "think": False,
         }
 
         # JSON 형식 강제 (format 파라미터가 전달된 경우)
@@ -139,6 +362,11 @@ class OllamaBackend(LLMBackend):
                     data = response.json()
                     content = data.get("response", "")
 
+                    # thinking 모드 fallback: response가 비어도 thinking에 내용이 있으면 사용
+                    if (not content or not content.strip()) and data.get("thinking"):
+                        content = data["thinking"]
+                        logger.debug("Ollama thinking 모드 응답 사용 (model=%s)", self.config.model)
+
                     # 빈 응답 감지: success=False로 처리하여 재시도 유도
                     if not content or not content.strip():
                         logger.warning(
@@ -156,7 +384,7 @@ class OllamaBackend(LLMBackend):
                         )
 
                     return LLMResponse(
-                        content=content,
+                        content=_strip_think(content),
                         model=self.config.model,
                         backend_name=self.name,
                         success=True,
@@ -187,6 +415,10 @@ class OllamaBackend(LLMBackend):
                     data = response.json()
                     content = data.get("response", "")
 
+                    # thinking 모드 fallback
+                    if (not content or not content.strip()) and data.get("thinking"):
+                        content = data["thinking"]
+
                     if not content or not content.strip():
                         logger.warning(
                             "Ollama 빈 응답 (sync, model=%s)",
@@ -202,7 +434,7 @@ class OllamaBackend(LLMBackend):
                         )
 
                     return LLMResponse(
-                        content=content,
+                        content=_strip_think(content),
                         model=self.config.model,
                         backend_name=self.name,
                         success=True,
@@ -260,14 +492,14 @@ class OllamaBackend(LLMBackend):
                 response = await client.post(
                     f"{self.base_url}/api/pull",
                     json={"name": model, "stream": False},
-                    timeout=600  # 10분 타임아웃
+                    timeout=max(self.config.timeout, 600)
                 )
                 return response.status_code == 200
 
             response = requests.post(
                 f"{self.base_url}/api/pull",
                 json={"name": model, "stream": False},
-                timeout=600
+                timeout=max(self.config.timeout, 600),
             )
             return response.status_code == 200
 

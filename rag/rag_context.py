@@ -92,6 +92,22 @@ class RAGContext:
             section = self._format_debates_section(debates)
             sections.append(section)
 
+        # Query for enrichment results / 농축 분석 결과 검색
+        enrichments = self.store.query(
+            query_text=query, n_results=n_results, doc_type="enrichment_result"
+        )
+        if enrichments:
+            section = self._format_enrichment_section(enrichments)
+            sections.append(section)
+
+        # Query for past search interests / 과거 검색 관심사
+        searches = self.store.query(
+            query_text=query, n_results=n_results, doc_type="search_record"
+        )
+        if searches:
+            section = self._format_search_section(searches)
+            sections.append(section)
+
         if not sections:
             return ""
 
@@ -171,6 +187,30 @@ class RAGContext:
                 f"[distance: {distance:.3f}]\n"
                 f"    {text_preview}"
             )
+        return "\n".join(lines)
+
+    def _format_enrichment_section(self, enrichments: list[dict[str, Any]]) -> str:
+        """Format the Enrichment Results section."""
+        lines = ["=== Enrichment Results (농축 분석) ==="]
+        for doc in enrichments:
+            meta = doc.get("metadata", {})
+            pmid = meta.get("pmid", "N/A")
+            novelty = meta.get("novelty_score", 0.0)
+            pathways = meta.get("top_pathways", "")
+            lines.append(
+                f"  - [Enrichment {pmid}] Novelty: {novelty:.2f}"
+                + (f" Pathways: {pathways}" if pathways else "")
+            )
+        return "\n".join(lines)
+
+    def _format_search_section(self, searches: list[dict[str, Any]]) -> str:
+        """Format the Search History section."""
+        lines = ["=== Research Interests (연구 관심사) ==="]
+        for doc in searches:
+            meta = doc.get("metadata", {})
+            query = meta.get("query", "N/A")
+            count = meta.get("result_count", 0)
+            lines.append(f"  - Query: \"{query}\" ({count} results)")
         return "\n".join(lines)
 
     def _truncate_to_tokens(self, text: str) -> str:

@@ -88,6 +88,8 @@ class ReportGenerator:
             self._section_enrichment(data.get("enrichment_summary", {})),
             self._section_llm_analysis(data),
             self._section_debate(data),
+            self._section_research_evaluation(data),
+            self._section_meta_verdict(data),
             self._section_pipeline(data),
             self._section_footer(data),
         ]
@@ -119,6 +121,18 @@ class ReportGenerator:
             debate_s = r.get("debate_score", 0.0)
             dur = r.get("duration_seconds", 0)
 
+            # RES + Meta
+            debate_report = r.get("debate_report", {})
+            res_eval = debate_report.get("research_evaluation", {}) if isinstance(debate_report, dict) else {}
+            meta_v = debate_report.get("meta_verdict", {}) if isinstance(debate_report, dict) else {}
+            res_score = res_eval.get("total_score", "-") if isinstance(res_eval, dict) else "-"
+            res_verdict = res_eval.get("verdict", "-") if isinstance(res_eval, dict) else "-"
+            meta_verdict = meta_v.get("verdict", "-") if isinstance(meta_v, dict) else "-"
+
+            res_display = f"{res_score:.1f}" if isinstance(res_score, (int, float)) else "-"
+            res_v_class = self._badge_class(res_verdict) if res_verdict != "-" else ""
+            meta_v_class = self._badge_class(meta_verdict) if meta_verdict != "-" else ""
+
             rows.append(f"""<tr>
 <td><a href="report_{pmid}.html">{pmid}</a></td>
 <td class="title-cell">{title}...</td>
@@ -126,6 +140,8 @@ class ReportGenerator:
 <td><span class="badge {self._badge_class(llm)}">{llm}</span></td>
 <td><span class="badge {self._badge_class(debate_v)}">{debate_v}</span>
     <small>({debate_s:.2f})</small></td>
+<td>{res_display} <span class="badge {res_v_class}">{res_verdict}</span></td>
+<td><span class="badge {meta_v_class}">{meta_verdict}</span></td>
 <td>{dur:.0f}s</td>
 </tr>""")
 
@@ -146,7 +162,7 @@ class ReportGenerator:
 <thead>
 <tr>
 <th>PMID</th><th>Title</th><th>Sequencing</th>
-<th>LLM</th><th>Debate</th><th>Duration</th>
+<th>LLM</th><th>Debate</th><th>RES</th><th>Meta</th><th>Duration</th>
 </tr>
 </thead>
 <tbody>
@@ -230,7 +246,7 @@ class ReportGenerator:
 
         return f"""
 <section>
-  <h2>Paper Information</h2>
+  <h2>논문 정보 (Paper Information)</h2>
   <h3 class="paper-title">{title}</h3>
   <p class="authors">{author_str}</p>
   <p><strong>{journal}</strong> | {pub_date}</p>
@@ -386,64 +402,88 @@ class ReportGenerator:
   {f'<table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>{rows}</tbody></table>' if rows else ''}
 </section>"""
 
-    def _section_debate(self, data: dict) -> str:
-        verdict = data.get("debate_verdict", "UNDETERMINED")
-        score = data.get("debate_score", 0.0)
+    def _render_debate_content(
+        self, report: dict, verdict: str, score: float, lang: str = "en",
+    ) -> str:
+        """토론 내용을 지정 언어로 렌더링. lang='en' 원문, 'ko' 한글 번역."""
+        if lang == "ko" and report.get("debate_ko"):
+            # 한국어 번역 데이터가 있으면 그것을 사용
+            ko = report["debate_ko"]
+            rounds = ko.get("rounds", report.get("rounds", []))
+            consensus = ko.get("final_consensus", report.get("final_consensus", {}))
+            per_agent = ko.get("per_agent_scores", report.get("per_agent_scores", {}))
+            dissenting = ko.get("dissenting_opinions", report.get("dissenting_opinions", []))
+        else:
+            rounds = report.get("rounds", [])
+            consensus = report.get("final_consensus", {})
+            per_agent = report.get("per_agent_scores", {})
+            dissenting = report.get("dissenting_opinions", [])
 
-        # debate_report가 전체 구조에 포함되어 있을 수 있음
-        report = data.get("debate_report", {})
-        if not report:
-            # final_report에는 요약만 있음
-            return f"""
-<section>
-  <h2>Multi-Agent Debate</h2>
-  <p>Verdict: <span class="badge {self._badge_class(verdict)}">{verdict}</span>
-     | Score: <strong>{score:.2f}</strong></p>
-</section>"""
+        # Consensus summary
+        consensus_html = ""
+        if consensus:
+            summary = escape(consensus.get("summary", ""))
+            achieved = consensus.get("achieved", False)
+            consensus_html = f"""
+<div class="consensus-box {'achieved' if achieved else 'not-achieved'}">
+  <strong>{'합의 도달' if achieved else '합의 미도달'}</strong>
+  <p>{summary}</p>
+</div>"""
 
-        # 전체 debate report가 있는 경우
-        rounds = report.get("rounds", [])
-        consensus = report.get("final_consensus", {})
-        per_agent = report.get("per_agent_scores", {})
-        dissenting = report.get("dissenting_opinions", [])
-
+        # Round details with full agent opinions
         rounds_html = ""
+        round_labels = {1: "초기 평가", 2: "교차 검토", 3: "최종 판단"}
         for rnd in rounds:
             rnum = rnd.get("round_number", 0)
             cscore = rnd.get("consensus_score")
             responses = rnd.get("responses", [])
+            round_label = round_labels.get(rnum, f"Round {rnum}")
 
             resp_items = ""
             for resp in responses:
                 agent_name = escape(resp.get("agent_name", "Unknown"))
                 r_score = resp.get("score", 0.5)
                 r_conf = resp.get("confidence", 0.0)
-                assessment = escape(resp.get("assessment", "")[:300])
+                assessment = escape(resp.get("assessment", ""))
                 key_pts = resp.get("key_points", [])
                 concerns = resp.get("concerns", [])
+                questions = resp.get("questions", [])
+                rebuttal = resp.get("rebuttal_to", "")
 
                 kp_html = "".join(
-                    f"<li>{escape(str(p))}</li>" for p in key_pts[:5]
+                    f"<li>{escape(str(p))}</li>" for p in key_pts
                 )
                 cc_html = "".join(
-                    f"<li>{escape(str(c))}</li>" for c in concerns[:5]
+                    f"<li>{escape(str(c))}</li>" for c in concerns
                 )
+                q_html = "".join(
+                    f"<li>{escape(str(q))}</li>" for q in questions
+                ) if questions else ""
+
+                rebuttal_html = ""
+                if rebuttal:
+                    rebuttal_html = (
+                        f'<p style="font-size:12px;color:#8e44ad">'
+                        f'반론 대상: {escape(str(rebuttal))}</p>'
+                    )
 
                 resp_items += f"""
 <div class="agent-response">
   <div class="agent-header">
     <strong>{agent_name}</strong>
-    <span>Score: {r_score:.2f} | Confidence: {r_conf:.2f}</span>
+    <span>평가: {r_score:.2f} | 확신도: {r_conf:.2f}</span>
   </div>
-  <p>{assessment}{'...' if len(resp.get('assessment', '')) > 300 else ''}</p>
-  {f'<ul class="key-points">{kp_html}</ul>' if kp_html else ''}
-  {f'<ul class="concerns">{cc_html}</ul>' if cc_html else ''}
+  {rebuttal_html}
+  <p>{assessment}</p>
+  {f'<h4 style="color:#27ae60;font-size:13px">주요 발견</h4><ul class="key-points">{kp_html}</ul>' if kp_html else ''}
+  {f'<h4 style="color:#e74c3c;font-size:13px">우려 사항</h4><ul class="concerns">{cc_html}</ul>' if cc_html else ''}
+  {f'<h4 style="color:#2980b9;font-size:13px">추가 질문</h4><ul>{q_html}</ul>' if q_html else ''}
 </div>"""
 
             cscore_str = f"{cscore:.2f}" if cscore is not None else "N/A"
             rounds_html += f"""
 <details{'open' if rnum == len(rounds) else ''}>
-  <summary>Round {rnum} (Consensus: {cscore_str})</summary>
+  <summary>{round_label} — Round {rnum} (합의 점수: {cscore_str})</summary>
   {resp_items}
 </details>"""
 
@@ -455,36 +495,174 @@ class ReportGenerator:
                 for name, s in per_agent.items()
             )
             agent_html = f"""
-<h3>Per-Agent Final Scores</h3>
-<table><thead><tr><th>Agent</th><th>Score</th></tr></thead>
+<h3>에이전트별 최종 점수</h3>
+<table><thead><tr><th>에이전트</th><th>점수</th></tr></thead>
 <tbody>{agent_rows}</tbody></table>"""
 
         # Dissenting opinions
         dissent_html = ""
         if dissenting:
             items = "".join(f"<li>{escape(str(d))}</li>" for d in dissenting)
-            dissent_html = f"<h3>Dissenting Opinions</h3><ul>{items}</ul>"
+            dissent_html = f"<h3>소수 의견</h3><ul>{items}</ul>"
 
-        # Consensus summary
-        consensus_html = ""
-        if consensus:
-            summary = escape(consensus.get("summary", ""))
-            achieved = consensus.get("achieved", False)
-            consensus_html = f"""
-<div class="consensus-box {'achieved' if achieved else 'not-achieved'}">
-  <strong>{'Consensus Achieved' if achieved else 'No Consensus'}</strong>
-  <p>{summary}</p>
-</div>"""
+        return f"""{consensus_html}
+  {rounds_html}
+  {agent_html}
+  {dissent_html}"""
+
+    def _section_debate(self, data: dict) -> str:
+        verdict = data.get("debate_verdict", "UNDETERMINED")
+        score = data.get("debate_score", 0.0)
+
+        report = data.get("debate_report", {})
+        if not report:
+            return f"""
+<section>
+  <h2>멀티 에이전트 토론 (Multi-Agent Debate)</h2>
+  <p>판정: <span class="badge {self._badge_class(verdict)}">{verdict}</span>
+     | 점수: <strong>{score:.2f}</strong></p>
+  <p class="muted">토론 상세 데이터 없음</p>
+</section>"""
+
+        rounds = report.get("rounds", [])
+        debate_ko = report.get("debate_ko", {})
+        has_translation = bool(debate_ko)
+
+        # 번역 언어 감지
+        lang_labels = {
+            "ko": "한국어", "en": "English", "ja": "日本語",
+            "zh": "中文", "de": "Deutsch", "fr": "Français",
+            "es": "Español", "pt": "Português", "it": "Italiano",
+        }
+        translated_to = debate_ko.get("_translated_to", "ko") if debate_ko else "ko"
+        primary_label = "English"
+        secondary_label = lang_labels.get(translated_to, translated_to)
+
+        # 원문 콘텐츠
+        en_content = self._render_debate_content(report, verdict, score, "en")
+
+        # 번역이 있으면 토글 버튼 + 번역 콘텐츠
+        if has_translation:
+            ko_content = self._render_debate_content(
+                report, verdict, score, "ko",
+            )
+            toggle_btn = f"""
+<div class="lang-toggle">
+  <button class="lang-btn active" onclick="switchDebateLang('en')"
+          id="btn-debate-en">{escape(primary_label)}</button>
+  <button class="lang-btn" onclick="switchDebateLang('ko')"
+          id="btn-debate-ko">{escape(secondary_label)}</button>
+</div>
+<script>
+function switchDebateLang(lang) {{
+  document.getElementById('debate-en').style.display =
+    lang === 'en' ? 'block' : 'none';
+  document.getElementById('debate-ko').style.display =
+    lang === 'ko' ? 'block' : 'none';
+  document.getElementById('btn-debate-en').className =
+    'lang-btn' + (lang === 'en' ? ' active' : '');
+  document.getElementById('btn-debate-ko').className =
+    'lang-btn' + (lang === 'ko' ? ' active' : '');
+}}
+</script>"""
+            body = f"""
+  {toggle_btn}
+  <div id="debate-en">{en_content}</div>
+  <div id="debate-ko" style="display:none">{ko_content}</div>"""
+        else:
+            body = en_content
 
         return f"""
 <section>
-  <h2>Multi-Agent Debate</h2>
-  <p>Verdict: <span class="badge {self._badge_class(verdict)}">{verdict}</span>
-     | Score: <strong>{score:.2f}</strong></p>
-  {consensus_html}
-  {rounds_html}
-  {agent_html}
-  {dissent_html}
+  <h2>멀티 에이전트 토론 (Multi-Agent Debate)</h2>
+  <p>판정: <span class="badge {self._badge_class(verdict)}">{verdict}</span>
+     | 종합 점수: <strong>{score:.2f}</strong>
+     | 라운드: {len(rounds)}</p>
+  {body}
+</section>"""
+
+    def _section_research_evaluation(self, data: dict) -> str:
+        report = data.get("debate_report", {})
+        res = report.get("research_evaluation") if isinstance(report, dict) else None
+        if not res or not isinstance(res, dict) or "error" in res:
+            return ""
+
+        total = res.get("total_score", 0)
+        verdict = res.get("verdict", "N/A")
+        confidence = res.get("confidence", 0)
+        dims = res.get("dimensions", [])
+
+        # 차원별 테이블
+        dim_rows = ""
+        for d in dims:
+            label = escape(d.get("label_ko", d.get("dimension", "")))
+            actual = d.get("actual_points", 0)
+            mx = d.get("max_points", 0)
+            pct = (actual / mx * 100) if mx > 0 else 0
+            bar_color = "#27ae60" if pct >= 70 else "#f39c12" if pct >= 40 else "#e74c3c"
+            dim_rows += f"""<tr>
+<td>{label}</td>
+<td>{d.get('quantitative_score', 0):.2f}</td>
+<td>{d.get('qualitative_score', 0):.2f}</td>
+<td>{actual:.1f}/{mx}</td>
+<td><div style="background:#ecf0f1;border-radius:4px;height:18px;width:100%">
+<div style="background:{bar_color};height:18px;width:{pct:.0f}%;border-radius:4px;
+font-size:11px;color:#fff;text-align:center;line-height:18px">{pct:.0f}%</div>
+</div></td></tr>"""
+
+        verdict_class = (
+            "badge-pass" if verdict == "GO"
+            else "badge-warn" if verdict == "REVISE"
+            else "badge-fail"
+        )
+
+        return f"""
+<section>
+  <h2>연구 평가 점수 (Research Evaluation Score)</h2>
+  <p>총점: <strong>{total:.1f}/100</strong>
+     | 판정: <span class="badge {verdict_class}">{verdict}</span>
+     | 확신도: {confidence:.2f}</p>
+  <table>
+    <thead><tr>
+      <th>차원</th><th>정량</th><th>정성</th><th>점수</th><th>비율</th>
+    </tr></thead>
+    <tbody>{dim_rows}</tbody>
+  </table>
+</section>"""
+
+    def _section_meta_verdict(self, data: dict) -> str:
+        report = data.get("debate_report", {})
+        meta = report.get("meta_verdict") if isinstance(report, dict) else None
+        if not meta or not isinstance(meta, dict) or "error" in meta:
+            return ""
+
+        verdict = meta.get("verdict", "N/A")
+        confidence = meta.get("confidence", 0)
+        narrative = escape(meta.get("narrative", ""))
+        recs = meta.get("key_recommendations", [])
+        risks = meta.get("risk_factors", [])
+
+        verdict_class = (
+            "badge-pass" if verdict == "GO"
+            else "badge-warn" if verdict == "REVISE"
+            else "badge-fail"
+        )
+
+        recs_html = "".join(f"<li>{escape(str(r))}</li>" for r in recs)
+        risks_html = "".join(f"<li>{escape(str(r))}</li>" for r in risks)
+
+        return f"""
+<section>
+  <h2>메타 에이전트 종합 판정 (Meta-Agent Verdict)</h2>
+  <p>판정: <span class="badge {verdict_class}">{verdict}</span>
+     | 확신도: {confidence:.2f}
+     | RES: {meta.get('res_score', 0):.1f}/100
+     | 토론: {meta.get('debate_score', 0):.2f}</p>
+  <div style="background:#f8f9fa;padding:16px;border-radius:8px;margin:12px 0">
+    <p>{narrative}</p>
+  </div>
+  {f'<h3>핵심 권고사항</h3><ul>{recs_html}</ul>' if recs_html else ''}
+  {f'<h3>리스크 요인</h3><ul>{risks_html}</ul>' if risks_html else ''}
 </section>"""
 
     def _section_pipeline(self, data: dict) -> str:
@@ -532,6 +710,323 @@ class ReportGenerator:
         return f"""
 <footer>
   <p>Generated by <strong>BioAuto v4.0</strong> |
+     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+</footer>"""
+
+    # ── Project Report ──
+
+    def generate_project_report(
+        self,
+        project: dict[str, Any],
+        reports: list[dict[str, Any]],
+        output_path: Path,
+    ) -> Path:
+        """
+        프로젝트 종합 보고서 생성.
+
+        Args:
+            project: project.json 딕셔너리 (name, description, keywords 등)
+            reports: final_report 딕셔너리 리스트
+            output_path: 출력 HTML 파일 경로
+
+        Returns:
+            Path: 생성된 HTML 파일 경로
+        """
+        html = self._build_project_html(project, reports)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(html, encoding="utf-8")
+        logger.info("프로젝트 종합 리포트 생성: %s", output_path)
+        return output_path
+
+    def _build_project_html(
+        self, project: dict[str, Any], reports: list[dict[str, Any]]
+    ) -> str:
+        sections = [
+            self._proj_header(project, reports),
+            self._proj_dashboard(reports),
+            self._proj_pmid_table(reports),
+            self._proj_debate_synthesis(reports),
+            self._proj_llm_synthesis(reports),
+            self._proj_references(reports),
+            self._proj_footer(project),
+        ]
+
+        name = escape(project.get("name", "Research Project"))
+        return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BioAuto Project Report - {name}</title>
+{self._css()}
+</head>
+<body>
+<div class="container">
+{''.join(sections)}
+</div>
+</body>
+</html>"""
+
+    def _proj_header(
+        self, project: dict[str, Any], reports: list[dict[str, Any]]
+    ) -> str:
+        name = escape(project.get("name", "Research Project"))
+        desc = escape(project.get("description", ""))
+        keywords = project.get("keywords", [])
+        kw_html = " ".join(
+            f'<span class="tag">{escape(k)}</span>' for k in keywords
+        )
+        n_pmids = len(reports)
+        created = project.get("created_at", "")[:10]
+
+        return f"""
+<header>
+  <h1>{name}</h1>
+  <p class="meta">{desc}</p>
+  <p class="meta">PMIDs: {n_pmids} | Created: {created}</p>
+  {f'<div class="tags" style="margin-top:10px">{kw_html}</div>' if kw_html else ''}
+</header>"""
+
+    def _proj_dashboard(self, reports: list[dict[str, Any]]) -> str:
+        n = len(reports)
+        if n == 0:
+            return '<section><h2>Dashboard</h2><p class="muted">No data</p></section>'
+
+        scores = [r.get("debate_score", 0) for r in reports]
+        avg_score = sum(scores) / n
+        durations = [r.get("duration_seconds", 0) for r in reports]
+        avg_dur = sum(durations) / n
+
+        seq_types: dict[str, int] = {}
+        for r in reports:
+            st = r.get("sequencing_type", "unknown")
+            seq_types[st] = seq_types.get(st, 0) + 1
+        seq_str = ", ".join(f"{k} ({v})" for k, v in seq_types.items())
+
+        verdicts: dict[str, int] = {}
+        for r in reports:
+            v = r.get("debate_verdict", "UNDETERMINED")
+            verdicts[v] = verdicts.get(v, 0) + 1
+        verdict_str = ", ".join(f"{k} ({v})" for k, v in verdicts.items())
+
+        return f"""
+<section>
+  <h2>Research Overview</h2>
+  <div class="score-cards" style="display:flex;gap:16px;flex-wrap:wrap">
+    <div class="score-card" style="background:#f8f9fa;border-radius:8px;
+         padding:16px;flex:1;min-width:140px;text-align:center">
+      <div class="score-label">Total PMIDs</div>
+      <div class="score-value">{n}</div>
+    </div>
+    <div class="score-card" style="background:#f8f9fa;border-radius:8px;
+         padding:16px;flex:1;min-width:140px;text-align:center">
+      <div class="score-label">Avg Debate Score</div>
+      <div class="score-value">{avg_score:.2f}</div>
+      {self._score_bar(avg_score)}
+    </div>
+    <div class="score-card" style="background:#f8f9fa;border-radius:8px;
+         padding:16px;flex:1;min-width:140px;text-align:center">
+      <div class="score-label">Avg Duration</div>
+      <div class="score-value">{avg_dur:.0f}s</div>
+    </div>
+    <div class="score-card" style="background:#f8f9fa;border-radius:8px;
+         padding:16px;flex:1;min-width:140px;text-align:center">
+      <div class="score-label">Verdicts</div>
+      <div class="score-value seq-type">{verdict_str}</div>
+    </div>
+  </div>
+  <p style="margin-top:12px;font-size:13px;color:#7f8c8d">
+    Sequencing types: {seq_str}</p>
+</section>"""
+
+    def _proj_pmid_table(self, reports: list[dict[str, Any]]) -> str:
+        if not reports:
+            return ""
+
+        rows = []
+        for r in reports:
+            pmid = r.get("pmid", "N/A")
+            meta = r.get("pubmed_metadata", {})
+            title = escape(meta.get("title", "")[:80])
+            journal = escape(meta.get("journal", "N/A"))
+            seq = r.get("sequencing_type", "unknown")
+            llm = r.get("llm_rating", "UNKNOWN")
+            verdict = r.get("debate_verdict", "UNDETERMINED")
+            score = r.get("debate_score", 0.0)
+            dur = r.get("duration_seconds", 0)
+
+            rows.append(f"""<tr>
+<td><a href="{pmid}/report_{pmid}.html">{pmid}</a></td>
+<td class="title-cell">{title}{'...' if len(meta.get('title', '')) > 80 else ''}</td>
+<td>{escape(journal)}</td>
+<td>{seq}</td>
+<td><span class="badge {self._badge_class(llm)}">{llm}</span></td>
+<td><span class="badge {self._badge_class(verdict)}">{verdict}</span>
+    <small>({score:.2f})</small></td>
+<td>{dur:.0f}s</td>
+</tr>""")
+
+        return f"""
+<section>
+  <h2>PMID Analysis Summary</h2>
+  <table>
+  <thead><tr>
+    <th>PMID</th><th>Title</th><th>Journal</th><th>Sequencing</th>
+    <th>LLM</th><th>Debate</th><th>Duration</th>
+  </tr></thead>
+  <tbody>
+  {''.join(rows)}
+  </tbody>
+  </table>
+</section>"""
+
+    def _proj_debate_synthesis(self, reports: list[dict[str, Any]]) -> str:
+        all_key_points: list[str] = []
+        all_concerns: list[str] = []
+        # PMID별 에이전트 요약
+        pmid_summaries: list[str] = []
+
+        for r in reports:
+            pmid = r.get("pmid", "N/A")
+            debate = r.get("debate_report", {})
+            if not debate:
+                continue
+
+            verdict = debate.get("overall_verdict", "UNDETERMINED")
+            d_score = debate.get("overall_score", 0.0)
+
+            # 마지막 라운드의 에이전트 의견 요약
+            rounds = debate.get("rounds", [])
+            agent_opinions = []
+            last_round = rounds[-1] if rounds else {}
+            for resp in last_round.get("responses", []):
+                name = escape(resp.get("agent_name", ""))
+                assessment = escape(resp.get("assessment", ""))
+                agent_opinions.append(
+                    f"<li><strong>{name}</strong>: {assessment}</li>"
+                )
+
+            opinions_html = (
+                f'<ul style="font-size:13px">{"".join(agent_opinions)}</ul>'
+                if agent_opinions else ""
+            )
+
+            pmid_summaries.append(f"""
+<div class="agent-response">
+  <div class="agent-header">
+    <strong>PMID {pmid}</strong>
+    <span>판정: {verdict} | 점수: {d_score:.2f}</span>
+  </div>
+  {opinions_html}
+</div>""")
+
+            for rnd in rounds:
+                for resp in rnd.get("responses", []):
+                    for kp in resp.get("key_points", []):
+                        s = str(kp).strip()
+                        if s and s not in all_key_points:
+                            all_key_points.append(s)
+                    for c in resp.get("concerns", []):
+                        s = str(c).strip()
+                        if s and s not in all_concerns:
+                            all_concerns.append(s)
+
+        if not pmid_summaries and not all_key_points:
+            return ""
+
+        kp_html = "".join(
+            f"<li>{escape(p)}</li>" for p in all_key_points[:30]
+        )
+        cc_html = "".join(
+            f"<li>{escape(c)}</li>" for c in all_concerns[:30]
+        )
+
+        return f"""
+<section>
+  <h2>토론 종합 분석 (Cross-PMID Debate Synthesis)</h2>
+  {''.join(pmid_summaries)}
+  {f'<h3>주요 발견 ({len(all_key_points)}개)</h3><ul class="key-points">{kp_html}</ul>' if kp_html else ''}
+  {f'<h3>우려 사항 및 한계 ({len(all_concerns)}개)</h3><ul class="concerns">{cc_html}</ul>' if cc_html else ''}
+</section>"""
+
+    def _proj_llm_synthesis(self, reports: list[dict[str, Any]]) -> str:
+        consensus_data = []
+        for r in reports:
+            c = r.get("llm_consensus", {})
+            if c:
+                consensus_data.append({
+                    "pmid": r.get("pmid", "N/A"),
+                    "consensus": c,
+                })
+
+        if not consensus_data:
+            return ""
+
+        rows = ""
+        for item in consensus_data:
+            pmid = item["pmid"]
+            c = item["consensus"]
+            details = "; ".join(
+                f"{escape(str(k))}: {escape(str(v))}"
+                for k, v in c.items()
+            )
+            rows += f"<tr><td>{pmid}</td><td>{details}</td></tr>"
+
+        return f"""
+<section>
+  <h2>LLM Consensus Comparison</h2>
+  <table>
+  <thead><tr><th>PMID</th><th>Consensus Details</th></tr></thead>
+  <tbody>{rows}</tbody>
+  </table>
+</section>"""
+
+    def _proj_references(self, reports: list[dict[str, Any]]) -> str:
+        refs = []
+        for r in reports:
+            meta = r.get("pubmed_metadata", {})
+            if not meta:
+                continue
+            pmid = meta.get("pmid", r.get("pmid", ""))
+            title = escape(meta.get("title", "N/A"))
+            authors = meta.get("authors", [])
+            author_str = ", ".join(authors[:3])
+            if len(authors) > 3:
+                author_str += " et al."
+            journal = escape(meta.get("journal", ""))
+            pub_date = escape(meta.get("pub_date", ""))
+            doi = meta.get("doi", "")
+            doi_clean = doi.replace("doi: ", "").strip() if doi else ""
+            doi_link = (
+                f' | <a href="https://doi.org/{doi_clean}" '
+                f'target="_blank">DOI</a>'
+            ) if doi_clean else ""
+            pmid_link = (
+                f'<a href="https://pubmed.ncbi.nlm.nih.gov/{pmid}" '
+                f'target="_blank">PubMed</a>'
+            ) if pmid else ""
+
+            refs.append(
+                f"<li><strong>{title}</strong><br>"
+                f"{author_str}. <em>{journal}</em> ({pub_date}). "
+                f"{pmid_link}{doi_link}</li>"
+            )
+
+        if not refs:
+            return ""
+
+        return f"""
+<section>
+  <h2>References ({len(refs)})</h2>
+  <ol>{''.join(refs)}</ol>
+</section>"""
+
+    @staticmethod
+    def _proj_footer(project: dict[str, Any]) -> str:
+        name = escape(project.get("name", ""))
+        return f"""
+<footer>
+  <p>Project: {name} | Generated by <strong>BioAuto v4.0</strong> |
      {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 </footer>"""
 
@@ -633,6 +1128,12 @@ summary:hover { background: #ecf0f1; }
 .consensus-box.achieved { background: #d4edda; border: 1px solid #c3e6cb; }
 .consensus-box.not-achieved { background: #fff3cd; border: 1px solid #ffeeba; }
 .muted { color: #95a5a6; font-style: italic; }
+.lang-toggle { display: flex; gap: 4px; margin: 12px 0; }
+.lang-btn { padding: 6px 16px; border: 1px solid #bdc3c7; border-radius: 6px;
+  background: #f8f9fa; cursor: pointer; font-size: 13px; font-weight: 500;
+  color: #555; transition: all 0.2s; }
+.lang-btn:hover { border-color: #3498db; color: #3498db; }
+.lang-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
 footer { text-align: center; color: #95a5a6; font-size: 12px;
   padding: 20px; margin-top: 10px; }
 a { color: #3498db; text-decoration: none; }

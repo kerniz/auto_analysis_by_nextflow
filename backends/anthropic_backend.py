@@ -42,7 +42,7 @@ class AnthropicBackend(LLMBackend):
             config: LLM 설정 (기본값: claude-3-sonnet)
         """
         if config is None:
-            config = LLMConfig(model="claude-3-5-sonnet-20241022")
+            config = LLMConfig(model="claude-sonnet-4-20250514")
 
         super().__init__(config)
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")

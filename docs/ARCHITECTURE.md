@@ -1,5 +1,11 @@
 # bioauto 아키텍처
 
+## 프로젝트 아이덴티티
+
+**bioauto** — 하나의 주제를 넣으면 관련 논문·유전체 데이터 수집 → 모델링 → 어노테이션 → 토론 → 아이디어 검증까지 자동으로 해주는 올인원 바이오인포매틱스 연구 자동화 시스템.
+
+---
+
 ## 시스템 개요
 
 ```
@@ -24,10 +30,36 @@
     │                                                       │
     │  Stage 4: 외부 데이터 통합 ────── clients/             │
     │  Stage 5: GSEA 경로 분석 ──────── enrichment/         │
-    │  Stage 6: LLM 다중 합의 ──────── backends/            │
-    │  Stage 7: 멀티 에이전트 토론 ──── agents/              │
+    │  Stage 6: LLM 다중 합의 ──────── backends/ (세마포어)  │
+    │  Stage 7: 멀티 에이전트 토론 ──── agents/ (세마포어)    │
     │  Stage 8: 보고서 + RAG ────────── rag/                │
+    │                                                       │
+    │  결과 저장: results/{PMID}/ 서브폴더                    │
+    │  2+ PMID: project_report.html 종합보고서 자동 생성      │
     └───────────────────────────────────────────────────────┘
+```
+
+---
+
+## 결과 저장 구조
+
+한 번의 `bioauto run` 호출이 하나의 큐(queue). 모든 결과는 `results/` 폴더에 모임.
+
+```
+results/
+├── {PMID}/                        # PMID별 서브폴더
+│   ├── final_report_{PMID}.json   # 최종 보고서
+│   ├── report_{PMID}.html         # HTML 보고서 (한국어 포함)
+│   ├── pubmed_{PMID}.json         # PubMed 메타데이터 캐시
+│   ├── sra_exploration_{PMID}.json# SRA 탐색 캐시
+│   │
+│   ├── fetchngs/                  # [--execute-pipeline] FASTQ
+│   ├── pipeline/                  # [--execute-pipeline] nf-core 결과
+│   └── analysis/                  # [--execute-pipeline] 다운스트림
+│
+├── project_report.html            # 종합보고서 (2+ PMID 시 자동)
+├── execution_summary.json         # 실행 요약
+└── progress.json                  # 체크포인트 (재시작용)
 ```
 
 ---
@@ -39,19 +71,19 @@
 | 파일 | 역할 |
 |------|------|
 | `cli.py` | Click CLI 진입점. `run`, `search`, `consult`, `prereqs`, `backends`, `plugins`, `status`, `report` 명령 |
-| `pipeline.py` | `AsyncPipeline` 메인 오케스트레이터. PMID별 8+ 스테이지 비동기 실행. `_llm_semaphore`로 LLM 경합 방지 |
+| `pipeline.py` | `AsyncPipeline` 메인 오케스트레이터. PMID별 8+ 스테이지 비동기 실행. `_llm_semaphore`로 LLM 경합 방지. `_pmid_dir()`로 PMID별 서브폴더 관리 |
 | `pubmed_client.py` | Biopython Entrez 기반 PubMed 메타데이터 + 주제 검색 |
 | `sra_explorer.py` | SRA/GEO 데이터셋 탐색, SRR accession 추출 |
 | `progress_manager.py` | JSON 기반 체크포인트/재시작 관리 |
 | `json_utils.py` | LLM 응답 JSON 파싱 공유 유틸 — `strip_think_tags`, `repair_json`, `extract_json_from_llm`, `_find_balanced_json` |
-| `report_generator.py` | 자체 포함 HTML 리포트 생성기 — 반응형 디자인, XSS 방지, 점수 시각화 |
+| `report_generator.py` | 자체 포함 HTML 리포트 생성기 — 한국어 라벨, 에이전트 의견 전문 표시, 반응형 디자인, PMID별 + 종합보고서 |
 
 ### backends/ — LLM 백엔드
 
 | 파일 | 역할 |
 |------|------|
-| `base.py` | `LLMBackend` ABC, `LLMResponse`, `LLMConfig`, `BackendStatus` |
-| `ollama_backend.py` | Ollama REST API (로컬 LLM) |
+| `base.py` | `LLMBackend` ABC, `LLMResponse`, `LLMConfig`, `BackendStatus`, `generate_with_retry` |
+| `ollama_backend.py` | Ollama REST API (로컬 LLM). 빈 응답 감지 + success=False 반환 |
 | `openai_backend.py` | OpenAI API (GPT-4 등) |
 | `anthropic_backend.py` | Anthropic API (Claude 등) |
 | `router.py` | `LLMRouter` — 멀티 백엔드 라우팅, 자동 failover, health check |
@@ -99,7 +131,7 @@
 | `config.py` | `NextflowExecutionConfig`, `ContainerRuntime` |
 | `samplesheet.py` | nf-core 파이프라인별 samplesheet CSV 생성 |
 | `fetchngs.py` | `FetchNGSRunner` — nf-core/fetchngs로 SRA 다운로드 |
-| `executor.py` | `NextflowExecutor` — nf-core 파이프라인 실행 |
+| `executor.py` | `NextflowExecutor` — nf-core 파이프라인 실행 + Slurm HPC 연동 |
 | `monitor.py` | `PipelineMonitor` — 로그/trace 파싱 |
 | `output_parser.py` | `OutputParser` — 파이프라인 출력 파일 탐색 |
 
@@ -138,7 +170,8 @@ PMID
  → LLMRouter.generate()                    → 멀티 백엔드 합의 분석
  → DebateManager.run_debate()              → 3인 패널 토론 + 판정
  → DocumentStore.add_*()                   → RAG 인덱싱
- → results/<PMID>/final_report.json        → 최종 보고서
+ → results/{PMID}/final_report.json        → 최종 보고서
+ → results/{PMID}/report_{PMID}.html       → HTML 보고서
 ```
 
 ### 파이프라인 실행 (`--execute-pipeline`)
@@ -181,7 +214,7 @@ SRR accessions
 | `brave_search` | Brave API 설정 | mcp/ |
 | `rag` | ChromaDB 경로, 임베딩 모델 | rag/ |
 | `search` | 소스별 활성화, 소스당 결과 수 | search/ |
-| `nextflow_execution` | 게놈, 컨테이너, 리소스 제한 | nextflow/ |
+| `nextflow_execution` | 게놈, 컨테이너, 리소스 제한, Slurm | nextflow/ |
 | `analysis` | R 실행 경로, DESeq2/Seurat 파라미터 | analysis/ |
 | `sequencing_detection` | 키워드 목록 | plugins/ |
 
@@ -207,6 +240,7 @@ SRR accessions
 | **Async Subprocess** | nextflow/, analysis/ — asyncio.create_subprocess_exec |
 | **Graceful Degradation** | 모든 선택 기능 — 미설치 시 경고 후 스킵 |
 | **Semaphore (LLM 경합 방지)** | core/pipeline.py — `_llm_semaphore(1)` 로 Stage 6+7 직렬화 |
+| **PMID 서브폴더 격리** | `_pmid_dir()` — 결과/캐시를 PMID별 서브폴더에 저장 |
 
 ---
 
@@ -236,4 +270,4 @@ tests/
 
 **모킹 전략**: 외부 API/프로세스는 모두 mock. `asyncio.create_subprocess_exec`, `shutil.which`, `httpx` mock 사용. `tmp_path`로 파일시스템 테스트.
 
-현재: **1109 passed, 10 skipped** (chromadb 미설치) — 커버리지 90%
+현재: **1104 passed, 10 skipped** (chromadb 미설치) — 커버리지 90%

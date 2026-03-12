@@ -26,12 +26,19 @@ from .undergraduate import UndergraduateAgent
 logger = logging.getLogger(__name__)
 
 
-# 에이전트 역할별 가중치 (PhD가 가장 높은 가중치)
-ROLE_WEIGHTS: dict[AgentRole, float] = {
-    AgentRole.PHD_EXPERT: 0.5,
-    AgentRole.UNDERGRADUATE: 0.3,
-    AgentRole.LAYPERSON: 0.2,
+# 7인 에이전트 기본 가중치 (합계 ~1.0, 정규화하여 사용)
+DEFAULT_ROLE_WEIGHTS: dict[AgentRole, float] = {
+    AgentRole.PHD_EXPERT: 0.20,
+    AgentRole.UNDERGRADUATE: 0.12,
+    AgentRole.LAYPERSON: 0.08,
+    AgentRole.STATISTICAL_SKEPTIC: 0.18,
+    AgentRole.BIOLOGICAL_REALIST: 0.15,
+    AgentRole.EXPERIMENTAL_CRITIC: 0.13,
+    AgentRole.TRANSLATION_EVALUATOR: 0.14,
 }
+
+# 하위 호환: 기존 코드에서 참조 시
+ROLE_WEIGHTS = DEFAULT_ROLE_WEIGHTS
 
 
 @dataclass
@@ -51,6 +58,7 @@ class DebateConfig:
     enable_cross_examination: bool = True
     timeout_per_agent: int = 120
     parallel_assessment: bool = True
+    specialist_max_rounds: int = 0  # 0=모든 라운드, 1=Round 1만 (LLM 비용 절감)
 
 
 @dataclass
@@ -72,10 +80,12 @@ class DebateResult:
     overall_verdict: str
     overall_score: float
     dissenting_opinions: list[str]
+    research_evaluation: dict[str, Any] | None = None
+    meta_verdict: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 / Convert to dictionary."""
-        return {
+        result = {
             "rounds": [r.to_dict() for r in self.rounds],
             "final_consensus": self.final_consensus,
             "per_agent_scores": self.per_agent_scores,
@@ -83,6 +93,11 @@ class DebateResult:
             "overall_score": self.overall_score,
             "dissenting_opinions": self.dissenting_opinions,
         }
+        if self.research_evaluation is not None:
+            result["research_evaluation"] = self.research_evaluation
+        if self.meta_verdict is not None:
+            result["meta_verdict"] = self.meta_verdict
+        return result
 
 
 class DebateManager:
@@ -102,10 +117,14 @@ class DebateManager:
     4. 최종 결과 종합
     """
 
+    # 기존 3인 에이전트 역할 (전체 라운드 참여)
+    CORE_ROLES = {AgentRole.PHD_EXPERT, AgentRole.UNDERGRADUATE, AgentRole.LAYPERSON}
+
     def __init__(
         self,
         agents: list[DebateAgent],
         config: DebateConfig | None = None,
+        role_weights: dict[AgentRole, float] | None = None,
     ):
         """
         토론 관리자 초기화 / Initialize the debate manager.
@@ -113,34 +132,47 @@ class DebateManager:
         Args:
             agents: 토론에 참여할 에이전트 목록
             config: 토론 설정 (기본값 사용 가능)
+            role_weights: 역할별 가중치 (None이면 DEFAULT_ROLE_WEIGHTS 사용)
         """
         self.agents = agents
         self.config = config or DebateConfig()
+        self.role_weights = role_weights or DEFAULT_ROLE_WEIGHTS
 
     @classmethod
     def create_default_panel(
         cls,
         llm_router: LLMRouter,
         config: DebateConfig | None = None,
+        role_weights: dict[AgentRole, float] | None = None,
     ) -> "DebateManager":
         """
-        기본 토론 패널 생성 / Create a default debate panel with all three agents.
+        기본 토론 패널 생성 / Create the full 7-agent debate panel.
 
-        일반인, 학사전공, 박사급 에이전트를 모두 포함하는 기본 패널을 생성합니다.
+        기존 3인(일반인, 학부생, 박사급) + 전문가 4인(통계, 생물학, 실험, 번역) 패널.
 
         Args:
             llm_router: LLM 라우터 인스턴스
             config: 토론 설정 (선택사항)
+            role_weights: 역할별 가중치 (선택사항)
 
         Returns:
-            DebateManager: 기본 패널이 구성된 토론 관리자
+            DebateManager: 7인 패널이 구성된 토론 관리자
         """
+        from .biological_realist import BiologicalRealistAgent
+        from .experimental_critic import ExperimentalCriticAgent
+        from .statistical_skeptic import StatisticalSkepticAgent
+        from .translation_evaluator import TranslationEvaluatorAgent
+
         agents: list[DebateAgent] = [
             LaypersonAgent(llm_router),
             UndergraduateAgent(llm_router),
             PhDExpertAgent(llm_router),
+            StatisticalSkepticAgent(llm_router),
+            BiologicalRealistAgent(llm_router),
+            ExperimentalCriticAgent(llm_router),
+            TranslationEvaluatorAgent(llm_router),
         ]
-        return cls(agents=agents, config=config)
+        return cls(agents=agents, config=config, role_weights=role_weights)
 
     async def run_debate(
         self,
@@ -248,10 +280,18 @@ class DebateManager:
         """
         responses: list[AgentResponse] = []
 
+        # specialist_max_rounds: 전문가 에이전트는 지정 라운드까지만 참여
+        smr = self.config.specialist_max_rounds
+        active_agents = self.agents
+        if smr > 0 and round_number > smr:
+            active_agents = [
+                a for a in self.agents if a.role in self.CORE_ROLES
+            ]
+
         if self.config.parallel_assessment:
             # 병렬 평가: asyncio.gather로 모든 에이전트 동시 실행
             tasks = []
-            for agent in self.agents:
+            for agent in active_agents:
                 task = self._assess_with_timeout(
                     agent=agent,
                     research_data=research_data,
@@ -262,7 +302,7 @@ class DebateManager:
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for agent, result in zip(self.agents, results):
+            for agent, result in zip(active_agents, results):
                 if isinstance(result, Exception):
                     logger.error(
                         "에이전트 %s 평가 실패: %s", agent.name, str(result)
@@ -275,7 +315,7 @@ class DebateManager:
                     responses.append(result)
         else:
             # 순차 평가
-            for agent in self.agents:
+            for agent in active_agents:
                 try:
                     response = await self._assess_with_timeout(
                         agent=agent,
@@ -485,7 +525,7 @@ class DebateManager:
         종합 점수 계산 / Calculate weighted overall score.
 
         에이전트 역할별 가중치를 적용하여 종합 점수를 산출합니다.
-        가중치: PhD=0.5, Undergraduate=0.3, Layperson=0.2
+        가중치는 self.role_weights에서 가져옵니다 (config 또는 DEFAULT_ROLE_WEIGHTS).
 
         Args:
             per_agent_scores: 에이전트별 최종 점수
@@ -507,9 +547,9 @@ class DebateManager:
         for agent_name, score in per_agent_scores.items():
             role = role_map.get(agent_name)
             if role is not None:
-                weight = ROLE_WEIGHTS.get(role, 0.2)
+                weight = self.role_weights.get(role, 0.1)
             else:
-                weight = 0.2  # 알 수 없는 역할의 기본 가중치
+                weight = 0.1
 
             weighted_sum += score * weight
             weight_total += weight

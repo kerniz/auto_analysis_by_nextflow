@@ -72,9 +72,17 @@ class DocumentStore:
 
         self.persist_dir.mkdir(parents=True, exist_ok=True)
 
-        embedding_fn = SentenceTransformerEmbeddingFunction(
-            model_name=self.EMBEDDING_MODEL
-        )
+        import io as _io
+        import sys as _sys
+        # HF Hub 인증 경고 + BertModel LOAD REPORT 숨기기 (stderr 직접 출력)
+        _saved_stderr = _sys.stderr
+        _sys.stderr = _io.StringIO()
+        try:
+            embedding_fn = SentenceTransformerEmbeddingFunction(
+                model_name=self.EMBEDDING_MODEL
+            )
+        finally:
+            _sys.stderr = _saved_stderr
 
         self._client = chromadb.PersistentClient(path=str(self.persist_dir))
         self._collection = self._client.get_or_create_collection(
@@ -207,6 +215,133 @@ class DocumentStore:
             "Upserted debate report %s (토론 보고서 %s 업서트 완료)", doc_id, doc_id
         )
 
+    def add_search_record(
+        self,
+        query: str,
+        results_summary: str,
+        result_count: int = 0,
+        selected_pmids: list[str] | None = None,
+    ) -> None:
+        """검색 기록을 저장합니다. 사용자의 관심사 프로파일에 활용."""
+        self._ensure_initialized()
+        import hashlib
+        from datetime import datetime
+
+        query_hash = hashlib.md5(query.encode()).hexdigest()[:8]
+        doc_id = f"search_{query_hash}_{datetime.now().strftime('%Y%m%d')}"
+        document = f"Search: {query}\n\n{results_summary}"
+        metadata: dict[str, Any] = {
+            "doc_type": "search_record",
+            "query": query,
+            "result_count": result_count,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if selected_pmids:
+            metadata["selected_pmids"] = ",".join(selected_pmids)
+
+        self._collection.upsert(ids=[doc_id], documents=[document], metadatas=[metadata])
+        logger.debug("Upserted search record %s", doc_id)
+
+    def add_consult_exchange(
+        self,
+        user_query: str,
+        assistant_response: str,
+        topic: str = "",
+    ) -> None:
+        """상담 대화를 저장합니다. 연구자 관심사 추적에 활용."""
+        self._ensure_initialized()
+        import hashlib
+        from datetime import datetime
+
+        content_hash = hashlib.md5(user_query.encode()).hexdigest()[:8]
+        doc_id = f"consult_{content_hash}_{datetime.now().strftime('%Y%m%d%H%M')}"
+        document = f"Q: {user_query}\n\nA: {assistant_response}"
+        metadata: dict[str, Any] = {
+            "doc_type": "consult_exchange",
+            "user_query": user_query[:200],
+            "timestamp": datetime.now().isoformat(),
+        }
+        if topic:
+            metadata["topic"] = topic
+
+        self._collection.upsert(ids=[doc_id], documents=[document], metadatas=[metadata])
+        logger.debug("Upserted consult exchange %s", doc_id)
+
+    def add_enrichment(
+        self,
+        pmid: str,
+        enrichment_text: str,
+        top_pathways: list[str] | None = None,
+        novelty_score: float = 0.0,
+    ) -> None:
+        """Enrichment(GSEA/경로) 분석 결과를 저장합니다."""
+        self._ensure_initialized()
+
+        doc_id = f"enrichment_{pmid}"
+        metadata: dict[str, Any] = {
+            "doc_type": "enrichment_result",
+            "pmid": str(pmid),
+            "novelty_score": float(novelty_score),
+        }
+        if top_pathways:
+            metadata["top_pathways"] = ",".join(top_pathways[:10])
+
+        self._collection.upsert(ids=[doc_id], documents=[enrichment_text], metadatas=[metadata])
+        logger.debug("Upserted enrichment %s", doc_id)
+
+    def add_pipeline_run(
+        self,
+        pmid: str,
+        pipeline_type: str,
+        params_summary: str,
+        success: bool = True,
+    ) -> None:
+        """파이프라인 실행 메타데이터를 저장합니다."""
+        self._ensure_initialized()
+        from datetime import datetime
+
+        doc_id = f"pipeline_{pmid}_{datetime.now().strftime('%Y%m%d')}"
+        document = (
+            f"Pipeline: {pipeline_type}\nPMID: {pmid}\n"
+            f"Status: {'SUCCESS' if success else 'FAILED'}\n\n{params_summary}"
+        )
+        metadata: dict[str, Any] = {
+            "doc_type": "pipeline_run",
+            "pmid": str(pmid),
+            "pipeline_type": pipeline_type,
+            "success": success,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        self._collection.upsert(ids=[doc_id], documents=[document], metadatas=[metadata])
+        logger.debug("Upserted pipeline run %s", doc_id)
+
+    def get_user_interests(self, n_recent: int = 20) -> list[dict[str, Any]]:
+        """축적된 검색/상담 기록에서 사용자 관심사 키워드를 추출합니다."""
+        self._ensure_initialized()
+        interests: list[dict[str, Any]] = []
+
+        for doc_type in ("search_record", "consult_exchange"):
+            try:
+                results = self._collection.get(
+                    where={"doc_type": doc_type},
+                    limit=n_recent,
+                )
+                if results and results["metadatas"]:
+                    for meta in results["metadatas"]:
+                        entry: dict[str, Any] = {"type": doc_type}
+                        if doc_type == "search_record":
+                            entry["query"] = meta.get("query", "")
+                        else:
+                            entry["query"] = meta.get("user_query", "")
+                        entry["timestamp"] = meta.get("timestamp", "")
+                        interests.append(entry)
+            except Exception:
+                pass
+
+        interests.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        return interests[:n_recent]
+
     def query(
         self,
         query_text: str,
@@ -260,6 +395,65 @@ class DocumentStore:
         )
         return documents
 
+    def delete_by_ids(self, ids: list[str]) -> int:
+        """ID로 문서를 삭제합니다. 삭제된 수 반환."""
+        self._ensure_initialized()
+        if not ids:
+            return 0
+        self._collection.delete(ids=ids)
+        logger.debug("Deleted %d documents", len(ids))
+        return len(ids)
+
+    def delete_by_doc_type(self, doc_type: str) -> int:
+        """특정 doc_type의 모든 문서를 삭제합니다."""
+        self._ensure_initialized()
+        try:
+            results = self._collection.get(where={"doc_type": doc_type})
+            if results and results["ids"]:
+                self._collection.delete(ids=results["ids"])
+                count = len(results["ids"])
+                logger.debug("Deleted %d documents of type %s", count, doc_type)
+                return count
+        except Exception as e:
+            logger.debug("Delete by doc_type failed: %s", e)
+        return 0
+
+    def delete_by_pmid(self, pmid: str) -> int:
+        """특정 PMID 관련 모든 문서를 삭제합니다."""
+        self._ensure_initialized()
+        try:
+            results = self._collection.get(where={"pmid": str(pmid)})
+            if results and results["ids"]:
+                self._collection.delete(ids=results["ids"])
+                count = len(results["ids"])
+                logger.debug("Deleted %d documents for PMID %s", count, pmid)
+                return count
+        except Exception as e:
+            logger.debug("Delete by PMID failed: %s", e)
+        return 0
+
+    def list_documents(
+        self, doc_type: str | None = None, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """저장된 문서 목록을 반환합니다."""
+        self._ensure_initialized()
+        try:
+            kwargs: dict[str, Any] = {"limit": limit}
+            if doc_type:
+                kwargs["where"] = {"doc_type": doc_type}
+            results = self._collection.get(**kwargs)
+            docs = []
+            if results and results["ids"]:
+                for i, doc_id in enumerate(results["ids"]):
+                    docs.append({
+                        "id": doc_id,
+                        "document": results["documents"][i][:200] if results["documents"] else "",
+                        "metadata": results["metadatas"][i] if results["metadatas"] else {},
+                    })
+            return docs
+        except Exception:
+            return []
+
     def get_stats(self) -> dict[str, Any]:
         """
         Get statistics about the document store.
@@ -274,7 +468,10 @@ class DocumentStore:
         total_count = self._collection.count()
 
         doc_types: dict[str, int] = {}
-        for dtype in ("paper_abstract", "analysis_result", "debate_report"):
+        for dtype in (
+            "paper_abstract", "analysis_result", "debate_report",
+            "search_record", "consult_exchange", "enrichment_result", "pipeline_run",
+        ):
             try:
                 type_results = self._collection.get(
                     where={"doc_type": dtype},

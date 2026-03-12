@@ -202,7 +202,7 @@ class TestOllamaBackend:
 
     def test_init_default_config(self):
         backend = OllamaBackend()
-        assert backend.config.model == "deepseek-coder:33b"
+        assert backend.config.model == "auto"
         assert backend.base_url == "http://localhost:11434"
 
     def test_init_strips_trailing_slash(self):
@@ -670,7 +670,7 @@ class TestAnthropicBackend:
 
     def test_init_default_config(self):
         backend = AnthropicBackend(api_key="key")
-        assert backend.config.model == "claude-3-5-sonnet-20241022"
+        assert backend.config.model == "claude-sonnet-4-20250514"
 
     def test_model_max_tokens(self):
         backend = AnthropicBackend(config=LLMConfig(model="claude-3-5-sonnet-20241022"))
