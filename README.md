@@ -15,8 +15,13 @@
 | `bioauto search "키워드"` | 4개 소스 동시 검색 → 선택 → 파이프라인 실행 |
 | `bioauto consult` | LLM 상담 → 주제 정제 → 검색 → 파이프라인 |
 | `bioauto report --all` | 기존 결과에서 HTML 보고서 재생성 |
+| `bioauto web` | 웹 대시보드 서버 시작 (SSE 실시간 모니터링) |
+| `bioauto stop` | 실행 중인 모든 서비스 종료 |
+| `bioauto stop web` | 웹 서버만 종료 |
+| `bioauto stop pipeline` | 파이프라인만 종료 |
 | `bioauto prereqs` | 실행 환경 검증 |
 | `bioauto backends` | LLM 백엔드 상태 확인 |
+| `bioauto uninstall` | bioauto 완전 제거 (소스/결과 보존) |
 
 ---
 
@@ -70,6 +75,8 @@ pip install -e ".[anthropic]"    # Anthropic 백엔드
 pip install -e ".[enrichment]"   # GSEA/경로 분석
 pip install -e ".[rag]"          # ChromaDB RAG
 pip install -e ".[analysis]"     # scanpy (Python scRNA-seq)
+pip install -e ".[web]"          # 웹 대시보드 (FastAPI)
+pip install -e ".[tui]"          # TUI 대시보드 (Textual)
 ```
 
 ---

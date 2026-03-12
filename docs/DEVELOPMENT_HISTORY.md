@@ -334,7 +334,9 @@ bioauto/
 ├── nextflow/               # Nextflow 실행 레이어
 ├── analysis/               # R/Python 다운스트림 분석
 ├── scripts/                # 유틸리티 스크립트
-├── tests/                  # 테스트 (204개)
+├── tui/                    # TUI 대시보드 (Textual)
+├── web/                    # 웹 대시보드 (FastAPI + SSE)
+├── tests/                  # 테스트 (1468개)
 └── docs/                   # 개발 문서
 ```
 
@@ -600,6 +602,77 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 
 ---
 
+## v4.2.0 — 전문 에이전트 6종 + TUI/Web 대시보드 + 국제화 + 이벤트 시스템 (2026-03-12)
+
+**커밋**: `c18687f`
+
+### 변경 사항
+
+#### 1. 전문 에이전트 6종 추가 (`agents/`)
+- `biological_realist.py`: 생물학적 현실성 평가
+- `statistical_skeptic.py`: 통계적 엄밀성 검증
+- `experimental_critic.py`: 실험 설계 비판
+- `translation_evaluator.py`: 번역 연구 평가
+- `meta_agent.py`: 메타 분석 에이전트
+- `research_evaluation.py`: 연구 평가 통합
+
+#### 2. TUI 대시보드 (`tui/`)
+- `app.py`: Textual 기반 터미널 UI
+- `setup_wizard.py`: 대화형 초기 설정 마법사
+
+#### 3. Web 대시보드 (`web/`)
+- `app.py`: FastAPI + HTMX + SSE 실시간 스트리밍
+- `results_scanner.py`: 결과 디렉토리 스캔 + 큐 관리
+- `templates/dashboard.html`: 대시보드 HTML 템플릿
+
+#### 4. 핵심 기능 추가 (`core/`)
+- `events.py`: 이벤트 버스 + 파이프라인 이벤트 타입
+- `i18n.py`: 국제화 지원
+- `translator.py`: 번역기
+- `error_tracker.py`: 에러 추적
+- `terminal_fx.py`: 터미널 이펙트 (애니메이션, 프롬프트)
+
+#### 5. CLI 대폭 확장
+- `bioauto web`, `bioauto tui`, `bioauto setup`, `bioauto errors` 서브커맨드 추가
+- 파이프라인 큐 시스템 확장
+
+#### 6. 기타
+- RAG auto_collector 추가
+- Ollama 백엔드 안정성 개선
+- 테스트 1468개 (1405 passed)
+
+---
+
+## v4.2.1 — bioauto stop + uninstall 강화 + LLM 초기화 최적화 (2026-03-13)
+
+**커밋**: `13972e2`
+
+### 변경 사항
+
+#### 1. `bioauto stop` 명령 추가
+- `bioauto stop`: 모든 서비스 (web, pipeline) 종료
+- `bioauto stop web`: 웹 서버만 종료
+- `bioauto stop pipeline`: 파이프라인만 종료
+- PID 파일(`~/.bioauto/web.pid`) + pgrep 이중 탐지
+- `_find_service_pids()`, `_find_all_pids()` 공용 헬퍼
+
+#### 2. `bioauto uninstall` 강화
+- pip editable 설치 자동 감지 + `pip uninstall` 실행
+- PEP 668 (externally-managed-environment) 자동 대응
+- site-packages 잔여물 정리: egg-link, .pth, dist-info
+- 실행 중인 프로세스 자동 종료 (stop 로직 재활용)
+
+#### 3. LLM 라우터 초기화 최적화
+- consult 모드: 중복 연결 테스트 제거 (API 연결 1회 → 즉시 router.start())
+- health_check 재시도: 5회 → 2회, sleep 2초 → 1초
+- auto 모델 선택: 랜덤 3개 + 전체 fallback → 크기순 1개 성공 즉시 리턴
+- `_quick_test` 타임아웃: 60초 → 15초, num_predict: 10 → 5
+
+#### 4. charts 디렉토리 설정 제거
+- 미사용 레거시: `DirectoryConfig.charts` 필드, config.json, .gitignore에서 제거
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -626,3 +699,6 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 | `5779e4d` | feat: Slurm 통합 테스트 + 커버리지 89% + 리팩토링 (v4.1.4) |
 | `83bc799` | docs: v4.1.4 Slurm 통합 테스트 + 커버리지 89% 개발 이력 추가 |
 | `94291c8` | fix: debate JSON 파싱 강화 + LLM 동시 요청 방지 + 빈 응답 재시도 (v4.1.5) |
+| `c4a7d39` | docs: v4.1.5 LLM 안정성 강화 개발 이력 추가 |
+| `c18687f` | feat: v4.2.0 — 전문 에이전트 6종 + TUI/Web 대시보드 + 국제화 + 이벤트 시스템 |
+| `13972e2` | fix: bioauto stop 명령 + uninstall 강화 + LLM 라우터 초기화 최적화 |
