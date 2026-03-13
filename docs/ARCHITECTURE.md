@@ -84,6 +84,8 @@ results/
 | `progress_manager.py` | JSON 기반 체크포인트/재시작 관리 |
 | `json_utils.py` | LLM 응답 JSON 파싱 공유 유틸 — `strip_think_tags`, `repair_json`, `extract_json_from_llm`, `_find_balanced_json` |
 | `report_generator.py` | 자체 포함 HTML 리포트 생성기 — 한국어 라벨, 에이전트 의견 전문 표시, 반응형 디자인, PMID별 + 종합보고서 |
+| `organism_detector.py` | PubMed 메타데이터 → genome 자동 매핑 (15종 organism 지원) |
+| `slurm_detector.py` | Slurm HPC 환경 자동 감지 + config.json 적용 |
 
 ### backends/ — LLM 백엔드
 
@@ -104,6 +106,10 @@ results/
 | `bulk_rna_plugin.py` | Bulk RNA-seq 감지 |
 | `atac_plugin.py` | ATAC-seq 감지 |
 | `chipseq_plugin.py` | ChIP-seq 감지 |
+| `sarek_plugin.py` | WGS/WES 감지 |
+| `methylseq_plugin.py` | Bisulfite-seq 감지 |
+| `cutandrun_plugin.py` | CUT&RUN/CUT&Tag 감지 |
+| `rnafusion_plugin.py` | RNA-fusion 감지 |
 
 ### clients/ — 외부 API 클라이언트
 
@@ -158,6 +164,9 @@ results/
 | `r_scripts/seurat_analysis.R` | scRNA-seq Seurat 클러스터링 |
 | `r_scripts/peak_analysis.R` | ATAC/ChIP-seq 피크 차등 분석 |
 | `python_scripts/scanpy_analysis.py` | scRNA-seq scanpy 대안 (R 없이) |
+| `r_scripts/variant_analysis.R` | WGS/WES SnpEff/VEP variant 분석 |
+| `r_scripts/methylation_analysis.R` | Bisulfite-seq methylation 분석 |
+| `python_scripts/fusion_analysis.py` | RNA-fusion 융합 유전자 분석 |
 
 ### 기타 패키지
 
@@ -285,7 +294,7 @@ tests/
 
 **모킹 전략**: 외부 API/프로세스는 모두 mock. `asyncio.create_subprocess_exec`, `shutil.which`, `httpx` mock 사용. `tmp_path`로 파일시스템 테스트.
 
-현재: **1468 수집 / 1405 passed / 10 skipped** (chromadb 미설치) — 커버리지 ~90%
+현재: **1505 passed / 10 skipped** (chromadb 미설치) — 커버리지 ~90%
 
 ---
 

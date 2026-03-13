@@ -43,7 +43,7 @@ python3 -m core.cli run <PMIDs>
 
 ## 테스트 현황
 
-- **1468 수집 / 1405 passed, 10 skipped** (chromadb 미설치 시 skip)
+- **1505 passed, 10 skipped** (chromadb 미설치 시 skip)
 - **커버리지 ~90%**
 - asyncio_mode = "auto" (pyproject.toml)
 

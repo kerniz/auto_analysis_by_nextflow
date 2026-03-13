@@ -338,7 +338,7 @@ bioauto/
 ├── scripts/                # 유틸리티 스크립트
 ├── tui/                    # TUI 대시보드 (Textual)
 ├── web/                    # 웹 대시보드 (FastAPI + SSE)
-├── tests/                  # 테스트 (1468개)
+├── tests/                  # 테스트 (1505개)
 └── docs/                   # 개발 문서
 ```
 
@@ -675,6 +675,26 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 
 ---
 
+## v4.3.0 — nf-core 파이프라인 확장 + 지능형 감지
+
+**릴리스일**: 2026-03-13
+**커밋**: `09541a3`
+
+### 주요 변경
+
+- nf-core 파이프라인 4종 추가 (sarek, methylseq, cutandrun, rnafusion)
+- 기존 파이프라인 옵션 대폭 확장 (rnaseq, scrnaseq, atacseq, chipseq)
+- OrganismDetector: PubMed 메타데이터 → genome 자동 매핑 (15종 지원)
+- SlurmDetector: Slurm HPC 환경 자동 감지 + config.json 적용
+- `bioauto setup-slurm` CLI 명령 추가
+- 다운스트림 분석 3종 추가 (variant, methylation, fusion)
+- Podman 컨테이너 런타임 지원
+- NXF_SINGULARITY_CACHEDIR 캐시 디렉토리 지원
+- DEFAULT_PIPELINE_PARAMS 기본값 시스템
+- 테스트 1505 passed (+220)
+
+---
+
 ## Git History
 
 | 커밋 | 설명 |
@@ -704,3 +724,4 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 | `c4a7d39` | docs: v4.1.5 LLM 안정성 강화 개발 이력 추가 |
 | `c18687f` | feat: v4.2.0 — 전문 에이전트 6종 + TUI/Web 대시보드 + 국제화 + 이벤트 시스템 |
 | `13972e2` | fix: bioauto stop 명령 + uninstall 강화 + LLM 라우터 초기화 최적화 |
+| `09541a3` | feat: v4.3.0 — nf-core 파이프라인 확장 + 지능형 감지 |

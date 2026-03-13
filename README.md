@@ -21,6 +21,7 @@
 | `bioauto stop pipeline` | 파이프라인만 종료 |
 | `bioauto prereqs` | 실행 환경 검증 |
 | `bioauto backends` | LLM 백엔드 상태 확인 |
+| `bioauto setup-slurm` | Slurm HPC 자동 감지 및 설정 |
 | `bioauto uninstall` | bioauto 완전 제거 (소스/결과 보존) |
 
 ---
@@ -103,8 +104,10 @@ pip install -e ".[tui]"          # TUI 대시보드 (Textual)
 |------|-----------|
 | Nextflow | 23.04+ |
 | Java | 11+ |
-| Docker / Singularity / Apptainer | - |
+| Docker / Singularity / Apptainer / Podman | - |
 | 디스크 공간 | 10GB+ (파이프라인에 따라 50-200GB 권장) |
+
+> **참고**: `--genome` 옵션을 지정하지 않으면 논문 메타데이터에서 organism을 자동 감지하여 genome을 매핑합니다 (15종 지원).
 
 ### 다운스트림 분석 시 추가 필요
 
@@ -222,6 +225,10 @@ results/
 | Bulk RNA-seq | nf-core/rnaseq | DESeq2 (R) | DEG 목록, Volcano plot |
 | ATAC-seq | nf-core/atacseq | Peak analysis (R) | 차등 피크, 어노테이션 |
 | ChIP-seq | nf-core/chipseq | Peak analysis (R) | 차등 피크, 어노테이션 |
+| WGS/WES | nf-core/sarek | SnpEff/VEP variant analysis | VCF, variant stats |
+| Bisulfite-seq | nf-core/methylseq | Methylation analysis (R) | CpG 통계, DMR |
+| CUT&RUN/CUT&Tag | nf-core/cutandrun | Peak analysis (R) | 차등 피크, 어노테이션 |
+| RNA-fusion | nf-core/rnafusion | Fusion gene analysis | 융합 유전자 목록 |
 
 ---
 
@@ -297,7 +304,7 @@ bioauto/
 ├── config.json             # 전역 설정
 ├── pyproject.toml          # 프로젝트 메타데이터 + 의존성
 ├── nextflow.config         # Nextflow 설정
-├── tests/                  # 테스트 (1100+개)
+├── tests/                  # 테스트 (1505개)
 └── docs/                   # 아키텍처, 개발 이력
 ```
 
@@ -322,7 +329,7 @@ python3 -m pytest tests/ --cov=. --cov-report=html
 python3 -m ruff check .
 ```
 
-현재: **1104 passed, 10 skipped** — 커버리지 90%
+현재: **1505 passed, 10 skipped** — 커버리지 90%
 
 ---
 
