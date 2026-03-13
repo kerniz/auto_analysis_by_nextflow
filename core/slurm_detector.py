@@ -3,6 +3,7 @@ Slurm HPC 환경 자동 감지 및 설정 생성
 설치 시 Slurm 클러스터가 감지되면 자동으로 config.json에 반영
 """
 
+import os
 import shutil
 import subprocess
 
@@ -241,6 +242,206 @@ class SlurmDetector:
             except (ValueError, IndexError):
                 return "24:00:00"
         return time_str
+
+    @staticmethod
+    def check_shared_filesystem(path: str) -> dict:
+        """
+        Check if a path is on a shared/network filesystem accessible from compute nodes.
+
+        Returns dict with:
+          - is_shared: bool (confirmed shared filesystem)
+          - fs_type: str|None (detected filesystem type)
+          - mount_point: str|None
+          - method: str (how it was detected)
+          - writable: bool
+        """
+        result = {
+            "is_shared": False,
+            "fs_type": None,
+            "mount_point": None,
+            "method": "none",
+            "writable": False,
+        }
+
+        abs_path = os.path.abspath(os.path.expanduser(path))
+
+        # Check if path exists and is writable
+        if os.path.exists(abs_path):
+            result["writable"] = os.access(abs_path, os.W_OK)
+        else:
+            # Check parent
+            parent = os.path.dirname(abs_path)
+            if os.path.exists(parent):
+                result["writable"] = os.access(parent, os.W_OK)
+
+        # Method 1: df -T (Linux) to get filesystem type
+        fs_type = SlurmDetector._get_fs_type_df(abs_path)
+        if fs_type:
+            result["fs_type"] = fs_type
+            shared_types = {
+                "nfs", "nfs4", "cifs", "smb", "smbfs", "lustre", "gpfs",
+                "beegfs", "pvfs2", "orangefs", "glusterfs", "ceph", "fuse.sshfs",
+                "afs", "panfs", "fuse.nfs",
+            }
+            if fs_type.lower() in shared_types:
+                result["is_shared"] = True
+                result["method"] = "fs_type"
+
+        # Method 2: mount point check
+        mount = SlurmDetector._get_mount_point(abs_path)
+        if mount:
+            result["mount_point"] = mount
+
+        # Method 3: Check if path matches common shared patterns
+        if not result["is_shared"]:
+            shared_patterns = [
+                "/home/", "/Users/",  # Often NFS-mounted home dirs on HPC
+                "/shared/", "/scratch/", "/data/",
+                "/mnt/nfs", "/mnt/shared", "/mnt/lustre",
+                "/gpfs/", "/lustre/", "/beegfs/",
+                "site-nfs",  # This project's NFS mount
+            ]
+            for pattern in shared_patterns:
+                if pattern in abs_path:
+                    result["method"] = "path_pattern"
+                    # Don't confirm as shared, just hint
+                    break
+
+        return result
+
+    @staticmethod
+    def _get_fs_type_df(path: str) -> str | None:
+        """Get filesystem type using df command."""
+        try:
+            # Linux: df -T, macOS: df -T doesn't exist, use mount
+            out = subprocess.run(
+                ["df", "-T", path],
+                capture_output=True, text=True, timeout=5,
+            )
+            if out.returncode == 0:
+                lines = out.stdout.strip().split("\n")
+                if len(lines) >= 2:
+                    # Linux df -T: Filesystem Type 1K-blocks Used Available Use% Mounted
+                    parts = lines[1].split()
+                    if len(parts) >= 2:
+                        return parts[1]
+        except Exception:
+            pass
+
+        # macOS fallback: parse mount output
+        try:
+            out = subprocess.run(
+                ["mount"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if out.returncode == 0:
+                for line in out.stdout.split("\n"):
+                    # Format: device on /mount/point (type, options)
+                    if " on " in line and "(" in line:
+                        mount_point = line.split(" on ")[1].split(" (")[0]
+                        if path.startswith(mount_point) and len(mount_point) > 1:
+                            paren = line.split("(")[1].split(")")[0]
+                            fs_type = paren.split(",")[0].strip()
+                            return fs_type
+        except Exception:
+            pass
+
+        return None
+
+    @staticmethod
+    def _get_mount_point(path: str) -> str | None:
+        """Get the mount point for a path."""
+        try:
+            out = subprocess.run(
+                ["df", path],
+                capture_output=True, text=True, timeout=5,
+            )
+            if out.returncode == 0:
+                lines = out.stdout.strip().split("\n")
+                if len(lines) >= 2:
+                    parts = lines[1].split()
+                    return parts[-1] if parts else None
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def verify_node_access(path: str, node: str | None = None) -> dict:
+        """
+        Verify a compute node can access the given path.
+
+        If node is None, tries to find an idle node from sinfo.
+
+        Returns dict with:
+          - accessible: bool
+          - node: str|None (tested node)
+          - method: str
+          - error: str|None
+        """
+        result = {
+            "accessible": False,
+            "node": node,
+            "method": "none",
+            "error": None,
+        }
+
+        if not shutil.which("srun"):
+            result["error"] = "srun not found"
+            return result
+
+        # Find a node to test
+        if not node:
+            node = SlurmDetector._get_idle_node()
+            result["node"] = node
+
+        if not node:
+            result["error"] = "idle 노드를 찾을 수 없습니다"
+            return result
+
+        # Test with srun: check if path exists on the compute node
+        try:
+            out = subprocess.run(
+                [
+                    "srun", "--nodelist", node, "--time=0:01:00",
+                    "--quiet", "--overlap",
+                    "test", "-d", path, "&&", "echo", "OK",
+                ],
+                capture_output=True, text=True, timeout=30,
+            )
+            if "OK" in out.stdout:
+                result["accessible"] = True
+                result["method"] = "srun_test"
+            else:
+                result["error"] = f"노드 {node}에서 {path} 접근 불가"
+        except subprocess.TimeoutExpired:
+            result["error"] = "srun 타임아웃 (노드 할당 대기 중)"
+        except Exception as e:
+            result["error"] = str(e)
+
+        return result
+
+    @staticmethod
+    def _get_idle_node() -> str | None:
+        """Find an idle compute node for testing."""
+        if not shutil.which("sinfo"):
+            return None
+        try:
+            out = subprocess.run(
+                [
+                    "sinfo", "--noheader", "--states=idle",
+                    "--format=%n", "--responding",
+                ],
+                capture_output=True, text=True, timeout=5,
+            )
+            if out.returncode == 0:
+                nodes = [
+                    n.strip() for n in out.stdout.strip().split("\n")
+                    if n.strip()
+                ]
+                return nodes[0] if nodes else None
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def apply_to_config(config_path: str, detection: dict | None = None) -> dict:

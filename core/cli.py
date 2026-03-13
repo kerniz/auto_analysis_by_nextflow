@@ -708,15 +708,140 @@ def setup_slurm(dry_run):
         click.echo("\n(--dry-run: config.json 변경 없음)")
         return
 
-    # Apply to config.json
+    # ── 공유 스토리지 확인 ──
+    click.echo("\n=== 결과 파일 접근 확인 ===")
+    click.echo("Slurm 노드에서 생성된 결과 파일을 이 PC에서 볼 수 있어야 합니다.")
+    click.echo("(NFS, Lustre, GPFS 등 공유 파일시스템이 필요합니다)\n")
+
+    # 현재 프로젝트의 results 경로로 기본 체크
+    default_results = str(Path(__file__).parent.parent / "results")
+    results_path = click.prompt(
+        "결과 저장 경로",
+        default=default_results,
+    )
+    results_path = os.path.expanduser(results_path)
+
+    fs_check = SlurmDetector.check_shared_filesystem(results_path)
+
+    if fs_check["is_shared"]:
+        # 공유 파일시스템 확인됨
+        click.echo(
+            click.style("\n[OK] 공유 파일시스템 감지됨", fg="green")
+            + f" (타입: {fs_check['fs_type']})"
+        )
+        if fs_check["mount_point"]:
+            click.echo(f"  마운트: {fs_check['mount_point']}")
+    else:
+        # 자동 판단 불가 → 사용자에게 질문
+        click.echo(click.style("\n[?] 공유 파일시스템 자동 감지 실패", fg="yellow"))
+        if fs_check["fs_type"]:
+            click.echo(f"  감지된 파일시스템: {fs_check['fs_type']}")
+        if fs_check["mount_point"]:
+            click.echo(f"  마운트 포인트: {fs_check['mount_point']}")
+        if fs_check["method"] == "path_pattern":
+            click.echo("  (경로 패턴상 공유 스토리지일 가능성 있음)")
+
+        click.echo(
+            "\n이 경로가 Slurm 컴퓨트 노드에서도 동일하게 접근 가능한가요?"
+        )
+        click.echo("예: NFS 마운트, Lustre, GPFS 등으로 모든 노드에 공유된 경로")
+        user_confirms = click.confirm("현재 경로를 컴퓨트 노드에서 접근 가능합니까?")
+
+        if not user_confirms:
+            # 다른 경로 안내
+            click.echo(
+                "\n컴퓨트 노드와 공유되는 경로가 있다면 입력해주세요."
+            )
+            click.echo("예: /home/user/shared, /scratch/user, REDACTED-NFS-PATH/...")
+            alt_path = click.prompt(
+                "공유 경로 (없으면 빈칸)",
+                default="",
+            )
+
+            if alt_path:
+                alt_path = os.path.expanduser(alt_path)
+                alt_check = SlurmDetector.check_shared_filesystem(alt_path)
+                if alt_check["is_shared"]:
+                    click.echo(
+                        click.style("\n[OK] 공유 파일시스템 확인됨", fg="green")
+                        + f" (타입: {alt_check['fs_type']})"
+                    )
+                    results_path = alt_path
+                else:
+                    click.echo(click.style(
+                        "\n[?] 해당 경로도 공유 파일시스템으로 확인되지 않았습니다.",
+                        fg="yellow",
+                    ))
+                    force = click.confirm("그래도 이 경로로 설정하시겠습니까?")
+                    if force:
+                        results_path = alt_path
+                    else:
+                        click.echo(click.style(
+                            "\nSlurm 자동 설정을 중단합니다.", fg="red",
+                        ))
+                        click.echo(
+                            "공유 스토리지 구성 후 다시 실행하세요: bioauto setup-slurm"
+                        )
+                        return
+            else:
+                # 공유 경로 없음 → 노드 직접 연결 가능 여부 확인
+                click.echo("\n공유 스토리지 없이도 사용 가능한 경우:")
+                click.echo("  - 이 PC가 Slurm 클러스터의 헤드 노드인 경우")
+                click.echo("  - 컴퓨트 노드와 동일한 로컬 디스크 구성인 경우")
+                is_head = click.confirm("이 PC가 클러스터 헤드 노드입니까?")
+
+                if not is_head:
+                    click.echo(click.style(
+                        "\nSlurm 자동 설정을 중단합니다.", fg="red",
+                    ))
+                    click.echo(
+                        "컴퓨트 노드의 결과 파일에 접근할 수 없으면 "
+                        "Slurm 설정을 해도 결과를 확인할 수 없습니다."
+                    )
+                    click.echo("해결 방법:")
+                    click.echo("  1. NFS/Lustre 등 공유 스토리지를 마운트")
+                    click.echo("  2. 클러스터 헤드 노드에서 bioauto를 실행")
+                    click.echo(
+                        "  3. 수동 설정: config.json의 "
+                        "nextflow_execution.slurm 섹션 직접 편집"
+                    )
+                    return
+
+    # 쓰기 권한 확인
+    if not fs_check["writable"]:
+        alt_check = SlurmDetector.check_shared_filesystem(results_path)
+        if not alt_check["writable"]:
+            click.echo(click.style(
+                f"\n[!] {results_path} 에 쓰기 권한이 없습니다.", fg="yellow"
+            ))
+            if not click.confirm("그래도 계속하시겠습니까?"):
+                return
+
+    # ── config.json 적용 ──
     config_path = Path(__file__).parent.parent / "config.json"
     if not config_path.exists():
-        click.echo(click.style(f"\nconfig.json을 찾을 수 없습니다: {config_path}", fg="red"))
+        click.echo(click.style(
+            f"\nconfig.json을 찾을 수 없습니다: {config_path}", fg="red"
+        ))
         return
 
     SlurmDetector.apply_to_config(str(config_path), detection)
+
+    # results 경로가 기본값과 다르면 config에도 반영
+    if results_path != default_results:
+        import json
+        with open(config_path) as f:
+            cfg = json.load(f)
+        cfg.setdefault("directories", {})["results"] = results_path
+        nf = cfg.setdefault("nextflow_execution", {})
+        nf["outdir"] = str(Path(results_path) / "nfcore")
+        nf["work_dir"] = str(Path(results_path) / "nextflow_work")
+        with open(config_path, "w") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+
     click.echo(click.style("\n✓ config.json에 Slurm 설정 적용 완료", fg="green"))
     click.echo(f"  파일: {config_path}")
+    click.echo(f"  결과 경로: {results_path}")
     click.echo("  nextflow_execution.slurm.enabled = true")
     click.echo("  nextflow_execution.profile = slurm")
     click.echo("\n수동 조정이 필요하면 config.json을 직접 편집하세요.")
