@@ -607,9 +607,33 @@ def prereqs():
         except ImportError:
             _show_check(f"    {pkg}", False, "not installed")
 
+    # Slurm HPC
+    click.echo("\n  Slurm HPC:")
+    try:
+        from core.slurm_detector import SlurmDetector
+        if SlurmDetector.is_available():
+            _show_check("    Slurm", True, "클러스터 감지됨")
+            detection = SlurmDetector.detect()
+            for tool, path in detection["tools"].items():
+                if path:
+                    _show_check(f"      {tool}", True, path)
+            if detection["partitions"]:
+                parts = [p["name"] for p in detection["partitions"]]
+                click.echo(f"    Partitions: {', '.join(parts)}")
+                if detection["default_partition"]:
+                    click.echo(f"    Default: {detection['default_partition']}")
+            if detection["accounts"]:
+                click.echo(f"    Accounts: {', '.join(detection['accounts'])}")
+            if detection["qos_list"]:
+                click.echo(f"    QoS: {', '.join(detection['qos_list'])}")
+            click.echo("    → `bioauto setup-slurm` 으로 자동 설정 가능")
+        else:
+            _show_check("    Slurm", False, "not found (선택사항)")
+    except Exception:
+        _show_check("    Slurm", False, "감지 실패")
+
     # Disk space
     try:
-        import os
         stat = os.statvfs(".")
         free_gb = (stat.f_bavail * stat.f_frsize) / (1024**3)
         _show_check("\nDisk Space", free_gb > 10, f"{free_gb:.1f} GB free")
@@ -626,6 +650,76 @@ def _show_check(name: str, ok: bool, detail: str = ""):
     if detail:
         msg += f" ({detail})"
     click.echo(msg)
+
+
+@cli.command(name="setup-slurm")
+@click.option("--dry-run", is_flag=True, default=False, help="변경 없이 감지 결과만 표시")
+def setup_slurm(dry_run):
+    """Slurm HPC 환경을 자동 감지하고 config.json에 적용합니다."""
+    from core.slurm_detector import SlurmDetector
+
+    click.echo("=== Slurm HPC 자동 감지 ===\n")
+
+    detection = SlurmDetector.detect()
+
+    if not detection["available"]:
+        click.echo(click.style("Slurm이 설치되어 있지 않습니다.", fg="red"))
+        click.echo("sbatch, squeue 등 Slurm 도구가 PATH에 있는지 확인하세요.")
+        return
+
+    click.echo(click.style("Slurm 클러스터 감지됨!", fg="green"))
+
+    # Show tools
+    click.echo("\n도구:")
+    for tool, path in detection["tools"].items():
+        if path:
+            click.echo(f"  {click.style('[OK]', fg='green')} {tool}: {path}")
+
+    # Show partitions
+    if detection["partitions"]:
+        click.echo(f"\n파티션 ({len(detection['partitions'])}개):")
+        for p in detection["partitions"]:
+            default_tag = " (default)" if p.get("is_default") else ""
+            click.echo(
+                f"  {p['name']}{default_tag}"
+                f" — CPUs: {p['cpus']}, Mem: {p['memory_mb']}MB,"
+                f" Time: {p['time_limit']}, Nodes: {p['nodes']}"
+            )
+
+    # Show accounts
+    if detection["accounts"]:
+        click.echo(f"\n계정: {', '.join(detection['accounts'])}")
+
+    # Show QoS
+    if detection["qos_list"]:
+        click.echo(f"QoS: {', '.join(detection['qos_list'])}")
+
+    # Show suggested config
+    suggested = detection["suggested_config"]
+    click.echo("\n--- 권장 설정 ---")
+    click.echo(f"  partition: {suggested.get('queue', 'N/A')}")
+    click.echo(f"  account:   {suggested.get('account', 'N/A')}")
+    click.echo(f"  qos:       {suggested.get('qos', 'N/A')}")
+    click.echo(f"  cpus:      {suggested.get('cpus_per_task', 4)}")
+    click.echo(f"  memory:    {suggested.get('memory', '16G')}")
+    click.echo(f"  time:      {suggested.get('time_limit', '24:00:00')}")
+
+    if dry_run:
+        click.echo("\n(--dry-run: config.json 변경 없음)")
+        return
+
+    # Apply to config.json
+    config_path = Path(__file__).parent.parent / "config.json"
+    if not config_path.exists():
+        click.echo(click.style(f"\nconfig.json을 찾을 수 없습니다: {config_path}", fg="red"))
+        return
+
+    SlurmDetector.apply_to_config(str(config_path), detection)
+    click.echo(click.style("\n✓ config.json에 Slurm 설정 적용 완료", fg="green"))
+    click.echo(f"  파일: {config_path}")
+    click.echo("  nextflow_execution.slurm.enabled = true")
+    click.echo("  nextflow_execution.profile = slurm")
+    click.echo("\n수동 조정이 필요하면 config.json을 직접 편집하세요.")
 
 
 @cli.command()

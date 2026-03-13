@@ -107,6 +107,10 @@ def register_default_plugins() -> PluginRegistry:
     from .atac_plugin import AtacSeqPlugin
     from .bulk_rna_plugin import BulkRnaSeqPlugin
     from .chipseq_plugin import ChIPSeqPlugin
+    from .cutandrun_plugin import CutAndRunPlugin
+    from .methylseq_plugin import MethylSeqPlugin
+    from .rnafusion_plugin import RnaFusionPlugin
+    from .sarek_plugin import SarekPlugin
     from .scrna_plugin import ScRnaSeqPlugin
 
     registry = PluginRegistry.get_instance()
@@ -116,5 +120,9 @@ def register_default_plugins() -> PluginRegistry:
         registry.register(BulkRnaSeqPlugin())
         registry.register(AtacSeqPlugin())
         registry.register(ChIPSeqPlugin())
+        registry.register(SarekPlugin())
+        registry.register(MethylSeqPlugin())
+        registry.register(CutAndRunPlugin())
+        registry.register(RnaFusionPlugin())
 
     return registry

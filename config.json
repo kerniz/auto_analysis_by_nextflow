@@ -194,12 +194,52 @@
       "queue_size": 100,
       "cluster_options": ""
     },
+    "organism_detection": {
+      "enabled": true,
+      "fallback_genome": "GRCh38",
+      "override_genome": null
+    },
     "pipeline_params": {
       "nf-core/rnaseq": {
-        "pseudo_aligner": "salmon"
+        "pseudo_aligner": "salmon",
+        "aligner": "star_salmon",
+        "trimmer": "trimgalore",
+        "skip_trimming": false,
+        "with_umi": false,
+        "min_mapped_reads": 5
       },
       "nf-core/scrnaseq": {
-        "protocol": "10XV3"
+        "protocol": "10XV3",
+        "aligner": "cellranger",
+        "skip_emptydrops": false
+      },
+      "nf-core/atacseq": {
+        "narrow_peak": true,
+        "broad_cutoff": 0.1,
+        "min_reps_consensus": 1
+      },
+      "nf-core/chipseq": {
+        "narrow_peak": true,
+        "broad_cutoff": 0.1,
+        "min_reps_consensus": 1
+      },
+      "nf-core/sarek": {
+        "tools": "strelka,snpeff",
+        "step": "mapping",
+        "wes": false
+      },
+      "nf-core/methylseq": {
+        "aligner": "bismark",
+        "comprehensive": true,
+        "rrbs": false
+      },
+      "nf-core/cutandrun": {
+        "peakcaller": "seacr",
+        "use_control": true
+      },
+      "nf-core/rnafusion": {
+        "tools": "arriba,starfusion",
+        "all": false
       }
     }
   },
@@ -242,6 +282,22 @@
       "rna-seq", "rna sequencing",
       "transcriptome", "gene expression",
       "polya", "poly-a selection"
+    ],
+    "wgs_keywords": [
+      "whole genome sequencing", "wgs", "whole exome", "wes",
+      "variant calling", "somatic mutation"
+    ],
+    "methylseq_keywords": [
+      "bisulfite", "methylation", "wgbs", "rrbs",
+      "dna methylation", "cpg"
+    ],
+    "cutandrun_keywords": [
+      "cut&run", "cut&tag", "cutandrun", "cutandtag",
+      "cleavage under targets"
+    ],
+    "rnafusion_keywords": [
+      "gene fusion", "fusion gene", "chimeric transcript",
+      "chromosomal translocation"
     ]
   },
   "expected_results": {
@@ -252,6 +308,10 @@
     "32416070": {
       "expected_type": "bulk RNA-seq",
       "expected_pipeline": "nf-core/rnaseq"
+    },
+    "test_wgs": {
+      "expected_type": "WGS/WES",
+      "expected_pipeline": "nf-core/sarek"
     }
   }
 }

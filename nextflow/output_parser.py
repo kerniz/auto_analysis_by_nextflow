@@ -91,6 +91,81 @@ OUTPUT_PATTERNS: dict[str, dict[str, list[str]]] = {
             "multiqc/multiqc_report.html",
         ],
     },
+    "nf-core/sarek": {
+        "vcf_files": [
+            "**/*.vcf.gz",
+            "**/results/variant_calling/**/*.vcf.gz",
+        ],
+        "bam_files": [
+            "**/preprocessing/**/*.bam",
+            "**/*.recal.bam",
+        ],
+        "multiqc_report": [
+            "**/multiqc/*.html",
+        ],
+        "annotation": [
+            "**/annotation/**/*.vcf.gz",
+            "**/snpeff/**/*.vcf.gz",
+            "**/vep/**/*.vcf.gz",
+        ],
+    },
+    "nf-core/methylseq": {
+        "bismark_summary": [
+            "**/bismark_summary_report.html",
+        ],
+        "methylation_calls": [
+            "**/bismark_methylation_calls/**/*.txt.gz",
+            "**/*.bedGraph.gz",
+        ],
+        "coverage_files": [
+            "**/*.bismark.cov.gz",
+            "**/*.cov.gz",
+        ],
+        "multiqc_report": [
+            "**/multiqc/*.html",
+        ],
+        "bam_files": [
+            "**/*.deduplicated.bam",
+        ],
+    },
+    "nf-core/cutandrun": {
+        "narrow_peaks": [
+            "**/peak_calling/**/*.narrowPeak",
+            "**/*.narrowPeak",
+        ],
+        "broad_peaks": [
+            "**/peak_calling/**/*.broadPeak",
+        ],
+        "consensus_peaks": [
+            "**/consensus/**/*.bed",
+        ],
+        "bigwig": [
+            "**/bigwig/*.bigWig",
+            "**/*.bigWig",
+        ],
+        "multiqc_report": [
+            "**/multiqc/*.html",
+        ],
+        "counts_matrix": [
+            "**/consensus/**/*counts*.txt",
+        ],
+    },
+    "nf-core/rnafusion": {
+        "fusion_results": [
+            "**/arriba/**/*.tsv",
+            "**/starfusion/**/*.tsv",
+            "**/fusioncatcher/**/*.txt",
+        ],
+        "fusion_inspector": [
+            "**/fusioninspector/**/*",
+        ],
+        "multiqc_report": [
+            "**/multiqc/*.html",
+        ],
+        "bam_files": [
+            "**/*.bam",
+        ],
+    },
     "nf-core/chipseq": {
         "narrow_peaks": [
             "bwa/mergedLibrary/macs2/narrowPeak/*.narrowPeak",
@@ -192,6 +267,20 @@ class OutputParser:
             "nf-core/chipseq": [
                 "consensus_peaks", "consensus_counts",
                 "narrow_peaks", "peak_annotation",
+            ],
+            "nf-core/sarek": [
+                "vcf_files", "annotation", "bam_files",
+            ],
+            "nf-core/methylseq": [
+                "methylation_calls", "coverage_files",
+                "bismark_summary",
+            ],
+            "nf-core/cutandrun": [
+                "narrow_peaks", "consensus_peaks",
+                "counts_matrix", "bigwig",
+            ],
+            "nf-core/rnafusion": [
+                "fusion_results", "fusion_inspector",
             ],
         }
 

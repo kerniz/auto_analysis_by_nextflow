@@ -61,6 +61,24 @@ ANALYSIS_ROUTES = {
         "runner": "r",
         "r_packages": ["DESeq2", "ggplot2", "optparse", "jsonlite"],
     },
+    "variant": {
+        "script": "r_scripts/variant_analysis.R",
+        "runner": "r",
+        "r_packages": ["optparse", "jsonlite", "ggplot2"],
+        "description": "WGS/WES variant analysis",
+    },
+    "methylation": {
+        "script": "r_scripts/methylation_analysis.R",
+        "runner": "r",
+        "r_packages": ["optparse", "jsonlite", "ggplot2"],
+        "description": "DNA methylation analysis",
+    },
+    "fusion": {
+        "script": "python_scripts/fusion_analysis.py",
+        "runner": "python",
+        "python_packages": ["pandas", "matplotlib"],
+        "description": "RNA fusion gene analysis",
+    },
 }
 
 # Maps nf-core output categories -> R/Python script arguments
@@ -81,6 +99,16 @@ OUTPUT_TO_ARGS_MAP = {
     "peak_diff": {
         "consensus_counts": "counts_matrix",
         "consensus_peaks": "peaks_bed",
+    },
+    "variant": {
+        "vcf_files": "--vcf_file",
+        "annotation": "--annotation_file",
+    },
+    "methylation": {
+        "coverage_files": "--coverage_file",
+    },
+    "fusion": {
+        "fusion_results": "--fusion_results",
     },
 }
 
@@ -279,6 +307,23 @@ class AnalysisOrchestrator:
             "peak_diff": {
                 "diff_peaks": "diff_peaks.csv",
                 "peak_annotation": "peak_annotation.csv",
+                "summary": "summary.json",
+            },
+            "variant": {
+                "filtered_variants": "filtered_variants.csv",
+                "variant_stats": "variant_stats.csv",
+                "chromosome_distribution": "chromosome_distribution.pdf",
+                "summary": "summary.json",
+            },
+            "methylation": {
+                "methylation_stats": "methylation_stats.csv",
+                "methylation_distribution": "methylation_distribution.pdf",
+                "chromosome_methylation": "chromosome_methylation.pdf",
+                "summary": "summary.json",
+            },
+            "fusion": {
+                "filtered_fusions": "filtered_fusions.csv",
+                "fusion_summary": "fusion_summary.csv",
                 "summary": "summary.json",
             },
         }

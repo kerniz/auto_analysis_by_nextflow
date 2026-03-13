@@ -7,7 +7,11 @@ from .atac_plugin import AtacSeqPlugin
 from .base import DetectionResult, PipelineDefinition, SequencingTypePlugin
 from .bulk_rna_plugin import BulkRnaSeqPlugin
 from .chipseq_plugin import ChIPSeqPlugin
+from .cutandrun_plugin import CutAndRunPlugin
+from .methylseq_plugin import MethylSeqPlugin
 from .registry import PluginRegistry, register_default_plugins
+from .rnafusion_plugin import RnaFusionPlugin
+from .sarek_plugin import SarekPlugin
 from .scrna_plugin import ScRnaSeqPlugin
 
 __all__ = [
@@ -20,4 +24,8 @@ __all__ = [
     "BulkRnaSeqPlugin",
     "AtacSeqPlugin",
     "ChIPSeqPlugin",
+    "SarekPlugin",
+    "MethylSeqPlugin",
+    "CutAndRunPlugin",
+    "RnaFusionPlugin",
 ]

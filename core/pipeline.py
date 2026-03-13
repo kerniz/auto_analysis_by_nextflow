@@ -1017,6 +1017,38 @@ class AsyncPipeline:
                     ) if isinstance(result.sequencing_result, dict) else "",
                 )
 
+                # Organism detection → auto-set genome for Nextflow
+                if self.config.enable_pipeline_execution:
+                    try:
+                        from core.organism_detector import OrganismDetector
+
+                        detection_result = OrganismDetector.detect_organism(
+                            result.pubmed_metadata
+                        )
+                        result.sequencing_result["organism_detection"] = (
+                            detection_result
+                        )
+                        nf_cfg = self.config.nextflow_config
+                        if (
+                            nf_cfg
+                            and detection_result["genome"]
+                            and detection_result["confidence"] >= 0.6
+                        ):
+                            nf_cfg.genome = detection_result["genome"]
+                            logger.info(
+                                "PMID %s: auto-detected organism '%s' → "
+                                "genome %s (confidence %.2f)",
+                                pmid,
+                                detection_result["organism"],
+                                detection_result["genome"],
+                                detection_result["confidence"],
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Organism detection failed for PMID %s: %s",
+                            pmid, e,
+                        )
+
                 # Stage 3.5: SRA 데이터 다운로드 (nf-core/fetchngs)
                 if (self.fetchngs_runner
                         and not self._is_step_done(pmid, "sra_download_done")):

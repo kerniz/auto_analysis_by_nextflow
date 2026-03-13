@@ -5,6 +5,7 @@ nf-core 파이프라인 실행기
 
 import asyncio
 import logging
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -134,12 +135,20 @@ class NextflowExecutor:
         start_time = time.time()
         timeout = pipeline_def.timeout_hours * 3600
 
+        # Build environment with NXF_SINGULARITY_CACHEDIR if applicable
+        env = os.environ.copy()
+        if self.config.cache_dir and self.config.container_runtime.value in (
+            "singularity", "apptainer"
+        ):
+            env["NXF_SINGULARITY_CACHEDIR"] = str(self.config.cache_dir)
+
         try:
             with open(log_file, "w") as log_f:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=log_f,
                     stderr=asyncio.subprocess.STDOUT,
+                    env=env,
                 )
 
                 try:
@@ -234,6 +243,13 @@ class NextflowExecutor:
             pipeline_def.nf_core_name, {}
         )
         for key, val in pipeline_params.items():
+            if val is None:
+                continue
+            if isinstance(val, bool):
+                if val:
+                    cmd.append(f"--{key}")
+                # Skip False booleans — Nextflow treats absence as false
+                continue
             cmd.extend([f"--{key}", str(val)])
 
         # Extra params

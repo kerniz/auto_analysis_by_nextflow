@@ -7,12 +7,14 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 
 
 class ContainerRuntime(Enum):
     DOCKER = "docker"
     SINGULARITY = "singularity"
     APPTAINER = "apptainer"
+    PODMAN = "podman"
     CONDA = "conda"
 
 # Whitelist pattern for Slurm string fields: alphanumeric, dash, underscore, colon, dot, slash, comma, equals, space
@@ -124,6 +126,70 @@ class NextflowExecutionConfig:
     # Analysis parameters
     analysis_params: dict[str, dict[str, str]] = field(default_factory=dict)
 
+    # Default pipeline-specific parameter presets
+    DEFAULT_PIPELINE_PARAMS: ClassVar[dict[str, dict[str, object]]] = {
+        "nf-core/rnaseq": {
+            "aligner": "star_salmon",
+            "pseudo_aligner": "salmon",
+            "trimmer": "trimgalore",
+            "skip_trimming": False,
+            "skip_biotype_qc": False,
+            "with_umi": False,
+            "umitools_extract_method": "string",
+            "min_mapped_reads": 5,
+            "extra_salmon_quant_args": "",
+        },
+        "nf-core/scrnaseq": {
+            "aligner": "cellranger",
+            "protocol": "10XV3",
+            "skip_emptydrops": False,
+            "barcode_whitelist": None,
+        },
+        "nf-core/atacseq": {
+            "narrow_peak": True,
+            "broad_cutoff": 0.1,
+            "macs_gsize": None,
+            "min_reps_consensus": 1,
+            "skip_consensus_peaks": False,
+            "skip_diff_analysis": False,
+            "read_length": 150,
+        },
+        "nf-core/chipseq": {
+            "narrow_peak": True,
+            "broad_cutoff": 0.1,
+            "macs_gsize": None,
+            "min_reps_consensus": 1,
+            "skip_consensus_peaks": False,
+            "skip_diff_analysis": False,
+            "read_length": 150,
+        },
+        "nf-core/sarek": {
+            "tools": "strelka,snpeff",
+            "step": "mapping",
+            "wes": False,
+            "intervals": None,
+            "joint_germline": False,
+        },
+        "nf-core/methylseq": {
+            "aligner": "bismark",
+            "comprehensive": True,
+            "skip_deduplication": False,
+            "rrbs": False,
+            "em_seq": False,
+        },
+        "nf-core/cutandrun": {
+            "peakcaller": "seacr",
+            "use_control": True,
+            "normalisation_mode": "CPM",
+            "minimum_peak_overlap": 0.5,
+        },
+        "nf-core/rnafusion": {
+            "tools": "arriba,starfusion",
+            "all": False,
+            "build_references": False,
+        },
+    }
+
     @classmethod
     def from_dict(cls, data: dict) -> "NextflowExecutionConfig":
         """Load from config.json nextflow_execution + analysis sections."""
@@ -136,6 +202,19 @@ class NextflowExecutionConfig:
         except ValueError:
             container_runtime = ContainerRuntime.DOCKER
 
+        # Merge default pipeline params with user-provided overrides
+        user_pipeline_params = nf.get("pipeline_params", {})
+        merged_pipeline_params: dict[str, dict[str, object]] = {}
+        for pipeline, defaults in cls.DEFAULT_PIPELINE_PARAMS.items():
+            merged = {k: v for k, v in defaults.items() if v is not None}
+            if pipeline in user_pipeline_params:
+                merged.update(user_pipeline_params[pipeline])
+            merged_pipeline_params[pipeline] = merged
+        # Include any user-specified pipelines not in defaults
+        for pipeline, params in user_pipeline_params.items():
+            if pipeline not in merged_pipeline_params:
+                merged_pipeline_params[pipeline] = params
+
         config = cls(
             enabled=nf.get("enabled", False),
             work_dir=Path(nf.get("work_dir", "./nextflow_work")),
@@ -147,7 +226,7 @@ class NextflowExecutionConfig:
             max_cpus=nf.get("max_cpus", 4),
             max_time=nf.get("max_time", "24.h"),
             resume=nf.get("resume", True),
-            pipeline_params=nf.get("pipeline_params", {}),
+            pipeline_params=merged_pipeline_params,
         )
 
         slurm_data = nf.get("slurm", {})

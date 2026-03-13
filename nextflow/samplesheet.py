@@ -50,6 +50,24 @@ SAMPLESHEET_FORMATS: dict[str, list[SamplesheetColumn]] = {
         SamplesheetColumn("fastq_2", required=False, default=""),
         SamplesheetColumn("status", required=False, default="0"),
     ],
+    "nf-core/methylseq": [
+        SamplesheetColumn("sample"),
+        SamplesheetColumn("fastq_1"),
+        SamplesheetColumn("fastq_2", required=False, default=""),
+    ],
+    "nf-core/cutandrun": [
+        SamplesheetColumn("group"),
+        SamplesheetColumn("replicate", required=False, default="1"),
+        SamplesheetColumn("fastq_1"),
+        SamplesheetColumn("fastq_2", required=False, default=""),
+        SamplesheetColumn("control", required=False, default=""),
+    ],
+    "nf-core/rnafusion": [
+        SamplesheetColumn("sample"),
+        SamplesheetColumn("fastq_1"),
+        SamplesheetColumn("fastq_2", required=False, default=""),
+        SamplesheetColumn("strandedness", required=False, default="auto"),
+    ],
 }
 
 
@@ -219,6 +237,8 @@ class SamplesheetGenerator:
             elif col.name == "sample":
                 row.append(sample_id)
             elif col.name == "patient":
+                row.append(sample_id)
+            elif col.name == "group":
                 row.append(sample_id)
             elif col.name == "fastq_1":
                 row.append(str(fastq_1) if fastq_1 else "")
