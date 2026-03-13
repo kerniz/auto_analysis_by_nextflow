@@ -1,5 +1,7 @@
 # bioauto 아키텍처
 
+> 마지막 업데이트: 2026-03-13
+
 ## 프로젝트 아이덴티티
 
 **bioauto** — 하나의 주제를 넣으면 관련 논문·유전체 데이터 수집 → 모델링 → 어노테이션 → 토론 → 아이디어 검증까지 자동으로 해주는 올인원 바이오인포매틱스 연구 자동화 시스템.
@@ -70,7 +72,12 @@ results/
 
 | 파일 | 역할 |
 |------|------|
-| `cli.py` | Click CLI 진입점. `run`, `search`, `consult`, `prereqs`, `backends`, `plugins`, `status`, `report` 명령 |
+| `cli.py` | Click CLI 진입점. `run`, `search`, `consult`, `web`, `stop`, `report`, `prereqs`, `backends`, `plugins`, `status`, `setup`, `uninstall` 명령 |
+| `events.py` | 이벤트 버스 + 파이프라인 이벤트 타입 (SSE 연동) |
+| `i18n.py` | 국제화 지원 |
+| `translator.py` | 번역기 |
+| `error_tracker.py` | 에러 추적/집계 |
+| `terminal_fx.py` | 터미널 이펙트 (애니메이션, 프롬프트, 배너) |
 | `pipeline.py` | `AsyncPipeline` 메인 오케스트레이터. PMID별 8+ 스테이지 비동기 실행. `_llm_semaphore`로 LLM 경합 방지. `_pmid_dir()`로 PMID별 서브폴더 관리 |
 | `pubmed_client.py` | Biopython Entrez 기반 PubMed 메타데이터 + 주제 검색 |
 | `sra_explorer.py` | SRA/GEO 데이터셋 탐색, SRR accession 추출 |
@@ -116,6 +123,12 @@ results/
 | `base.py` | `AgentRole`, `AgentResponse`, `DebateRound` 모델 |
 | `debate_agents.py` | PhD, Undergraduate, Layperson 3인 에이전트 |
 | `debate_manager.py` | 토론 진행, 라운드 관리, 가중 점수 합의 도출 |
+| `biological_realist.py` | 생물학적 현실성 평가 에이전트 |
+| `statistical_skeptic.py` | 통계적 엄밀성 검증 에이전트 |
+| `experimental_critic.py` | 실험 설계 비판 에이전트 |
+| `translation_evaluator.py` | 번역 연구 평가 에이전트 |
+| `meta_agent.py` | 메타 분석 에이전트 |
+| `research_evaluation.py` | 연구 평가 통합 |
 
 ### search/ — 논문 검색
 
@@ -152,7 +165,9 @@ results/
 |--------|------|
 | `enrichment/` | GSEA (Enrichr), 경로 분석, 유전자 스코어링 |
 | `mcp/` | Brave Search REST 클라이언트 |
-| `rag/` | ChromaDB 벡터 DB + 컨텍스트 빌더 |
+| `rag/` | ChromaDB 벡터 DB + 컨텍스트 빌더 + auto_collector |
+| `tui/` | Textual 기반 TUI 대시보드 + 셋업 위저드 |
+| `web/` | FastAPI + HTMX + SSE 실시간 웹 대시보드 |
 
 ---
 
@@ -270,4 +285,17 @@ tests/
 
 **모킹 전략**: 외부 API/프로세스는 모두 mock. `asyncio.create_subprocess_exec`, `shutil.which`, `httpx` mock 사용. `tmp_path`로 파일시스템 테스트.
 
-현재: **1104 passed, 10 skipped** (chromadb 미설치) — 커버리지 90%
+현재: **1468 수집 / 1405 passed / 10 skipped** (chromadb 미설치) — 커버리지 ~90%
+
+---
+
+## 설정 파일
+
+| 파일 | 용도 |
+|------|------|
+| `config.json` | 런타임 설정 (LLM, 파이프라인, 분석, 토론, Slurm 등) |
+| `pyproject.toml` | 패키지 메타데이터 + 의존성 + 도구 설정 |
+| `nextflow.config` | Nextflow 실행 프로파일 |
+| `CLAUDE.md` | Claude Code 프로젝트별 개발 가이드 |
+| `.claude/settings.local.json` | Claude Code 권한 설정 |
+| `.claude/agents/*.md` | 팀 에이전트 역할 정의 (7인) |

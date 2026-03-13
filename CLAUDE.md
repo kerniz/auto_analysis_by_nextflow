@@ -2,14 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 프로젝트 아이덴티티
-
-**bioauto** — 하나의 주제를 넣으면 관련 논문·유전체 데이터 수집 → 모델링 → 어노테이션 → 토론 → 아이디어 검증까지 자동으로 해주는 올인원 바이오인포매틱스 연구 자동화 시스템.
-
-- **입력**: PMID, 키워드, 또는 연구 주제
-- **출력**: `results/{PMID}/` 폴더에 PMID별 보고서(JSON + HTML), 2개 이상 PMID 시 종합보고서 자동 생성
-- **실행 단위**: 한 번의 `bioauto run` 호출이 하나의 큐(queue). 결과는 `results/` 폴더에 모임.
-
 ## 개발 명령어
 
 ```bash
@@ -23,7 +15,7 @@ python3 -m pytest tests/test_backends.py -v
 python3 -m pytest tests/test_backends.py::TestOllamaBackend::test_generate -v
 
 # 커버리지 (전 모듈)
-python3 -m pytest tests/ --cov=backends --cov=plugins --cov=clients --cov=agents --cov=enrichment --cov=search --cov=mcp --cov=rag --cov=nextflow --cov=analysis --cov=core -v
+python3 -m pytest tests/ --cov=backends --cov=plugins --cov=clients --cov=agents --cov=enrichment --cov=search --cov=mcp --cov=rag --cov=nextflow --cov=analysis --cov=core --cov=tui --cov=web -v
 
 # 린트
 python3 -m ruff check .
@@ -38,57 +30,6 @@ python3 -m mypy core/ backends/ plugins/ --ignore-missing-imports
 python3 -m core.cli run <PMIDs>
 ```
 
-## 아키텍처
-
-### 파이프라인 흐름 (core/pipeline.py: AsyncPipeline)
-
-```
-CLI (core/cli.py — Click)
-  └─ AsyncPipeline.process_pmid() — PMID별 8+ 스테이지 비동기 실행
-       Stage 1: PubMed 메타데이터      ← core/pubmed_client.py (Biopython Entrez)
-       Stage 2: SRA 메타데이터          ← core/sra_explorer.py (pandas)
-       Stage 3: 시퀀싱 타입 감지         ← plugins/ (ABC + Registry 패턴)
-       Stage 3.5: SRA 다운로드           ← nextflow/fetchngs.py [--execute-pipeline]
-       Stage 3.6: nf-core 파이프라인     ← nextflow/executor.py [--execute-pipeline]
-       Stage 3.7: R/Python 분석          ← analysis/ [--execute-pipeline]
-       Stage 4: 외부 데이터 통합          ← clients/ (SS + EPMC + TCGA + Annotation)
-       Stage 5: GSEA 경로 분석           ← enrichment/
-       Stage 6: LLM 다중 합의 분석       ← backends/ (Router → Ollama/OpenAI/Anthropic)
-       Stage 7: 멀티 에이전트 토론       ← agents/ (PhD/Undergraduate/Layperson 3인)
-       Stage 8: 보고서 + RAG 인덱싱      ← rag/ (ChromaDB)
-```
-
-### 결과 저장 구조
-
-```
-results/
-├── {PMID}/                    # PMID별 서브폴더
-│   ├── final_report_{PMID}.json
-│   ├── report_{PMID}.html
-│   ├── pubmed_{PMID}.json     # 캐시
-│   └── sra_exploration_{PMID}.json
-├── project_report.html         # 2+ PMID 시 종합보고서 자동 생성
-├── execution_summary.json
-└── progress.json
-```
-
-### 핵심 디자인 패턴
-
-- **ABC + Plugin Registry**: `backends/base.py`, `plugins/base.py`, `clients/base.py`, `agents/base.py` — 새 구현은 반드시 추상 클래스 상속 후 레지스트리 등록
-- **Router + Failover**: `backends/router.py` — 멀티 LLM 백엔드 라우팅, 장애 시 자동 전환
-- **Lazy Import + Graceful Degradation**: optional 모듈(`chromadb`, `openai`, `anthropic`, `scanpy`)은 try/except로 지연 로드, 미설치 시 경고 후 스킵
-- **Async Subprocess**: `nextflow/`, `analysis/` — `asyncio.create_subprocess_exec`로 Nextflow/R/Python 외부 프로세스 실행
-- **LLM Semaphore**: `_llm_semaphore(1)` — Stage 6+7 직렬화, 동시 PMID 처리 시 LLM 경합 방지
-
-### 설정 연결 (config.json → PipelineConfig)
-
-`core/pipeline.py`의 `PipelineConfig` 클래스가 `config.json`의 9개 섹션을 Pydantic-style dataclass로 파싱:
-- `pipeline_config` → `LLMServerConfig` (Ollama URL/모델/타임아웃)
-- `debate` → `DebateSettings` (라운드 수, 에이전트 가중치)
-- `enrichment` → `EnrichmentSettings` (GSEA 임계값)
-- `nextflow_execution` → `NextflowExecutionConfig` (게놈, 컨테이너, Slurm)
-- `analysis`, `data_sources`, `search`, `rag`, `directories` → 각각의 설정 클래스
-
 ## 필수 규칙
 
 1. **ABC 패턴**: 새 백엔드/플러그인/클라이언트는 반드시 추상 클래스 상속
@@ -96,16 +37,15 @@ results/
 3. **Graceful degradation**: optional 기능 미설치 시 skip (try/except ImportError)
 4. **Pydantic v2**: 데이터 모델은 Pydantic 2.0+ 문법
 5. **환경변수**: API 키는 절대 하드코딩 금지 (OPENAI_API_KEY, ANTHROPIC_API_KEY, BRAVE_API_KEY)
-6. **테스트 격리**: 외부 API/프로세스 호출은 반드시 mock (`httpx`, `asyncio.create_subprocess_exec`, `shutil.which`)
+6. **테스트 격리**: 외부 API/프로세스 호출은 반드시 mock
 7. **ruff lint**: `python3 -m ruff check .` 0 warning 유지 (line-length=100, ignore E501)
-8. **결과 폴더**: 모든 결과는 `results/{PMID}/` 서브폴더에 저장. 루트 results에 직접 쓰지 않음.
+8. **결과 폴더**: 모든 결과는 `results/{PMID}/` 서브폴더에 저장
 
 ## 테스트 현황
 
-- **1104 passed, 10 skipped** (chromadb 미설치 시 skip)
-- **커버리지 90%**
+- **1468 수집 / 1405 passed, 10 skipped** (chromadb 미설치 시 skip)
+- **커버리지 ~90%**
 - asyncio_mode = "auto" (pyproject.toml)
-- 모든 비동기 테스트는 `@pytest.mark.asyncio` 자동 적용
 
 ## 팀 에이전트 (7인)
 
@@ -115,19 +55,25 @@ results/
 | pipeline-dev | `.claude/agents/pipeline-dev.md` | core/ plugins/ nextflow/ analysis/ |
 | backend-dev | `.claude/agents/backend-dev.md` | backends/ clients/ agents/ search/ mcp/ rag/ enrichment/ |
 | tester | `.claude/agents/tester.md` | tests/ 커버리지, 회귀 테스트 |
-| reviewer-docs | `.claude/agents/reviewer-docs.md` | 코드 리뷰 + 문서화 + CLAUDE.md 유지 |
+| reviewer-docs | `.claude/agents/reviewer-docs.md` | 코드 리뷰 + 문서화 |
 | infra-dev | `.claude/agents/infra-dev.md` | Docker/Singularity/Slurm/HPC/nextflow.config |
 | bio-researcher | `.claude/agents/bio-researcher.md` | nf-core 파라미터 자문, 분석 전략 |
 
 ## 문서 관리
 
-- `docs/ARCHITECTURE.md` — 전체 아키텍처, 패키지별 역할, 데이터 흐름
-- `docs/DEVELOPMENT_HISTORY.md` — 버전별 개발 이력 (v3.0 → v4.0 → 현재)
-- 코드 변경 시 reviewer-docs 에이전트가 docs/ 동기화 담당
+### 문서 구조 (전역 `REDACTED-NFS-PATH/.claude.md` 지침 준수)
 
-## 설정 파일
+| 문서 | 역할 | 전역 지침 매핑 |
+|------|------|----------------|
+| `docs/ARCHITECTURE.md` | 설계 철학, 시스템 구조, 데이터 흐름, 기술 스택 | 안정적, 자주 안 바뀌는 것 |
+| `docs/DEVELOPMENT_HISTORY.md` | 버전별 개발 이력, Phase별 변경사항 | `개발히스토리.md` 역할 |
+| `README.md` | 설치/실행/사용법 (간결) | 사용법 기본 문서 |
 
-- `config.json` — 런타임 설정 (LLM, 파이프라인, 분석, 토론, Slurm 등)
-- `pyproject.toml` — 패키지 메타데이터 + 의존성 + 도구 설정
-- `nextflow.config` — Nextflow 실행 프로파일
-- `.claude/settings.local.json` — Claude Code 권한 설정
+### 문서 관리 원칙
+
+1. **코드 변경 시 설계 문서 동기화** — ARCHITECTURE.md는 항상 현재 코드와 일치
+2. **버그 수정 패턴** → `REDACTED-NFS-PATH/.changehistory.md`에 기록 (프로젝트 공통)
+3. **모든 설계 문서에 마지막 업데이트 날짜 명시**
+4. **중복 문서 발생 시 즉시 하나로 합침**
+5. **커밋/푸시 후 관련 문서(README, ARCHITECTURE, DEVELOPMENT_HISTORY) 최신화**
+6. **500줄 초과 시** `docs/architecture/` 폴더로 주제별 분할

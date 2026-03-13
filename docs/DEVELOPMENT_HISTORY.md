@@ -1,5 +1,7 @@
 # bioauto Development History
 
+> 마지막 업데이트: 2026-03-13
+
 ## Project Overview
 
 **bioauto** - 바이오인포매틱스 연구 자동화 플랫폼
