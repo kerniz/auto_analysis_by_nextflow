@@ -346,6 +346,46 @@
         .run-panel button:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* ── Slurm Tab ── */
+        .slurm-view { padding: 20px 24px; flex: 1; overflow-y: auto; }
+        .slurm-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .slurm-header h2 { font-size: 15px; font-weight: 600; }
+        .node-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin-bottom: 12px;
+        }
+        .node-stats { display: flex; gap: 20px; font-size: 13px; color: var(--text-dim); margin-top: 8px; }
+        .node-stats .val { color: var(--text); font-weight: 600; }
+        .slurm-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .slurm-table th {
+            text-align: left;
+            color: var(--text-dim);
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 500;
+            background: var(--surface2);
+        }
+        .slurm-table td {
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        .slurm-table tr:last-child td { border-bottom: none; }
+        .st-running { color: var(--green); font-weight: 600; }
+        .st-pending { color: var(--yellow); }
+        .st-completed { color: var(--text-dim); }
+        .st-failed { color: var(--red); }
     </style>
 </head>
 <body>
@@ -356,6 +396,7 @@
 
     <div class="tab-bar">
         <button class="tab-btn active" onclick="switchTab('results')">Results</button>
+        <button class="tab-btn" onclick="switchTab('slurm')">Slurm / nf-core</button>
         <button class="tab-btn" onclick="switchTab('run')">Run Pipeline</button>
     </div>
 
@@ -445,6 +486,23 @@
                     </div>
                     {% endif %}
                 </div>
+            </div>
+        </div>
+
+        <!-- ══ Slurm Tab ══ -->
+        <div id="tab-slurm" class="tab-content">
+            <div class="slurm-view">
+                <div class="slurm-header">
+                    <h2>Slurm Cluster / nf-core Pipelines</h2>
+                    <button class="rescan-btn" onclick="refreshSlurm()">Refresh</button>
+                </div>
+                <div id="slurm-nodes"></div>
+                <h3 style="font-size:14px;margin:16px 0 8px;color:var(--text-dim)">Active Jobs</h3>
+                <table class="slurm-table">
+                    <thead><tr><th>Job ID</th><th>Name</th><th>State</th><th>Partition</th><th>Node</th><th>Reason</th></tr></thead>
+                    <tbody id="slurm-jobs-tbody"></tbody>
+                </table>
+                <p id="slurm-error" style="color:var(--red);display:none;margin-top:12px"></p>
             </div>
         </div>
 
@@ -604,6 +662,81 @@
         document.getElementById('pmid-input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') startPipeline();
         });
+
+        // ── Slurm Tab ──
+        async function refreshSlurm() {
+            try {
+                const [jobsResp, nodesResp] = await Promise.all([
+                    fetch('/api/slurm/jobs'),
+                    fetch('/api/slurm/nodes'),
+                ]);
+                const jobsData = await jobsResp.json();
+                const nodesData = await nodesResp.json();
+
+                // Nodes
+                const nodesDiv = document.getElementById('slurm-nodes');
+                nodesDiv.innerHTML = '';
+                for (const n of (nodesData.nodes || [])) {
+                    const state = (n.state || []).join(',');
+                    const stClass = state.includes('IDLE') ? 'st-completed' :
+                                    state.includes('MIXED') ? 'st-running' : 'st-pending';
+                    nodesDiv.innerHTML += `
+                    <div class="node-card">
+                        <strong>${n.name}</strong> <span class="${stClass}">${state}</span>
+                        <div class="node-stats">
+                            <span>CPUs: <span class="val">${n.cpus}</span></span>
+                            <span>RAM: <span class="val">${Math.round((n.memory_mb||0)/1024)} GB</span></span>
+                            <span>GPUs: <span class="val">${n.gres || 'none'}</span></span>
+                        </div>
+                    </div>`;
+                }
+
+                // Jobs table
+                const tbody = document.getElementById('slurm-jobs-tbody');
+                tbody.innerHTML = '';
+                const jobs = jobsData.jobs || [];
+                const active = jobs.filter(j => ['RUNNING','PENDING','COMPLETING'].includes(j.state));
+                const recent = jobs.filter(j => ['COMPLETED','FAILED','CANCELLED'].includes(j.state)).slice(0, 10);
+
+                for (const j of [...active, ...recent]) {
+                    const stClass = j.state === 'RUNNING' ? 'st-running' :
+                                    j.state === 'PENDING' ? 'st-pending' :
+                                    j.state === 'FAILED' ? 'st-failed' : 'st-completed';
+                    const icon = j.state === 'RUNNING' ? '&#x1F504;' :
+                                 j.state === 'PENDING' ? '&#x23F3;' :
+                                 j.state === 'COMPLETED' ? '&#x2705;' :
+                                 j.state === 'FAILED' ? '&#x274C;' : '';
+                    tbody.innerHTML += `<tr>
+                        <td><strong>${j.job_id}</strong></td>
+                        <td>${j.name}</td>
+                        <td class="${stClass}">${icon} ${j.state}</td>
+                        <td>${j.partition}</td>
+                        <td>${j.node || '-'}</td>
+                        <td style="color:var(--text-dim)">${j.reason || ''}</td>
+                    </tr>`;
+                }
+                if (active.length === 0 && recent.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim)">No jobs</td></tr>';
+                }
+                document.getElementById('slurm-error').style.display = 'none';
+            } catch (e) {
+                document.getElementById('slurm-error').textContent = 'Slurm API 연결 실패: ' + e.message;
+                document.getElementById('slurm-error').style.display = 'block';
+            }
+        }
+
+        // Slurm 탭 선택 시 자동 갱신 + 10초 폴링
+        let slurmInterval = null;
+        const origSwitchTab = switchTab;
+        switchTab = function(tab) {
+            origSwitchTab(tab);
+            if (tab === 'slurm') {
+                refreshSlurm();
+                if (!slurmInterval) slurmInterval = setInterval(refreshSlurm, 10000);
+            } else {
+                if (slurmInterval) { clearInterval(slurmInterval); slurmInterval = null; }
+            }
+        };
 
         // ── Rescan Results ──
         async function rescanResults() {
