@@ -82,6 +82,7 @@ class ReportGenerator:
         sections = [
             self._section_header(data),
             self._section_paper_info(meta),
+            self._section_ncbi_links(meta),
             self._section_sequencing(data),
             self._section_sra(data.get("sra_results", {})),
             self._section_data_sources(data),
@@ -258,6 +259,41 @@ class ReportGenerator:
   </details>
 </section>"""
 
+    def _section_ncbi_links(self, meta: dict) -> str:
+        """NCBI 연관 데이터베이스 링크 섹션."""
+        ncbi = meta.get("ncbi_links", {})
+        if not ncbi:
+            return ""
+
+        pmid = meta.get("pmid", "")
+        db_urls = {
+            "sra": ("SRA", f"https://www.ncbi.nlm.nih.gov/sra?linkname=pubmed_sra&from_uid={pmid}"),
+            "gds": ("GEO Profiles", f"https://www.ncbi.nlm.nih.gov/geoprofiles?linkname=pubmed_geoprofiles&from_uid={pmid}"),
+            "bioproject": ("BioProject", f"https://www.ncbi.nlm.nih.gov/bioproject?linkname=pubmed_bioproject&from_uid={pmid}"),
+            "nuccore": ("Nucleotide", f"https://www.ncbi.nlm.nih.gov/nuccore?linkname=pubmed_nuccore&from_uid={pmid}"),
+            "protein": ("Protein", f"https://www.ncbi.nlm.nih.gov/protein?linkname=pubmed_protein&from_uid={pmid}"),
+            "gene": ("Gene", f"https://www.ncbi.nlm.nih.gov/gene?linkname=pubmed_gene&from_uid={pmid}"),
+            "assembly": ("Assembly", f"https://www.ncbi.nlm.nih.gov/assembly?linkname=pubmed_assembly&from_uid={pmid}"),
+        }
+
+        badges = []
+        for db, ids in ncbi.items():
+            if ids and db in db_urls:
+                label, url = db_urls[db]
+                badges.append(
+                    f'<a href="{url}" target="_blank" class="ncbi-badge">'
+                    f'{label} <strong>{len(ids)}</strong></a>'
+                )
+
+        if not badges:
+            return ""
+
+        return f"""
+<section>
+  <h2>NCBI 연관 데이터 (Linked Databases)</h2>
+  <div class="ncbi-links">{"  ".join(badges)}</div>
+</section>"""
+
     def _section_sequencing(self, data: dict) -> str:
         seq_type = data.get("sequencing_type", "unknown")
         confidence = data.get("sequencing_confidence", 0.0)
@@ -307,13 +343,53 @@ class ReportGenerator:
 
         ids_html = ""
         if public_ids:
-            ids_html = "<p>Public IDs: " + ", ".join(
-                f"<code>{i}</code>" for i in public_ids[:10]
-            ) + "</p>"
+            linked = ", ".join(
+                f'<a href="https://www.ncbi.nlm.nih.gov/sra/{i}" '
+                f'target="_blank"><code>{i}</code></a>'
+                for i in public_ids[:10]
+            )
+            ids_html = f"<p>Public IDs: {linked}</p>"
         if controlled_ids:
-            ids_html += "<p>Controlled IDs: " + ", ".join(
-                f"<code>{i}</code>" for i in controlled_ids[:10]
-            ) + "</p>"
+            linked_c = ", ".join(
+                f'<a href="https://www.ncbi.nlm.nih.gov/sra/{i}" '
+                f'target="_blank"><code>{i}</code></a>'
+                for i in controlled_ids[:10]
+            )
+            ids_html += f"<p>Controlled IDs: {linked_c}</p>"
+
+        # SRA 메타데이터에서 platform/library 정보 추출
+        import re as _re
+        meta_html = ""
+        metadata = sra.get("metadata", {})
+        for sra_id, meta in metadata.items():
+            expxml = meta.get("expxml", "")
+            plat_m = _re.search(r'instrument_model="([^"]+)"', expxml)
+            lib_m = _re.search(
+                r'<LIBRARY_STRATEGY>([^<]+)</LIBRARY_STRATEGY>', expxml,
+            )
+            src_m = _re.search(
+                r'<LIBRARY_SOURCE>([^<]+)</LIBRARY_SOURCE>', expxml,
+            )
+            org_m = _re.search(r'ScientificName="([^"]+)"', expxml)
+            bp_m = _re.search(r'<Bioproject>([^<]+)</Bioproject>', expxml)
+
+            parts = []
+            if plat_m:
+                parts.append(f"Platform: <strong>{escape(plat_m.group(1))}</strong>")
+            if lib_m:
+                parts.append(f"Library: {escape(lib_m.group(1))}")
+            if src_m:
+                parts.append(f"Source: {escape(src_m.group(1))}")
+            if org_m:
+                parts.append(f"Organism: <em>{escape(org_m.group(1))}</em>")
+            if bp_m:
+                bp = bp_m.group(1)
+                parts.append(
+                    f'BioProject: <a href="https://www.ncbi.nlm.nih.gov/'
+                    f'bioproject/{bp}" target="_blank">{bp}</a>'
+                )
+            if parts:
+                meta_html += "<p>" + " | ".join(parts) + "</p>"
 
         return f"""
 <section>
@@ -322,6 +398,7 @@ class ReportGenerator:
      | Size: {size_gb:.1f} GB
      | Public: {len(public_ids)} | Controlled: {len(controlled_ids)}</p>
   {ids_html}
+  {meta_html}
 </section>"""
 
     def _section_data_sources(self, data: dict) -> str:
@@ -407,12 +484,19 @@ class ReportGenerator:
     ) -> str:
         """토론 내용을 지정 언어로 렌더링. lang='en' 원문, 'ko' 한글 번역."""
         if lang == "ko" and report.get("debate_ko"):
-            # 한국어 번역 데이터가 있으면 그것을 사용
+            # 한국어 번역 데이터
             ko = report["debate_ko"]
             rounds = ko.get("rounds", report.get("rounds", []))
             consensus = ko.get("final_consensus", report.get("final_consensus", {}))
             per_agent = ko.get("per_agent_scores", report.get("per_agent_scores", {}))
             dissenting = ko.get("dissenting_opinions", report.get("dissenting_opinions", []))
+        elif lang == "en" and report.get("debate_en"):
+            # 영어 원본 데이터 (명시적으로 debate_en에서 읽기)
+            en = report["debate_en"]
+            rounds = en.get("rounds", report.get("rounds", []))
+            consensus = en.get("final_consensus", report.get("final_consensus", {}))
+            per_agent = en.get("per_agent_scores", report.get("per_agent_scores", {}))
+            dissenting = en.get("dissenting_opinions", report.get("dissenting_opinions", []))
         else:
             rounds = report.get("rounds", [])
             consensus = report.get("final_consensus", {})
@@ -593,13 +677,21 @@ function switchDebateLang(lang) {{
         dims = res.get("dimensions", [])
 
         # 차원별 테이블
+        # 문헌 중복도는 역방향 지표 (낮을수록 좋음 = 신규성 높음)
+        _inverse_dims = {"literature_redundancy"}
+
         dim_rows = ""
         for d in dims:
             label = escape(d.get("label_ko", d.get("dimension", "")))
             actual = d.get("actual_points", 0)
             mx = d.get("max_points", 0)
             pct = (actual / mx * 100) if mx > 0 else 0
-            bar_color = "#27ae60" if pct >= 70 else "#f39c12" if pct >= 40 else "#e74c3c"
+            dim_name = d.get("dimension", "")
+            if dim_name in _inverse_dims:
+                # 역방향: 점수가 낮을수록 좋음 (녹색)
+                bar_color = "#27ae60" if pct <= 40 else "#f39c12" if pct <= 70 else "#e74c3c"
+            else:
+                bar_color = "#27ae60" if pct >= 70 else "#f39c12" if pct >= 40 else "#e74c3c"
             dim_rows += f"""<tr>
 <td>{label}</td>
 <td>{d.get('quantitative_score', 0):.2f}</td>
@@ -669,8 +761,12 @@ font-size:11px;color:#fff;text-align:center;line-height:18px">{pct:.0f}%</div>
         fetchngs = data.get("fetchngs")
         pipeline = data.get("pipeline_execution")
         downstream = data.get("downstream_analysis")
+        pmid = data.get("pmid", "")
 
-        if not any([fetchngs, pipeline, downstream]):
+        # nf-core 산출물 자동 스캔 (results/{PMID}/ 및 results/nfcore/ 하위)
+        report_links = self._scan_pipeline_reports(pmid)
+
+        if not any([fetchngs, pipeline, downstream]) and not report_links:
             return """
 <section>
   <h2>Pipeline Execution</h2>
@@ -700,11 +796,84 @@ font-size:11px;color:#fff;text-align:center;line-height:18px">{pct:.0f}%</div>
                 f"{status}</span></p>"
             )
 
+        if report_links:
+            link_items = "".join(
+                f'<li><a href="{path}" target="_blank">{name}</a>'
+                f' <span class="muted">({size})</span></li>'
+                for name, path, size in report_links
+            )
+            parts.append(
+                f"<h3>Pipeline Reports</h3>"
+                f"<ul class='report-list'>{link_items}</ul>"
+            )
+
         return f"""
 <section>
   <h2>Pipeline Execution</h2>
   {''.join(parts)}
 </section>"""
+
+    def _scan_pipeline_reports(self, pmid: str) -> list[tuple[str, str, str]]:
+        """results 폴더에서 nf-core 산출물 (HTML 보고서) 자동 탐색.
+
+        Returns: [(display_name, relative_path, file_size), ...]
+        """
+        from pathlib import Path as _Path
+
+        reports = []
+        # 탐색 대상 디렉토리들
+        search_dirs = []
+        if pmid:
+            search_dirs.append(_Path(f"results/{pmid}"))
+            search_dirs.append(_Path(f"results/nfcore/{pmid}"))
+        search_dirs.append(_Path("results/nfcore"))
+
+        # 보고서 파일 패턴
+        report_patterns = [
+            "**/*multiqc*.html",
+            "**/*report*.html",
+            "**/*fastqc*.html",
+            "**/*summary*.html",
+            "**/*pipeline_info/*.html",
+            "**/*execution_report*.html",
+            "**/*timeline*.html",
+            "**/*.pdf",
+        ]
+
+        seen: set[str] = set()
+        for search_dir in search_dirs:
+            if not search_dir.exists():
+                continue
+            for pattern in report_patterns:
+                for f in search_dir.glob(pattern):
+                    if not f.is_file():
+                        continue
+                    # 자체 보고서 제외
+                    if f.name.startswith("report_") and f.name.endswith(".html"):
+                        continue
+                    if f.name.startswith("final_report_"):
+                        continue
+                    abs_path = str(f.resolve())
+                    if abs_path in seen:
+                        continue
+                    seen.add(abs_path)
+                    # 파일 크기
+                    size_bytes = f.stat().st_size
+                    if size_bytes > 1_000_000:
+                        size_str = f"{size_bytes / 1_000_000:.1f} MB"
+                    else:
+                        size_str = f"{size_bytes / 1_000:.0f} KB"
+                    # 표시 이름
+                    display = f.stem.replace("_", " ").replace("-", " ").title()
+                    # 웹 서빙용 상대경로 (/pipeline-files/... 엔드포인트)
+                    try:
+                        rel_to_results = f.relative_to(_Path("results"))
+                        web_path = f"/pipeline-files/{rel_to_results}"
+                    except ValueError:
+                        web_path = f"/pipeline-files/{f.name}"
+                    reports.append((display, web_path, size_str))
+
+        return reports
 
     def _section_footer(self, data: dict) -> str:
         return f"""
@@ -1098,6 +1267,17 @@ h3 { font-size: 15px; color: #34495e; margin: 12px 0 8px; }
   padding: 2px 8px; border-radius: 4px; font-size: 12px; margin: 2px; }
 .tag.source { background: #e8f5e9; color: #2e7d32; }
 .tags { margin-top: 8px; }
+.ncbi-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ncbi-badge { display: inline-block; background: #e3f2fd; color: #1565c0;
+  padding: 6px 14px; border-radius: 6px; font-size: 13px; text-decoration: none;
+  border: 1px solid #bbdefb; transition: background 0.2s; }
+.ncbi-badge:hover { background: #bbdefb; }
+.ncbi-badge strong { margin-left: 4px; }
+.report-list { list-style: none; padding: 0; }
+.report-list li { padding: 6px 0; border-bottom: 1px solid #ecf0f1; }
+.report-list li a { color: #2980b9; text-decoration: none; font-weight: 500; }
+.report-list li a:hover { text-decoration: underline; }
+.report-list .muted { font-size: 12px; color: #95a5a6; margin-left: 8px; }
 .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px; }
 .info-item { background: #f8f9fa; border-radius: 8px; padding: 14px; }

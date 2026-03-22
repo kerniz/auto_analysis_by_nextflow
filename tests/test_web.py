@@ -478,3 +478,189 @@ class TestQueueAPI:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "No analysis results found" in resp.text
+
+
+# ── Multi-Directory Tests ──
+
+def _make_pmid_result(results_dir: Path, pmid: str, title: str = "Test"):
+    """헬퍼: PMID 결과 폴더 + final_report 생성"""
+    pmid_dir = results_dir / pmid
+    pmid_dir.mkdir(parents=True, exist_ok=True)
+    (pmid_dir / f"final_report_{pmid}.json").write_text(
+        json.dumps({
+            "pmid": pmid, "status": "completed",
+            "pubmed_metadata": {"title": title},
+        }),
+        encoding="utf-8",
+    )
+
+
+class TestMultiDirScanner:
+    """멀티 디렉토리 ResultsScanner 테스트"""
+
+    def test_scan_multiple_dirs(self, tmp_path):
+        from web.results_scanner import ResultsScanner
+        dir_a = tmp_path / "proj_a" / "results"
+        dir_b = tmp_path / "proj_b" / "results"
+        _make_pmid_result(dir_a, "111", "Paper A")
+        _make_pmid_result(dir_b, "222", "Paper B")
+
+        scanner = ResultsScanner([dir_a, dir_b])
+        scanner.scan()
+        assert scanner.total_pmids == 2
+        all_pmids = [p for q in scanner.queues for p in q.pmids]
+        assert "111" in all_pmids
+        assert "222" in all_pmids
+
+    def test_queue_source_dir(self, tmp_path):
+        from web.results_scanner import ResultsScanner
+        dir_a = tmp_path / "proj_a" / "results"
+        _make_pmid_result(dir_a, "111")
+
+        scanner = ResultsScanner([dir_a])
+        scanner.scan()
+        assert len(scanner.queues) == 1
+        assert scanner.queues[0].source_dir == str(dir_a.resolve())
+
+    def test_resolve_pmid_path_multi_dir(self, tmp_path):
+        from web.results_scanner import ResultsScanner
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        _make_pmid_result(dir_a, "111")
+        _make_pmid_result(dir_b, "222")
+
+        scanner = ResultsScanner([dir_a, dir_b])
+        assert scanner.resolve_pmid_path("111") == dir_a / "111"
+        assert scanner.resolve_pmid_path("222") == dir_b / "222"
+        assert scanner.resolve_pmid_path("999") is None
+
+    def test_single_path_backward_compat(self, tmp_path):
+        from web.results_scanner import ResultsScanner
+        _make_pmid_result(tmp_path, "111")
+        scanner = ResultsScanner(tmp_path)  # Path (not list)
+        scanner.scan()
+        assert scanner.total_pmids == 1
+
+    def test_queue_id_no_collision(self, tmp_path):
+        from web.results_scanner import ResultsScanner
+        dir_a = tmp_path / "alpha"
+        dir_b = tmp_path / "beta"
+        _make_pmid_result(dir_a, "111")
+        _make_pmid_result(dir_b, "222")
+
+        scanner = ResultsScanner([dir_a, dir_b])
+        scanner.scan()
+        ids = [q.queue_id for q in scanner.queues]
+        assert len(ids) == len(set(ids)), "Queue IDs should be unique"
+
+    def test_is_safe_path(self, tmp_path):
+        from web.results_scanner import ResultsScanner
+        dir_a = tmp_path / "a"
+        dir_a.mkdir()
+        scanner = ResultsScanner([dir_a])
+        assert scanner.is_safe_path(dir_a / "some_pmid")
+        assert not scanner.is_safe_path(tmp_path / "outside")
+
+
+# ── Delete API Tests ──
+
+class TestDeleteAPI:
+    """DELETE 엔드포인트 테스트"""
+
+    def _make_client(self, results_dirs: list[str]):
+        app = create_app(results_dirs=results_dirs)
+        return TestClient(app)
+
+    def test_delete_pmid_success(self, tmp_path):
+        _make_pmid_result(tmp_path, "111")
+        client = self._make_client([str(tmp_path)])
+        resp = client.delete("/api/results/111")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deleted"
+        assert not (tmp_path / "111").exists()
+
+    def test_delete_pmid_not_found(self, tmp_path):
+        client = self._make_client([str(tmp_path)])
+        resp = client.delete("/api/results/999")
+        assert resp.status_code == 404
+
+    def test_delete_pmid_rescan(self, tmp_path):
+        _make_pmid_result(tmp_path, "111")
+        _make_pmid_result(tmp_path, "222")
+        client = self._make_client([str(tmp_path)])
+        # 삭제 전
+        resp = client.get("/api/queues")
+        assert resp.json()["total_pmids"] == 2
+        # 삭제
+        client.delete("/api/results/111")
+        # 삭제 후 자동 rescan
+        resp = client.get("/api/queues")
+        assert resp.json()["total_pmids"] == 1
+
+    def test_delete_queue_success(self, tmp_path):
+        _make_pmid_result(tmp_path, "111")
+        client = self._make_client([str(tmp_path)])
+        # queue_id 확인
+        resp = client.get("/api/queues")
+        queue_id = resp.json()["queues"][0]["queue_id"]
+        # 삭제
+        resp = client.delete(f"/api/queues/{queue_id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deleted"
+        assert not (tmp_path / "111").exists()
+
+    def test_delete_queue_not_found(self, tmp_path):
+        client = self._make_client([str(tmp_path)])
+        resp = client.delete("/api/queues/nonexistent")
+        assert resp.status_code == 404
+
+    def test_delete_multi_dir(self, tmp_path):
+        """멀티 디렉토리에서 PMID 삭제"""
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        _make_pmid_result(dir_a, "111")
+        _make_pmid_result(dir_b, "222")
+        client = self._make_client([str(dir_a), str(dir_b)])
+        # dir_b의 PMID 삭제
+        resp = client.delete("/api/results/222")
+        assert resp.status_code == 200
+        assert not (dir_b / "222").exists()
+        assert (dir_a / "111").exists()  # dir_a는 무사
+
+
+# ── Multi-Dir App Tests ──
+
+class TestMultiDirApp:
+    """멀티 디렉토리 앱 통합 테스트"""
+
+    def test_create_app_with_results_dirs(self, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        _make_pmid_result(dir_a, "111")
+        _make_pmid_result(dir_b, "222")
+        app = create_app(results_dirs=[str(dir_a), str(dir_b)])
+        assert len(app.state.results_dirs) == 2
+        client = TestClient(app)
+        resp = client.get("/api/queues")
+        assert resp.json()["total_pmids"] == 2
+
+    def test_api_results_multi_dir(self, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        _make_pmid_result(dir_a, "111", "Paper A")
+        _make_pmid_result(dir_b, "222", "Paper B")
+        app = create_app(results_dirs=[str(dir_a), str(dir_b)])
+        client = TestClient(app)
+        # dir_b의 PMID 접근
+        resp = client.get("/api/results/222")
+        assert resp.status_code == 200
+        assert resp.json()["pmid"] == "222"
+
+    def test_dashboard_shows_delete_buttons(self, tmp_path):
+        _make_pmid_result(tmp_path, "111")
+        app = create_app(results_dirs=[str(tmp_path)])
+        client = TestClient(app)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "deletePmid" in resp.text
+        assert "deleteQueue" in resp.text

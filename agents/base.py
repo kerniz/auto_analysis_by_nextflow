@@ -311,6 +311,14 @@ class DebateAgent(ABC):
             "score는 0.0(매우 낮음)~1.0(매우 높음) 사이의 값입니다. "
             "confidence는 당신의 평가에 대한 확신도(0.0~1.0)입니다."
         )
+        prompt_parts.append("")
+        prompt_parts.append(
+            "CRITICAL RULE: 'Missing data' ≠ 'Negative finding'. "
+            "If information is not available (e.g., no methods section, no SRA data), "
+            "do NOT score it as negative. Instead, lower your confidence score "
+            "and note it in 'concerns' as 'data not available'. "
+            "Only score negatively when data IS present but shows poor quality."
+        )
         # qwen3 모델의 thinking 모드 비활성화 (토큰 절약)
         prompt_parts.append("")
         prompt_parts.append("/no_think")

@@ -74,7 +74,9 @@ class SRAExplorer:
             if public_ids:
                 results["downloadable"] = True
                 # 데이터 크기 추정
-                results["total_size_gb"] = self._estimate_data_size(public_ids)
+                results["total_size_gb"] = self._estimate_data_size(
+                    public_ids, sra_metadata,
+                )
                 # samplesheet 생성
                 samplesheet_path = self._create_samplesheet(pmid, public_ids, sra_metadata)
                 results["samplesheet"] = samplesheet_path
@@ -117,39 +119,73 @@ class SRAExplorer:
         return metadata
 
     def _filter_public_sra(self, metadata: dict) -> tuple[list[str], list[str]]:
-        """공개 SRR ID 필터링"""
+        """공개 SRR ID 필터링 (XML runs 문자열 파싱)"""
+        import re
         public_ids = []
         controlled_ids = []
 
         for sra_id, meta in metadata.items():
-            # SRR 접근번호 확인
-            runs = meta.get("Runs", [])
-            if runs:
-                for run in runs:
+            # NCBI esummary의 runs는 XML 문자열 (dict가 아님)
+            runs_xml = meta.get("runs", meta.get("Runs", ""))
+            if isinstance(runs_xml, str) and runs_xml.strip():
+                # <Run acc="SRR..." is_public="true" .../>
+                for m in re.finditer(
+                    r'<Run\s+acc="(SRR\d+)"[^>]*?'
+                    r'(?:is_public="(\w+)")?[^>]*?'
+                    r'(?:cluster_name="(\w+)")?[^>]*/?>',
+                    runs_xml,
+                ):
+                    run_id = m.group(1)
+                    is_public = m.group(2)  # "true" / "false"
+                    cluster = m.group(3)    # "public" / "controlled"
+                    if (
+                        (is_public and is_public.lower() == "true")
+                        or (cluster and cluster.lower() == "public")
+                    ):
+                        public_ids.append(run_id)
+                    elif is_public and is_public.lower() == "false":
+                        controlled_ids.append(run_id)
+                    else:
+                        # 명시적 표시 없으면 공개로 간주
+                        public_ids.append(run_id)
+            elif isinstance(runs_xml, list):
+                # 리스트 형태인 경우 (이전 호환)
+                for run in runs_xml:
                     run_id = run.get("acc", "")
                     if run_id.startswith("SRR"):
-                        # 공개 데이터 확인 (간단한 체크)
-                        if self._is_public_run(run_id):
-                            public_ids.append(run_id)
-                        else:
-                            controlled_ids.append(run_id)
+                        public_ids.append(run_id)
+
+            # expxml에서도 크기 정보 추출
+            expxml = meta.get("expxml", "")
+            if expxml and not runs_xml:
+                for m in re.finditer(r'cluster_name="(\w+)"', expxml):
+                    if m.group(1) == "public":
+                        # expxml에는 Run acc가 없지만 public 상태 확인용
+                        pass
 
         return list(set(public_ids)), list(set(controlled_ids))
 
-    def _is_public_run(self, run_id: str) -> bool:
-        """공개 run 확인"""
-        try:
-            # 간단한 공개 여부 체크 (실제로는 더 복잡한 로직 필요)
-            # 여기서는 모든 SRR을 공개로 가정
-            return True
-
-        except Exception:
-            return False
-
-    def _estimate_data_size(self, sra_ids: list[str]) -> float:
-        """데이터 크기 추정 (GB)"""
-        # 평균적으로 scRNA-seq는 5-10GB, bulk RNA-seq는 10-20GB
-        # 여기서는 보수적으로 5GB per SRR로 추정
+    def _estimate_data_size(self, sra_ids: list[str], metadata: dict = None) -> float:
+        """데이터 크기 추정 (GB) — 메타데이터에서 실제 크기 추출"""
+        import re
+        total_bytes = 0
+        if metadata:
+            for meta in metadata.values():
+                runs_xml = meta.get("runs", meta.get("Runs", ""))
+                if isinstance(runs_xml, str):
+                    for m in re.finditer(
+                        r'total_bases="(\d+)"', runs_xml,
+                    ):
+                        total_bytes += int(m.group(1))
+                # expxml의 Statistics에서도 추출
+                expxml = meta.get("expxml", "")
+                if expxml and not total_bytes:
+                    m = re.search(r'total_size="(\d+)"', expxml)
+                    if m:
+                        total_bytes += int(m.group(1))
+        if total_bytes > 0:
+            return total_bytes / (1024 ** 3)
+        # 폴백: SRR당 평균 5GB
         return len(sra_ids) * 5.0
 
     def _create_samplesheet(self, pmid: str, sra_ids: list[str], metadata: dict) -> str:

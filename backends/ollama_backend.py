@@ -69,13 +69,16 @@ class OllamaBackend(LLMBackend):
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        config: LLMConfig | None = None
+        config: LLMConfig | None = None,
+        failover_url: str | None = None,
     ):
         if config is None:
             config = LLMConfig(model="auto")
 
         super().__init__(config)
         self.base_url = base_url.rstrip("/")
+        self._failover_url = failover_url.rstrip("/") if failover_url else None
+        self._using_failover = False
         self._client = None
         self._auto_model = config.model in ("auto", "")
         self._model_resolved = False
@@ -234,12 +237,44 @@ class OllamaBackend(LLMBackend):
 
         return None
 
+    def _switch_to_failover(self) -> bool:
+        """failover URL로 전환. 이미 failover 중이면 False."""
+        if not self._failover_url or self._using_failover:
+            return False
+        logger.warning(
+            "Ollama failover: %s → %s", self.base_url, self._failover_url,
+        )
+        self._primary_url = self.base_url
+        self.base_url = self._failover_url
+        self._using_failover = True
+        # 클라이언트 리셋 (새 URL로 재연결)
+        if self._client and not getattr(self._client, "is_closed", True):
+            asyncio.get_event_loop().create_task(self._client.aclose())
+        self._client = None
+        return True
+
     async def health_check(self) -> bool:
-        """Ollama 서버 상태 확인 + auto 모델 결정."""
+        """Ollama 서버 상태 확인 + auto 모델 결정. 실패 시 failover URL 시도."""
         if not ASYNC_CLIENT:
             self.update_status(False)
             return False
 
+        result = await self._health_check_single()
+        if result:
+            return True
+
+        # primary 실패 → failover 시도
+        if self._switch_to_failover():
+            self._model_resolved = False  # failover 서버에서 모델 재탐색
+            result = await self._health_check_single()
+            if result:
+                return True
+
+        self.update_status(False)
+        return False
+
+    async def _health_check_single(self) -> bool:
+        """현재 base_url에 대한 health check."""
         max_attempts = 2
         last_err = None
 
@@ -258,7 +293,7 @@ class OllamaBackend(LLMBackend):
                     if chosen:
                         self.config.model = chosen
                         self._model_resolved = True
-                        logger.info("Ollama 모델 결정: %s", chosen)
+                        logger.info("Ollama 모델 결정: %s (%s)", chosen, self.base_url)
                     else:
                         last_err = "auto 모델 선택 실패"
                         if attempt < max_attempts:
@@ -278,14 +313,13 @@ class OllamaBackend(LLMBackend):
             except Exception as e:
                 last_err = str(e)
                 logger.warning(
-                    "Ollama health check 시도 %d/%d 실패: %s",
-                    attempt, max_attempts, e,
+                    "Ollama health check 시도 %d/%d 실패 (%s): %s",
+                    attempt, max_attempts, self.base_url, e,
                 )
                 if attempt < max_attempts:
                     await asyncio.sleep(1)
 
-        logger.warning("Ollama health check 실패: %s", last_err)
-        self.update_status(False)
+        logger.warning("Ollama health check 실패 (%s): %s", self.base_url, last_err)
         return False
 
     async def generate(
@@ -446,7 +480,27 @@ class OllamaBackend(LLMBackend):
                 error_message="요청 타임아웃"
             )
 
+        except (ConnectionError, OSError) as e:
+            # 연결 실패 시 failover 시도
+            if self._switch_to_failover():
+                logger.info("generate 연결 실패, failover로 재시도: %s", self.base_url)
+                return await self.generate(prompt, system_prompt, **kwargs)
+            latency_ms = (time.time() - start_time) * 1000
+            return LLMResponse(
+                content="",
+                model=self.config.model,
+                backend_name=self.name,
+                success=False,
+                latency_ms=latency_ms,
+                error_message=str(e)
+            )
+
         except Exception as e:
+            # httpx.ConnectError 등도 failover 시도
+            err_name = type(e).__name__
+            if "Connect" in err_name and self._switch_to_failover():
+                logger.info("generate %s, failover로 재시도: %s", err_name, self.base_url)
+                return await self.generate(prompt, system_prompt, **kwargs)
             latency_ms = (time.time() - start_time) * 1000
             return LLMResponse(
                 content="",

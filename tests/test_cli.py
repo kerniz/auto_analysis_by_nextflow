@@ -420,7 +420,7 @@ class TestBackendsCommandExtended:
     """Extended tests for `backends` command."""
 
     @patch("core.cli._get_llm_server_config",
-           return_value=("http://localhost:11434", "qwen3:30b", 60))
+           return_value=("http://localhost:11434", "qwen3:30b", 60, None))
     def test_backends_ollama_healthy(self, mock_cfg, runner):
         """Ollama responding with matching model."""
         mock_resp = MagicMock()
@@ -433,7 +433,7 @@ class TestBackendsCommandExtended:
         assert "HEALTHY" in result.output
 
     @patch("core.cli._get_llm_server_config",
-           return_value=("http://localhost:11434", "qwen3:30b", 60))
+           return_value=("http://localhost:11434", "qwen3:30b", 60, None))
     def test_backends_ollama_unreachable(self, mock_cfg, runner):
         """Ollama server unreachable."""
         with patch("httpx.get", side_effect=Exception("Connection refused")):
@@ -441,7 +441,7 @@ class TestBackendsCommandExtended:
         assert "UNREACHABLE" in result.output
 
     @patch("core.cli._get_llm_server_config",
-           return_value=("http://localhost:11434", "qwen3:30b", 60))
+           return_value=("http://localhost:11434", "qwen3:30b", 60, None))
     def test_backends_ollama_unhealthy(self, mock_cfg, runner):
         """Ollama responding with non-200 status."""
         mock_resp = MagicMock()
@@ -451,7 +451,7 @@ class TestBackendsCommandExtended:
         assert "UNHEALTHY" in result.output
 
     @patch("core.cli._get_llm_server_config",
-           return_value=("http://localhost:11434", "qwen3:30b", 60))
+           return_value=("http://localhost:11434", "qwen3:30b", 60, None))
     def test_backends_ollama_model_not_found(self, mock_cfg, runner):
         """Ollama healthy but model not found."""
         fake_cfg = {

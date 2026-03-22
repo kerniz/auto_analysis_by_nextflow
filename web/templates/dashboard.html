@@ -200,10 +200,44 @@
             cursor: pointer;
         }
         .report-btn:hover { border-color: var(--blue); }
+        .delete-btn {
+            padding: 4px 10px;
+            background: transparent;
+            color: var(--red);
+            border: 1px solid var(--red);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .delete-btn:hover { background: rgba(248,81,73,0.15); }
+        .delete-queue-btn {
+            padding: 4px 10px;
+            background: transparent;
+            color: var(--red);
+            border: 1px solid var(--red);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 11px;
+            cursor: pointer;
+            margin-left: 12px;
+        }
+        .delete-queue-btn:hover { background: rgba(248,81,73,0.15); }
+        .source-dir-tag {
+            font-size: 10px;
+            color: var(--text-dim);
+            background: var(--surface2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-left: 8px;
+        }
         .queue-actions {
             padding: 10px 16px;
             border-top: 1px solid var(--border);
             background: var(--surface2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         /* ── Run Tab ── */
@@ -356,6 +390,8 @@
                                         {% elif q.status == 'failed' %}Failed
                                         {% else %}{{ q.status }}{% endif %}
                                     </span>
+                                    {% if q.source_dir %}<span class="source-dir-tag" title="{{ q.source_dir }}">{{ q.source_dir.split('/')[-1] }}</span>{% endif %}
+                                    <button class="delete-queue-btn" onclick="event.stopPropagation(); deleteQueue('{{ q.queue_id }}', '{{ q.name }}')" title="Delete this topic">Del</button>
                                 </div>
                             </div>
                             <div class="queue-body">
@@ -368,7 +404,7 @@
                                             <th>LLM</th>
                                             <th>Debate</th>
                                             <th>Score</th>
-                                            <th>Report</th>
+                                            <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -386,7 +422,10 @@
                                                 {% else %}-{% endif %}
                                             </td>
                                             <td>{{ '%.2f'|format(ps.get('debate_score', 0)) if ps.get('debate_score') else '-' }}</td>
-                                            <td><a class="report-btn" href="/reports/{{ pmid }}" target="_blank">View</a></td>
+                                            <td>
+                                                <a class="report-btn" href="/reports/{{ pmid }}" target="_blank">View</a>
+                                                <button class="delete-btn" onclick="deletePmid('{{ pmid }}')" title="Delete this PMID">Del</button>
+                                            </td>
                                         </tr>
                                         {% endfor %}
                                     </tbody>
@@ -577,6 +616,37 @@
             }
         }
 
+        // ── Delete Functions ──
+        async function deletePmid(pmid) {
+            if (!confirm(`PMID ${pmid}의 모든 결과를 삭제하시겠습니까?`)) return;
+            try {
+                const resp = await fetch(`/api/results/${pmid}`, {method: 'DELETE'});
+                if (resp.ok) {
+                    rescanResults();
+                } else {
+                    const data = await resp.json();
+                    alert(data.error || 'Delete failed');
+                }
+            } catch (e) {
+                alert('Connection error');
+            }
+        }
+
+        async function deleteQueue(queueId, queueName) {
+            if (!confirm(`"${queueName}" 연구 주제의 모든 PMID 결과를 삭제하시겠습니까?`)) return;
+            try {
+                const resp = await fetch(`/api/queues/${encodeURIComponent(queueId)}`, {method: 'DELETE'});
+                if (resp.ok) {
+                    rescanResults();
+                } else {
+                    const data = await resp.json();
+                    alert(data.error || 'Delete failed');
+                }
+            } catch (e) {
+                alert('Connection error');
+            }
+        }
+
         function renderQueues(queues, totalPmids) {
             const container = document.getElementById('queues-container');
             const stats = document.getElementById('results-stats');
@@ -597,6 +667,10 @@
                 const statusLabel = q.status === 'completed' ? 'Completed' :
                                     q.status === 'partial' ? 'Partial' :
                                     q.status === 'failed' ? 'Failed' : q.status;
+                const srcTag = q.source_dir ?
+                    `<span class="source-dir-tag" title="${q.source_dir}">${q.source_dir.split('/').pop()}</span>` : '';
+                const escQid = q.queue_id.replace(/'/g, "\\'");
+                const escName = (q.name||'').replace(/'/g, "\\'");
 
                 let rowsHtml = '';
                 for (const pmid of q.pmids) {
@@ -613,7 +687,10 @@
                         <td>${ps.llm_rating||'-'}</td>
                         <td>${verdictHtml}</td>
                         <td>${score}</td>
-                        <td><a class="report-btn" href="/reports/${pmid}" target="_blank">View</a></td>
+                        <td>
+                            <a class="report-btn" href="/reports/${pmid}" target="_blank">View</a>
+                            <button class="delete-btn" onclick="deletePmid('${pmid}')" title="Delete this PMID">Del</button>
+                        </td>
                     </tr>`;
                 }
 
@@ -630,11 +707,13 @@
                             <span><span class="count">${q.pmids.length}</span> PMID(s)</span>
                             <span>${(q.timestamp||'').substring(0,10)}</span>
                             <span class="${statusClass}">${statusLabel}</span>
+                            ${srcTag}
+                            <button class="delete-queue-btn" onclick="event.stopPropagation(); deleteQueue('${escQid}', '${escName}')" title="Delete this topic">Del</button>
                         </div>
                     </div>
                     <div class="queue-body">
                         <table class="pmid-table">
-                            <thead><tr><th>PMID</th><th>Title</th><th>Type</th><th>LLM</th><th>Debate</th><th>Score</th><th>Report</th></tr></thead>
+                            <thead><tr><th>PMID</th><th>Title</th><th>Type</th><th>LLM</th><th>Debate</th><th>Score</th><th>Actions</th></tr></thead>
                             <tbody>${rowsHtml}</tbody>
                         </table>
                         ${projReport}

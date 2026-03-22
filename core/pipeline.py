@@ -73,7 +73,10 @@ class PMIDResult:
             "sra_results": self.sra_results,
             "sequencing_type": self.sequencing_result.get("sequencing_type", "unknown"),
             "sequencing_confidence": self.sequencing_result.get("confidence", 0.0),
-            "llm_rating": self.llm_analysis.get("consistency_rating", "UNKNOWN"),
+            "llm_rating": self.llm_analysis.get(
+                "consistency_rating",
+                "UNKNOWN" if not self.llm_analysis else "WARN",
+            ),
             "llm_consensus": self.llm_analysis.get("consensus", {}),
             "aggregated_sources": list(self.aggregated_data.get("sources_succeeded", [])),
             "enrichment_summary": {
@@ -93,6 +96,7 @@ class PMIDResult:
 class LLMServerConfig:
     """LLM server settings from config.json pipeline_config.llm_server"""
     url: str = "http://localhost:11434"
+    failover_url: str | None = None
     model: str = "auto"
     timeout: int = 120
     max_retries: int = 3
@@ -109,6 +113,7 @@ class LLMBackendConfig:
     temperature: float = 0.1
     top_p: float = 0.9
     url: str = ""                   # Ollama 전용
+    failover_url: str | None = None  # Ollama failover URL
     api_key_env: str = ""           # OpenAI/Anthropic
     base_url: str | None = None     # OpenAI (Azure 호환)
 
@@ -297,6 +302,7 @@ class PipelineConfig:
         llm_srv_data = pipeline_cfg.get("llm_server", {})
         llm_server = LLMServerConfig(
             url=llm_srv_data.get("url", "http://localhost:11434"),
+            failover_url=llm_srv_data.get("failover_url"),
             model=llm_srv_data.get("model", "auto"),
             timeout=llm_srv_data.get("timeout", 120),
             max_retries=llm_srv_data.get("max_retries", 3),
@@ -318,6 +324,7 @@ class PipelineConfig:
                     temperature=bcfg.get("temperature", 0.1),
                     top_p=bcfg.get("top_p", 0.9),
                     url=bcfg.get("url", ""),
+                    failover_url=bcfg.get("failover_url"),
                     api_key_env=bcfg.get("api_key_env", ""),
                     base_url=bcfg.get("base_url"),
                 )
@@ -581,6 +588,7 @@ class AsyncPipeline:
                     backends.append(OllamaBackend(
                         base_url=bcfg.url or "http://localhost:11434",
                         config=llm_config,
+                        failover_url=bcfg.failover_url,
                     ))
                 elif provider_name == "openai":
                     api_key = (
@@ -647,6 +655,7 @@ class AsyncPipeline:
             backends.append(OllamaBackend(
                 base_url=llm_srv.url,
                 config=ollama_config,
+                failover_url=llm_srv.failover_url,
             ))
             if os.environ.get("OPENAI_API_KEY"):
                 backends.append(OpenAIBackend(
@@ -1154,8 +1163,48 @@ class AsyncPipeline:
 
                 self._emit("pmid_stage_complete", pmid=pmid, stage="enrichment")
 
+                # ── Evaluability Gate ──
+                evaluability = (result.pubmed_metadata or {}).get(
+                    "evaluability", {},
+                )
+                eval_level = evaluability.get("level", "UNKNOWN")
+                eval_recommendation = evaluability.get(
+                    "recommendation", "EVALUATE",
+                )
+
+                if eval_recommendation in ("SKIP_EVALUATION", "NO_DATA"):
+                    logger.warning(
+                        "PMID %s: evaluability=%s — LLM/토론 건너뜀",
+                        pmid, eval_level,
+                    )
+                    result.llm_analysis = {
+                        "consistency_rating": "INSUFFICIENT_DATA",
+                        "evaluability_level": eval_level,
+                        "note": "데이터 부족으로 평가 건너뜀",
+                    }
+                    result.debate_report = {
+                        "overall_verdict": "INSUFFICIENT_DATA",
+                        "overall_score": 0,
+                        "evaluability_level": eval_level,
+                        "note": "데이터 부족으로 토론 건너뜀",
+                    }
+                    self._emit(
+                        "pmid_stage_complete", pmid=pmid,
+                        stage="llm_consensus",
+                        message=f"SKIP (evaluability: {eval_level})",
+                    )
+                    self._emit(
+                        "pmid_stage_complete", pmid=pmid,
+                        stage="debate",
+                        message=f"SKIP (evaluability: {eval_level})",
+                    )
+                else:
+                    # 평가 가능 → 기존 LLM + 토론 진행
+                    pass
+
                 # Stage 6+7: LLM 분석 및 토론 (세마포어로 동시 요청 방지)
-                async with self._llm_semaphore:
+                if eval_recommendation not in ("SKIP_EVALUATION", "NO_DATA"):
+                  async with self._llm_semaphore:
                     # Stage 6: LLM 멀티 합의 분석
                     self._emit(
                         "pmid_stage_start", pmid=pmid, stage="llm_consensus",
@@ -1163,6 +1212,7 @@ class AsyncPipeline:
                     if not self._is_step_done(pmid, "llm_analysis_done"):
                         llm_analysis = await self._analyze_with_llm_consensus(
                             pmid, result.pubmed_metadata, result.sequencing_result,
+                            sra_results=result.sra_results,
                             downstream_analysis=result.downstream_analysis,
                         )
                         result.llm_analysis = llm_analysis
@@ -1193,6 +1243,11 @@ class AsyncPipeline:
                                     else "Unknown"
                                 ),
                                 "pipeline_info": result.sequencing_result or {},
+                                "sra_data": result.sra_results or {},
+                                "ncbi_links": (result.pubmed_metadata or {}).get(
+                                    "ncbi_links", {},
+                                ),
+                                "evaluability": evaluability,
                                 "analysis_results": {
                                     **(result.aggregated_data or {}),
                                     **(result.enrichment_results or {}),
@@ -1231,6 +1286,11 @@ class AsyncPipeline:
                         and primary_lang != secondary_lang
                         and result.debate_report
                         and not result.debate_report.get("error")):
+                    # 영어 원본 보존
+                    result.debate_report["debate_en"] = {
+                        k: v for k, v in result.debate_report.items()
+                        if k not in ("debate_en", "debate_ko")
+                    }
                     try:
                         from core.translator import translate_debate_report
                         ollama_url = self.config.llm_server.url
@@ -1375,6 +1435,7 @@ class AsyncPipeline:
         pmid: str,
         pubmed_metadata: dict[str, Any],
         sequencing_result: dict[str, Any],
+        sra_results: dict[str, Any] | None = None,
         downstream_analysis: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """LLM 멀티 합의: 모든 건강한 백엔드에 동시 쿼리 후 가중 합의"""
@@ -1388,7 +1449,9 @@ class AsyncPipeline:
         if not self.llm_router:
             return {"pmid": pmid, "consistency_rating": "WARN", "error": "No LLM router"}
 
-        prompt = self._build_analysis_prompt(pubmed_metadata, sequencing_result)
+        prompt = self._build_analysis_prompt(
+            pubmed_metadata, sequencing_result, sra_results=sra_results,
+        )
 
         # RAG 컨텍스트 주입 (기존 분석 결과 참조)
         if self.doc_store:
@@ -1672,18 +1735,82 @@ class AsyncPipeline:
         self,
         pubmed_metadata: dict[str, Any],
         sequencing_result: dict[str, Any],
+        sra_results: dict[str, Any] | None = None,
         downstream_analysis: dict[str, Any] | None = None,
     ) -> str:
         title = pubmed_metadata.get("title", "")
         abstract = pubmed_metadata.get("abstract", "")[:1000]
         seq_type = sequencing_result.get("sequencing_type", "unknown")
+        keywords = pubmed_metadata.get("keywords", [])
 
         prompt = f"""Analyze this bioinformatics paper and sequencing data:
 
 Title: {title}
 Abstract: {abstract[:500]}
 Detected Sequencing Type: {seq_type}
+Keywords: {', '.join(keywords) if keywords else 'none'}
 """
+
+        # SRA 메타데이터 주입 (platform, library strategy 등)
+        if sra_results and sra_results.get("metadata"):
+            import re
+            prompt += "\nSRA Data:\n"
+            for sra_id, meta in sra_results["metadata"].items():
+                expxml = meta.get("expxml", "")
+                runs_xml = meta.get("runs", "")
+                # Platform 추출
+                plat_m = re.search(
+                    r'instrument_model="([^"]+)"', expxml,
+                )
+                platform = plat_m.group(1) if plat_m else "Unknown"
+                # Library strategy
+                lib_m = re.search(
+                    r'<LIBRARY_STRATEGY>([^<]+)</LIBRARY_STRATEGY>', expxml,
+                )
+                lib_strategy = lib_m.group(1) if lib_m else "Unknown"
+                # Library source
+                src_m = re.search(
+                    r'<LIBRARY_SOURCE>([^<]+)</LIBRARY_SOURCE>', expxml,
+                )
+                lib_source = src_m.group(1) if src_m else "Unknown"
+                # Organism
+                org_m = re.search(
+                    r'ScientificName="([^"]+)"', expxml,
+                )
+                organism = org_m.group(1) if org_m else "Unknown"
+                # Run stats
+                spots_m = re.search(r'total_spots="(\d+)"', runs_xml)
+                bases_m = re.search(r'total_bases="(\d+)"', runs_xml)
+                spots = int(spots_m.group(1)) if spots_m else 0
+                bases = int(bases_m.group(1)) if bases_m else 0
+
+                prompt += f"- SRA ID: {sra_id}\n"
+                prompt += f"  Platform: {platform}\n"
+                prompt += f"  Library: {lib_strategy} ({lib_source})\n"
+                prompt += f"  Organism: {organism}\n"
+                if spots:
+                    prompt += f"  Reads: {spots:,} spots, {bases / 1e9:.1f} Gbases\n"
+                public_ids = sra_results.get("public_sra_ids", [])
+                if public_ids:
+                    prompt += f"  Public runs: {', '.join(public_ids)}\n"
+
+        # NCBI 연관 데이터베이스 정보
+        ncbi_links = pubmed_metadata.get("ncbi_links", {})
+        if ncbi_links:
+            link_parts = []
+            for db, ids in ncbi_links.items():
+                if ids:
+                    link_parts.append(f"{db}: {len(ids)}")
+            if link_parts:
+                prompt += f"\nNCBI Linked Databases: {', '.join(link_parts)}\n"
+
+        # Evaluability 정보
+        ev = pubmed_metadata.get("evaluability", {})
+        if ev:
+            prompt += (
+                f"\nData Completeness: {ev.get('level', 'UNKNOWN')} "
+                f"(confidence: {ev.get('confidence', 0):.1f})\n"
+            )
 
         # Inject actual downstream analysis results if available
         if downstream_analysis and downstream_analysis.get("success"):
@@ -1699,8 +1826,11 @@ Detected Sequencing Type: {seq_type}
                         prompt += f"- {key}: {val}\n"
 
         prompt += """
+IMPORTANT: Distinguish between "data not available" and "data found to be poor quality".
+Missing data should NOT be scored as negative — use "N/A" or "UNABLE_TO_ASSESS" for missing fields.
+
 Provide a JSON response with:
-{"consistency_score": 0.0-1.0, "consistency_rating": "PASS|WARN|FAIL", "technical_assessment": "...", "recommendations": []}
+{"consistency_score": 0.0-1.0, "consistency_rating": "PASS|WARN|FAIL|INSUFFICIENT_DATA", "technical_assessment": "...", "recommendations": []}
 """
         return prompt
 

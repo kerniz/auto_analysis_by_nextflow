@@ -240,7 +240,12 @@ class DebateManager:
         final_consensus = self._synthesize_consensus(rounds)
         per_agent_scores = self._calculate_per_agent_scores(rounds)
         overall_score = self._calculate_overall_score(per_agent_scores)
-        overall_verdict = self._determine_verdict(overall_score)
+        # evaluability 정보로 INSUFFICIENT_DATA 판단
+        evaluability = research_data.get("evaluability", {})
+        avg_confidence = self._avg_agent_confidence(rounds)
+        overall_verdict = self._determine_verdict(
+            overall_score, evaluability, avg_confidence,
+        )
         dissenting_opinions = self._find_dissenting_opinions(rounds)
 
         result = DebateResult(
@@ -559,16 +564,40 @@ class DebateManager:
 
         return 0.0
 
-    def _determine_verdict(self, score: float) -> str:
-        """
-        종합 판정 결정 / Determine overall verdict based on score.
+    @staticmethod
+    def _avg_agent_confidence(rounds: list) -> float:
+        """모든 라운드의 에이전트 평균 confidence 계산."""
+        confidences = []
+        for r in rounds:
+            for resp in getattr(r, "responses", []):
+                if hasattr(resp, "confidence") and resp.confidence is not None:
+                    confidences.append(resp.confidence)
+        return sum(confidences) / len(confidences) if confidences else 0.0
 
-        Args:
-            score: 종합 점수 (0.0~1.0)
+    def _determine_verdict(
+        self,
+        score: float,
+        evaluability: dict | None = None,
+        avg_confidence: float = 1.0,
+    ) -> str:
+        """
+        종합 판정 결정 / Determine overall verdict based on score + data quality.
+
+        Missing data ≠ negative. 데이터 부족 시 INSUFFICIENT_DATA 반환.
 
         Returns:
-            str: "PASS" (>=0.8), "WARN" (>=0.5), "FAIL" (<0.5)
+            str: PASS / WARN / FAIL / INSUFFICIENT_DATA
         """
+        # Evaluability Gate: 데이터 부족이면 판정 불가
+        if evaluability:
+            ev_level = evaluability.get("level", "")
+            if ev_level in ("INSUFFICIENT", "MINIMAL"):
+                return "INSUFFICIENT_DATA"
+
+        # 에이전트 평균 confidence가 매우 낮으면 판정 불확실
+        if avg_confidence < 0.2:
+            return "INSUFFICIENT_DATA"
+
         if score >= 0.8:
             return "PASS"
         elif score >= 0.5:

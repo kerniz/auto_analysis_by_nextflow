@@ -9,7 +9,8 @@
   "pipeline_config": {
     "test_pmids": ["40315330", "32416070"],
     "llm_server": {
-      "url": "http://REDACTED-HOST-X86:11436",
+      "url": "http://REDACTED-HOST-X86:11434",
+      "failover_url": "http://REDACTED-HOST-X86:11435",
       "model": "auto",
       "timeout": 259200,
       "max_retries": 3
@@ -36,7 +37,8 @@
     "backends": {
       "ollama": {
         "enabled": true,
-        "url": "http://REDACTED-HOST-X86:11436",
+        "url": "http://REDACTED-HOST-X86:11434",
+        "failover_url": "http://REDACTED-HOST-X86:11435",
         "model": "auto",
         "timeout": 259200,
         "max_retries": 3,

@@ -32,14 +32,15 @@ def _load_config() -> dict:
     return {}
 
 
-def _get_llm_server_config() -> tuple[str, str, int]:
-    """config.json에서 LLM 서버 설정을 반환합니다. (url, model, timeout)"""
+def _get_llm_server_config() -> tuple[str, str, int, str | None]:
+    """config.json에서 LLM 서버 설정을 반환합니다. (url, model, timeout, failover_url)"""
     cfg = _load_config()
     llm = cfg.get("pipeline_config", {}).get("llm_server", {})
     url = llm.get("url", "http://localhost:11434")
     model = llm.get("model", "qwen3:30b")
     timeout = llm.get("timeout", 60)
-    return url, model, timeout
+    failover_url = llm.get("failover_url")
+    return url, model, timeout, failover_url
 
 
 def _create_backends_from_config():
@@ -75,6 +76,7 @@ def _create_backends_from_config():
                 backends_list.append(OllamaBackend(
                     base_url=bcfg.get("url", "http://localhost:11434"),
                     config=llm_config,
+                    failover_url=bcfg.get("failover_url"),
                 ))
             elif name == "openai":
                 api_key_env = bcfg.get("api_key_env", "OPENAI_API_KEY")
@@ -113,10 +115,11 @@ def _create_backends_from_config():
         return backends_list, router_config
 
     # Legacy fallback
-    url, model, timeout = _get_llm_server_config()
+    url, model, timeout, failover_url = _get_llm_server_config()
     backends_list = [
         OllamaBackend(
-            base_url=url, config=LLMConfig(model=model, timeout=timeout)
+            base_url=url, config=LLMConfig(model=model, timeout=timeout),
+            failover_url=failover_url,
         )
     ]
     if os.environ.get("OPENAI_API_KEY"):
@@ -482,7 +485,7 @@ def backends():
         )
     else:
         # Legacy display
-        ollama_url, ollama_model, _ = _get_llm_server_config()
+        ollama_url, ollama_model, _, _ = _get_llm_server_config()
         click.echo(f"1. Ollama ({ollama_model})")
         try:
             import httpx
@@ -2185,12 +2188,15 @@ def _find_all_pids() -> dict[str, list[int]]:
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="서버 호스트")
 @click.option("--port", default=8080, type=int, help="서버 포트")
-@click.option("--results-dir", "-o", type=click.Path(), default="./results",
-              help="결과 저장 디렉토리")
+@click.option("--results-dir", "-o", type=click.Path(), multiple=True,
+              help="결과 저장 디렉토리 (여러 개 지정 가능)")
 def web(host, port, results_dir):
     """웹 대시보드 서버를 시작합니다.
 
     브라우저에서 http://host:port 로 접근하여 파이프라인을 모니터링합니다.
+
+    여러 results 디렉토리를 동시에 모니터링:
+      bioauto web -o ./proj_A/results -o ./proj_B/results
 
     예시: bioauto web --port 8080
     종료: bioauto stop
@@ -2206,6 +2212,9 @@ def web(host, port, results_dir):
         ))
         return
 
+    # 기본값: -o 미지정 시 ./results
+    dirs = list(results_dir) if results_dir else ["./results"]
+
     # PID 파일 기록
     pidfile = _get_pidfile("web")
     pidfile.parent.mkdir(parents=True, exist_ok=True)
@@ -2213,11 +2222,11 @@ def web(host, port, results_dir):
 
     click.echo("=== BioAuto Web Dashboard ===")
     click.echo(f"Server: http://{host}:{port}")
-    click.echo(f"Results: {results_dir}")
+    click.echo(f"Results: {', '.join(dirs)}")
     click.echo("Stop: bioauto stop web  /  bioauto stop  /  Ctrl+C\n")
 
     try:
-        app = create_app(results_dir=results_dir)
+        app = create_app(results_dirs=dirs)
         uvicorn.run(app, host=host, port=port)
     finally:
         pidfile.unlink(missing_ok=True)

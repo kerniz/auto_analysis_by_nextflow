@@ -167,17 +167,78 @@ class DashboardState:
         }
 
 
+# ── Cleanup Helpers ──
+
+def _cleanup_pmid_references(pmid: str, results_dir: Path) -> None:
+    """PMID 삭제 후 관련 JSON 파일에서 참조 정리."""
+    # execution_summary.json에서 PMID 제거
+    summary_file = results_dir / "execution_summary.json"
+    if summary_file.exists():
+        try:
+            with open(summary_file) as f:
+                data = json.load(f)
+            pmid_results = data.get("pmid_results", {})
+            if pmid in pmid_results:
+                del pmid_results[pmid]
+                # 카운터 업데이트
+                exec_summary = data.get("execution_summary", {})
+                total = exec_summary.get("total", 0)
+                if total > 0:
+                    exec_summary["total"] = total - 1
+                data["pmid_results"] = pmid_results
+                data["execution_summary"] = exec_summary
+                with open(summary_file, "w") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # progress.json에서 PMID 제거
+    progress_file = results_dir / "progress.json"
+    if progress_file.exists():
+        try:
+            with open(progress_file) as f:
+                data = json.load(f)
+            if pmid in data:
+                del data[pmid]
+                with open(progress_file, "w") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # error_log.json에서 PMID 관련 항목 제거
+    error_file = results_dir / "error_log.json"
+    if error_file.exists():
+        try:
+            with open(error_file) as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                data = [e for e in data if e.get("pmid") != pmid]
+            elif isinstance(data, dict) and pmid in data:
+                del data[pmid]
+            with open(error_file, "w") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+
 # ── App Factory ──
 
 def create_app(
     results_dir: str = "./results",
     state: DashboardState | None = None,
+    results_dirs: list[str] | None = None,
 ) -> FastAPI:
-    """FastAPI 앱 생성"""
+    """FastAPI 앱 생성 (멀티 디렉토리 지원)"""
     app = FastAPI(title="BioAuto Dashboard", version="1.0.0")
     app.state.dashboard = state or DashboardState()
-    app.state.results_dir = Path(results_dir)
-    app.state.scanner = ResultsScanner(Path(results_dir))
+
+    if results_dirs:
+        dirs = [Path(d) for d in results_dirs]
+    else:
+        dirs = [Path(results_dir)]
+    app.state.results_dirs = dirs
+    app.state.results_dir = dirs[0]  # 하위 호환 (파이프라인 실행 대상)
+    app.state.scanner = ResultsScanner(dirs)
     app.state.scanner.scan()  # 초기 스캔 (동기)
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -262,7 +323,13 @@ def create_app(
     @app.get("/api/results/{pmid}", response_class=JSONResponse)
     async def api_results(pmid: str):
         """PMID별 결과 JSON"""
-        result_file = app.state.results_dir / pmid / f"final_report_{pmid}.json"
+        scanner: ResultsScanner = app.state.scanner
+        pmid_path = scanner.resolve_pmid_path(pmid)
+        if not pmid_path:
+            return JSONResponse(
+                {"error": f"No results for {pmid}"}, status_code=404,
+            )
+        result_file = pmid_path / f"final_report_{pmid}.json"
         if not result_file.exists():
             return JSONResponse(
                 {"error": f"No results for {pmid}"}, status_code=404,
@@ -270,10 +337,99 @@ def create_app(
         with open(result_file) as f:
             return json.load(f)
 
+    @app.delete("/api/results/{pmid}", response_class=JSONResponse)
+    async def api_delete_pmid(pmid: str):
+        """PMID 결과 폴더 + 관련 참조 깨끗이 삭제"""
+        import shutil
+
+        scanner: ResultsScanner = app.state.scanner
+        pmid_path = scanner.resolve_pmid_path(pmid)
+        if not pmid_path or not pmid_path.exists():
+            return JSONResponse(
+                {"error": f"PMID '{pmid}' not found"}, status_code=404,
+            )
+        if not scanner.is_safe_path(pmid_path):
+            return JSONResponse(
+                {"error": "Invalid path"}, status_code=400,
+            )
+        results_dir = pmid_path.parent
+        shutil.rmtree(pmid_path)
+        _cleanup_pmid_references(pmid, results_dir)
+        scanner.scan()
+        return {"status": "deleted", "pmid": pmid}
+
+    @app.delete("/api/queues/{queue_id}", response_class=JSONResponse)
+    async def api_delete_queue(queue_id: str):
+        """Queue(연구 주제) 전체 삭제"""
+        import shutil
+
+        scanner: ResultsScanner = app.state.scanner
+        queue = scanner.get_queue(queue_id)
+        if not queue:
+            return JSONResponse(
+                {"error": f"Queue '{queue_id}' not found"}, status_code=404,
+            )
+        source_dir = Path(queue.source_dir) if queue.source_dir else None
+
+        # 다른 Queue에서도 참조하는 PMID는 폴더 삭제 안 함
+        other_pmids: set[str] = set()
+        for other_q in scanner.queues:
+            if other_q.queue_id != queue_id:
+                other_pmids.update(other_q.pmids)
+
+        deleted_pmids = []
+        skipped_pmids = []
+        for pmid in queue.pmids:
+            if pmid in other_pmids:
+                skipped_pmids.append(pmid)
+                continue  # 다른 Queue에서 참조 → 폴더 보존
+            pmid_path = (source_dir / pmid) if source_dir else None
+            if pmid_path and pmid_path.exists() and scanner.is_safe_path(pmid_path):
+                shutil.rmtree(pmid_path)
+                if source_dir:
+                    _cleanup_pmid_references(pmid, source_dir)
+                deleted_pmids.append(pmid)
+        # queue manifest 삭제
+        if source_dir:
+            manifest_dir = source_dir / ".queues"
+            if manifest_dir.exists():
+                # queue_id에서 dir_slug prefix 제거하여 원본 파일명 탐색
+                raw_id = queue_id.split(":", 1)[-1] if ":" in queue_id else queue_id
+                for candidate in [f"{raw_id}.json", f"{queue_id}.json"]:
+                    manifest = manifest_dir / candidate
+                    if manifest.exists():
+                        manifest.unlink()
+        scanner.scan()
+        return {
+            "status": "deleted",
+            "queue_id": queue_id,
+            "deleted_pmids": deleted_pmids,
+            "skipped_pmids": skipped_pmids,
+        }
+
+    @app.get("/pipeline-files/{file_path:path}")
+    async def serve_pipeline_file(file_path: str):
+        """nf-core 산출물 파일 서빙 (results/ 하위)"""
+        from fastapi.responses import FileResponse
+        for results_dir in app.state.results_dirs:
+            candidate = results_dir / file_path
+            if candidate.exists() and candidate.is_file():
+                # 보안: results_dir 안에 있는지 확인
+                scanner: ResultsScanner = app.state.scanner
+                if scanner.is_safe_path(candidate):
+                    return FileResponse(str(candidate))
+        return HTMLResponse("<h1>File not found</h1>", status_code=404)
+
     @app.get("/reports/{pmid}", response_class=HTMLResponse)
     async def serve_report(pmid: str):
         """HTML 리포트 서빙"""
-        report_file = app.state.results_dir / pmid / f"report_{pmid}.html"
+        scanner: ResultsScanner = app.state.scanner
+        pmid_path = scanner.resolve_pmid_path(pmid)
+        if not pmid_path:
+            return HTMLResponse(
+                f"<h1>Report not found for {pmid}</h1>", status_code=404,
+            )
+        report_file = pmid_path / f"report_{pmid}.html"
         if not report_file.exists():
             return HTMLResponse(
                 f"<h1>Report not found for {pmid}</h1>", status_code=404,
@@ -313,6 +469,57 @@ def create_app(
             "total_pmids": scanner.total_pmids,
             "last_scanned": scanner.last_scanned,
         }
+
+    # ── Slurm API ──
+
+    @app.get("/api/slurm/jobs", response_class=JSONResponse)
+    async def api_slurm_jobs():
+        """Slurm 작업 목록 (REST API 경유)."""
+        try:
+            from core.slurm_client import SlurmClient
+            c = SlurmClient()
+            jobs = c.jobs()
+            summary = []
+            for j in jobs:
+                st = j.get("job_state", ["?"])
+                if isinstance(st, list):
+                    st = st[0] if st else "?"
+                summary.append({
+                    "job_id": j.get("job_id"),
+                    "name": j.get("name", ""),
+                    "state": st,
+                    "partition": j.get("partition", ""),
+                    "node": j.get("batch_host", ""),
+                    "reason": j.get("state_reason", ""),
+                })
+            return {"jobs": summary, "total": len(summary)}
+        except Exception as e:
+            return JSONResponse(
+                {"error": str(e), "jobs": []}, status_code=200,
+            )
+
+    @app.get("/api/slurm/nodes", response_class=JSONResponse)
+    async def api_slurm_nodes():
+        """Slurm 노드 정보."""
+        try:
+            from core.slurm_client import SlurmClient
+            c = SlurmClient()
+            nodes = c.nodes()
+            return {"nodes": [
+                {
+                    "name": n.get("name"),
+                    "cpus": n.get("cpus"),
+                    "memory_mb": n.get("real_memory"),
+                    "state": n.get("state"),
+                    "gres": n.get("gres", ""),
+                }
+                for n in nodes
+            ]}
+        except Exception as e:
+            return JSONResponse(
+                {"error": str(e), "nodes": []},
+                status_code=200,
+            )
 
     return app
 
