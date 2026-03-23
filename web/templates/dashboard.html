@@ -531,7 +531,7 @@
                 <div class="run-pmid-section">
                     <table class="run-pmid-table">
                         <thead>
-                            <tr><th>PMID</th><th>Stage</th><th>Progress</th><th>Status</th></tr>
+                            <tr><th>PMID</th><th>Stage</th><th>Progress</th><th>Status</th><th>Action</th></tr>
                         </thead>
                         <tbody id="run-pmid-tbody">
                         </tbody>
@@ -602,7 +602,12 @@
                 const pct = Math.round((ps.completed || 0) / (ps.total || 8) * 100);
                 const statusIcon = ps.status === 'completed' ? '&#x2705;' :
                                    ps.status === 'running' ? '&#x1F504;' :
-                                   ps.status === 'failed' ? '&#x274C;' : '&#x23F3;';
+                                   ps.status === 'failed' ? '&#x274C;' :
+                                   ps.status === 'cancelled' ? '&#x1F6AB;' : '&#x23F3;';
+                const canStop = state.running && (ps.status === 'running' || ps.status === 'pending');
+                const stopBtn = canStop
+                    ? `<button onclick="stopPmid('${pmid}')" style="padding:2px 8px;background:transparent;color:var(--red);border:1px solid var(--red);border-radius:4px;font-family:inherit;font-size:11px;cursor:pointer;" title="이 PMID 중지">⏹</button>`
+                    : '';
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td><strong>${pmid}</strong></td>
@@ -616,6 +621,7 @@
                         </span>
                     </td>
                     <td>${statusIcon}</td>
+                    <td>${stopBtn}</td>
                 `;
                 tbody.appendChild(row);
             }
@@ -632,6 +638,18 @@
 
             document.getElementById('run-btn').disabled = state.running;
             document.getElementById('stop-btn').style.display = state.running ? 'inline-block' : 'none';
+        }
+
+        // ── Stop Individual PMID ──
+        async function stopPmid(pmid) {
+            if (!confirm(`PMID ${pmid} 처리를 중지하시겠습니까?`)) return;
+            try {
+                const resp = await fetch(`/api/stop/${pmid}`, {method: 'POST'});
+                const result = await resp.json();
+                if (!resp.ok) alert(result.error || 'Stop failed');
+            } catch (e) {
+                alert('Connection error');
+            }
         }
 
         // ── Stop Pipeline ──

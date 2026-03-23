@@ -2187,7 +2187,7 @@ def _find_all_pids() -> dict[str, list[int]]:
 
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="서버 호스트")
-@click.option("--port", default=8080, type=int, help="서버 포트")
+@click.option("--port", default=8888, type=int, help="서버 포트")
 @click.option("--results-dir", "-o", type=click.Path(), multiple=True,
               help="결과 저장 디렉토리 (여러 개 지정 가능)")
 def web(host, port, results_dir):

@@ -25,6 +25,15 @@ def _get_auth_headers() -> dict[str, str]:
     user = os.environ.get("SLURM_USER", cluster-user)
     jwt = os.environ.get("SLURM_JWT", "")
     if not jwt:
+        # NFS 공유 토큰 파일 시도
+        nfs_token = os.path.expanduser(
+            "REDACTED-NFS-PATH/7.slurm/etc/mac/jwt_token.txt"
+        )
+        try:
+            jwt = open(nfs_token).read().strip()
+        except Exception:
+            pass
+    if not jwt:
         # slurm-token helper 시도
         try:
             import subprocess

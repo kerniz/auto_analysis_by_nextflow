@@ -80,7 +80,7 @@ EVALUABILITY_THRESHOLDS = {
 }
 
 
-def _retry(func, max_retries=3, delay=1.0):
+def _retry(func, max_retries=1, delay=0.5):
     """재시도 래퍼 (exponential backoff)."""
     last_err = None
     for attempt in range(1, max_retries + 1):
@@ -111,7 +111,7 @@ class PubMedClient:
         Entrez.email = email
         Entrez.api_key = None  # 필요 시 설정
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        self.max_retries = 3
+        self.max_retries = 1
 
     def fetch_paper_metadata(self, pmid: str) -> dict | None:
         """PMID로 논문 메타데이터 수집 (httpx 우선 + NCBI Elink 포함)"""

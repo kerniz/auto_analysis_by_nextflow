@@ -44,10 +44,17 @@ class DashboardState:
         self.event_bus = PipelineEventBus()
         self._sse_queues: list[asyncio.Queue] = []
         self._bg_task: asyncio.Task | None = None  # 실행 중인 파이프라인 태스크
+        self._pmid_tasks: dict[str, asyncio.Task] = {}  # PMID별 태스크
+        self._stop_pmids: set[str] = set()  # 개별 중지 요청된 PMID
 
     def stop(self) -> bool:
         """파이프라인 강제 중지. 반환: 중지됐으면 True."""
         if self._bg_task and not self._bg_task.done():
+            # 개별 PMID 태스크도 모두 취소
+            for task in self._pmid_tasks.values():
+                if not task.done():
+                    task.cancel()
+            self._pmid_tasks.clear()
             self._bg_task.cancel()
             self._bg_task = None
             self.running = False
@@ -57,9 +64,28 @@ class DashboardState:
             return True
         return False
 
+    def stop_pmid(self, pmid: str) -> bool:
+        """개별 PMID 중지. 반환: 중지됐으면 True."""
+        self._stop_pmids.add(pmid)
+        task = self._pmid_tasks.get(pmid)
+        if task and not task.done():
+            task.cancel()
+            ts = datetime.now().strftime("%H:%M:%S")
+            self._add_log(ts, "warn", f"[{pmid}] 개별 중지됨")
+            if pmid in self.pmid_status:
+                self.pmid_status[pmid]["status"] = "cancelled"
+            self._broadcast_sse(PipelineEvent(
+                event_type=EventType.LOG_MESSAGE,
+                message=f"[{pmid}] 중지됨",
+            ))
+            return True
+        return False
+
     def reset(self, pmids: list[str]) -> None:
         self.running = True
         self.pmids = pmids
+        self._pmid_tasks = {}
+        self._stop_pmids = set()
         self.pmid_status = {
             pmid: {
                 "current_stage": "pending",
@@ -374,6 +400,15 @@ def create_app(
         stopped = dashboard_state.stop()
         return {"status": "stopped" if stopped else "not_running"}
 
+    @app.post("/api/stop/{pmid}", response_class=JSONResponse)
+    async def api_stop_pmid(pmid: str):
+        """개별 PMID 중지"""
+        dashboard_state: DashboardState = app.state.dashboard
+        if pmid not in dashboard_state.pmids:
+            return JSONResponse({"error": f"PMID {pmid} not in current run"}, status_code=404)
+        stopped = dashboard_state.stop_pmid(pmid)
+        return {"status": "stopped" if stopped else "not_running", "pmid": pmid}
+
     @app.get("/api/results/{pmid}", response_class=JSONResponse)
     async def api_results(pmid: str):
         """PMID별 결과 JSON"""
@@ -615,6 +650,30 @@ async def _run_pipeline_bg(
         pipeline.event_bus = state.event_bus
         state.event_bus.subscribe(state.handle_event)
 
+        # 개별 PMID 취소 지원: _process_pmid를 태스크로 래핑
+        _original_process = pipeline._process_pmid
+
+        async def _tracked_process(pmid: str):
+            inner = asyncio.create_task(_original_process(pmid))
+            state._pmid_tasks[pmid] = inner
+            try:
+                return await inner
+            except asyncio.CancelledError:
+                if pmid in state._stop_pmids:
+                    # 개별 PMID 취소 — 실패 결과 반환하고 파이프라인 계속
+                    state._stop_pmids.discard(pmid)
+                    from core.pipeline import PipelineStatus, PMIDResult
+                    return PMIDResult(
+                        pmid=pmid,
+                        status=PipelineStatus.FAILED,
+                        error="사용자에 의해 중지됨",
+                    )
+                # 전체 파이프라인 취소 — inner도 취소 후 전파
+                inner.cancel()
+                await asyncio.gather(inner, return_exceptions=True)
+                raise
+
+        pipeline._process_pmid = _tracked_process  # type: ignore[method-assign]
         await pipeline.run()
     except Exception as e:
         state.running = False
