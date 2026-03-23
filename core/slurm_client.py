@@ -214,8 +214,12 @@ set -euo pipefail
 echo "=== nf-core {pipeline} ==="
 echo "Host: $(hostname) | Start: $(date)"
 
-export NXF_HOME=$HOME/.nextflow
 export NXF_SINGULARITY_CACHEDIR=$HOME/containers
+
+# ~/.nextflow/config 의 잘못된 구문 우회:
+# NXF_HOME을 임시 디렉토리로 설정 → 기존 user config 무시
+export NXF_HOME=$(mktemp -d /tmp/nxf_home_XXXXXX)
+trap "rm -rf $NXF_HOME" EXIT
 
 nextflow run {pipeline} \\
     -profile {profile} \\
