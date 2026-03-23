@@ -1,6 +1,6 @@
 # bioauto Development History
 
-> 마지막 업데이트: 2026-03-13
+> 마지막 업데이트: 2026-03-23
 
 ## Project Overview
 
@@ -725,3 +725,43 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 | `c18687f` | feat: v4.2.0 — 전문 에이전트 6종 + TUI/Web 대시보드 + 국제화 + 이벤트 시스템 |
 | `13972e2` | fix: bioauto stop 명령 + uninstall 강화 + LLM 라우터 초기화 최적화 |
 | `09541a3` | feat: v4.3.0 — nf-core 파이프라인 확장 + 지능형 감지 |
+| `6f3d8ab` | feat: 웹 대시보드 — 멀티 results-dir + PMID/Queue 삭제 + Slurm/nf-core 탭 |
+| `11a3598` | feat: nf-core → LLM/토론 순서 재배치 + Slurm REST API 통합 |
+
+---
+
+## v4.4.0 — Slurm REST API + nf-core 파이프라인 순서 재배치
+
+**릴리스일**: 2026-03-23
+**커밋**: `11a3598`
+
+### 주요 변경
+
+#### 파이프라인 순서 재배치 (핵심)
+- nf-core 유전체 분석을 LLM/토론 **이전**으로 이동 (Stage 3.5)
+- 에이전트들이 실제 유전체 분석 결과를 확인 후 토론하도록 개선
+- 토론 verdict WARN → **PASS** 개선 확인
+
+#### Slurm REST API 통합
+- `core/slurm_client.py`: SSH 없이 REST API (포트 6820) + JWT 인증
+- `_run_nfcore_via_slurm()`: fetchngs → rnaseq 자동 제출 + 완료 대기
+- nf-core 결과 (`pipeline_execution`) → LLM 프롬프트 + 토론 데이터 자동 반영
+
+#### 웹 대시보드 개선
+- 멀티 results-dir 지원 (주제별 폴더 분리)
+- PMID/Queue 삭제 기능 (nf-core 산출물 포함 정리)
+- Slurm/nf-core 탭 추가 (/api/slurm/jobs, /api/slurm/nodes)
+- /pipeline-files/ 정적 파일 서빙
+
+#### 기타 수정
+- Ollama failover URL 지원 (11434 → 11435)
+- PubMed SSL 해결 (httpx 우선, Entrez 폴백)
+- NCBI Elink 7개 DB 탐색
+- Evaluability Gate (FULL/SUFFICIENT/TEXT_ONLY/MINIMAL/INSUFFICIENT)
+- SRA XML 파싱 수정 (public SRR 정상 인식)
+- Verdict Engine에 INSUFFICIENT_DATA 추가
+
+### 테스트 결과 (PMID 32015508)
+- nf-core/rnaseq: completed (31m 32s, 16 processes)
+- 토론 verdict: PASS
+- 전 단계 (PM/SRA/SEQ/DATA/GSEA/LLM/토론/RAG/RPT) 완료
