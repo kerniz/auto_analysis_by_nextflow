@@ -1058,7 +1058,27 @@ class AsyncPipeline:
                             pmid, e,
                         )
 
-                # Stage 3.5: SRA 데이터 다운로드 (nf-core/fetchngs)
+                # Stage 3.5: nf-core 파이프라인 (Slurm REST API 또는 로컬)
+                # SRA public ID가 있으면 자동으로 fetchngs → rnaseq 실행
+                if (not self._is_step_done(pmid, "nfcore_done")
+                        and result.sra_results.get("public_sra_ids")):
+                    self._emit("pmid_stage_start", pmid=pmid, stage="nfcore")
+                    nfcore_result = await self._run_nfcore_via_slurm(
+                        pmid, result,
+                    )
+                    if nfcore_result:
+                        result.pipeline_execution = nfcore_result
+                        result.downstream_analysis = nfcore_result.get(
+                            "analysis", {},
+                        )
+                        self._mark_step_done(pmid, "nfcore_done")
+                    self._emit(
+                        "pmid_stage_complete", pmid=pmid, stage="nfcore",
+                        message=nfcore_result.get("status", "skipped")
+                        if nfcore_result else "skipped",
+                    )
+
+                # Stage 3.5 (legacy): SRA 데이터 다운로드 (nf-core/fetchngs — 로컬)
                 if (self.fetchngs_runner
                         and not self._is_step_done(pmid, "sra_download_done")):
                     try:
@@ -1597,6 +1617,173 @@ class AsyncPipeline:
             except Exception as e:
                 logger.warning("메타 에이전트 판정 실패: %s", e)
                 result.debate_report["meta_verdict"] = {"error": str(e)}
+
+    async def _run_nfcore_via_slurm(
+        self,
+        pmid: str,
+        result: PMIDResult,
+    ) -> dict[str, Any] | None:
+        """Slurm REST API로 nf-core fetchngs + rnaseq 제출 및 대기."""
+        try:
+            from core.slurm_client import SlurmClient
+        except ImportError:
+            logger.warning("slurm_client 미설치, nf-core 건너뜀")
+            return None
+
+        public_ids = result.sra_results.get("public_sra_ids", [])
+        if not public_ids:
+            return None
+
+        try:
+            client = SlurmClient()
+            # 연결 확인
+            client.nodes()
+        except Exception as e:
+            logger.warning("Slurm 연결 실패, nf-core 건너뜀: %s", e)
+            return None
+
+        nfs_base = str(self.config.results_dir.resolve())
+        nfcore_dir = f"{nfs_base}/nfcore/{pmid}"
+        # SRA ID 파일 생성
+        ids_file = Path(nfcore_dir) / "ids.csv"
+        ids_file.parent.mkdir(parents=True, exist_ok=True)
+        ids_file.write_text("\n".join(public_ids) + "\n")
+
+        # 시퀀싱 타입에 따라 파이프라인 결정
+        seq_type = result.sequencing_result.get("sequencing_type", "unknown")
+        pipeline_map = {
+            "bulk_rna_seq": ("nf-core/rnaseq", "3.14.0"),
+            "scrna_seq": ("nf-core/scrnaseq", "2.7.1"),
+            "atac_seq": ("nf-core/atacseq", "2.1.2"),
+            "chipseq": ("nf-core/chipseq", "2.0.0"),
+        }
+        pipeline_name, pipeline_ver = pipeline_map.get(
+            seq_type, ("nf-core/rnaseq", "3.14.0"),
+        )
+
+        # Linux 경로로 변환
+        linux_nfs = nfs_base.replace(
+            "REDACTED-NFS-PATH",
+            "REDACTED-NFS-PATH",
+        )
+        linux_nfcore = f"{linux_nfs}/nfcore/{pmid}"
+
+        script = f"""#!/bin/bash
+set -euo pipefail
+eval "$(REDACTED-CONDA-PATH/bin/conda shell.bash hook)"
+conda activate nf-core
+export NXF_HOME=REDACTED-NXF-PATH
+export NXF_SINGULARITY_CACHEDIR=REDACTED-CONTAINERS-PATH
+export APPTAINER_BIND="/etc/resolv.conf"
+mkdir -p REDACTED-CONTAINERS-PATH {linux_nfcore}
+
+echo "=== fetchngs ==="
+nextflow run nf-core/fetchngs -r 1.12.0 \\
+    -profile apptainer \\
+    --input {linux_nfcore}/ids.csv \\
+    --outdir {linux_nfcore}/fetchngs \\
+    --nf_core_pipeline rnaseq \\
+    --download_method sratools \\
+    -resume
+
+SAMPLESHEET={linux_nfcore}/fetchngs/samplesheet/samplesheet.csv
+if [ ! -f $SAMPLESHEET ]; then
+    echo "ERROR: samplesheet not found"
+    exit 1
+fi
+
+echo "=== {pipeline_name} ==="
+nextflow run {pipeline_name} -r {pipeline_ver} \\
+    -profile apptainer \\
+    --input $SAMPLESHEET \\
+    --outdir {linux_nfcore}/rnaseq \\
+    --genome GRCh38 \\
+    --pseudo_aligner salmon \\
+    --skip_trimming \\
+    -resume
+
+echo "=== DONE ==="
+"""
+
+        import subprocess as _sp
+
+        import httpx as _httpx
+        _r = _sp.run(
+            ["zsh", "-c", "source ~/.zshrc && echo $SLURM_JWT"],
+            capture_output=True, text=True,
+        )
+        jwt = _r.stdout.strip()
+        headers = {
+            "X-SLURM-USER-NAME": cluster-user,
+            "X-SLURM-USER-TOKEN": jwt,
+            "Content-Type": "application/json",
+        }
+        data = {
+            "script": script,
+            "job": {
+                "name": f"nfcore_{pmid}",
+                "partition": "cpu",
+                "qos": "high",
+                "current_working_directory": "REDACTED-HOME",
+                "standard_output": f"{linux_nfcore}/slurm_nfcore.out",
+                "standard_error": f"{linux_nfcore}/slurm_nfcore.err",
+                "environment": [
+                    "PATH=REDACTED-CONDA-PATH/envs/nf-core/bin"
+                    ":REDACTED-LOCAL-BIN:/usr/local/bin:/usr/bin:/bin"
+                ],
+            },
+        }
+        r = _httpx.post(
+            f"{client.base}/job/submit",
+            headers=headers, json=data, timeout=30,
+        )
+        resp = r.json()
+        job_id = resp.get("job_id") or resp.get("result", {}).get("job_id", 0)
+        if not job_id:
+            logger.error("nf-core Slurm 제출 실패: %s", resp)
+            return None
+
+        logger.info("nf-core Slurm Job %d 제출 (PMID %s)", job_id, pmid)
+        self._emit(
+            "log_message",
+            message=f"nf-core Slurm Job {job_id} 제출됨 — 완료 대기 중...",
+        )
+
+        # 완료 대기 (최대 6시간)
+        wait_result = client.wait_for_job(
+            job_id, poll_interval=30, timeout=21600,
+        )
+        state = wait_result.get("state", "UNKNOWN")
+
+        # 결과 수집
+        nfcore_path = Path(nfcore_dir)
+        multiqc = list(nfcore_path.rglob("*multiqc_report.html"))
+        reports = list(nfcore_path.rglob("*.html"))
+
+        result_data = {
+            "pipeline_name": pipeline_name,
+            "version": pipeline_ver,
+            "status": "completed" if state == "COMPLETED" else "failed",
+            "slurm_job_id": job_id,
+            "slurm_state": state,
+            "multiqc_reports": [str(p) for p in multiqc],
+            "all_reports": len(reports),
+        }
+
+        # slurm output에서 요약 추출
+        slurm_out = nfcore_path / "slurm_nfcore.out"
+        if slurm_out.exists():
+            text = slurm_out.read_text()
+            if "Pipeline completed successfully" in text:
+                result_data["status"] = "completed"
+            # Duration 추출
+            for line in text.split("\n"):
+                if line.startswith("Duration"):
+                    result_data["duration"] = line.split(":", 1)[-1].strip()
+                elif line.startswith("CPU hours"):
+                    result_data["cpu_hours"] = line.split(":", 1)[-1].strip()
+
+        return result_data
 
     async def _run_enrichment(self, result: PMIDResult) -> dict[str, Any]:
         """농축 분석 실행 (GSEA, DEG, Pathway)"""

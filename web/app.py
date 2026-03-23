@@ -221,6 +221,37 @@ def _cleanup_pmid_references(pmid: str, results_dir: Path) -> None:
             pass
 
 
+def _cleanup_nfcore_data(pmid: str, results_dir: Path) -> None:
+    """nf-core 파이프라인 산출물 삭제 (results/nfcore/{pmid}/)."""
+    import shutil
+    nfcore_dir = results_dir / "nfcore" / pmid
+    if nfcore_dir.exists():
+        shutil.rmtree(nfcore_dir)
+
+
+def _cleanup_queue_manifests(pmid: str, results_dir: Path) -> None:
+    """.queues/ 매니페스트에서 해당 PMID를 포함하는 항목 정리."""
+    queue_dir = results_dir / ".queues"
+    if not queue_dir.exists():
+        return
+    for manifest in queue_dir.glob("*.json"):
+        try:
+            with open(manifest) as f:
+                data = json.load(f)
+            pmids = data.get("pmids", [])
+            if pmid in pmids:
+                pmids.remove(pmid)
+                if not pmids:
+                    # PMID가 없으면 매니페스트 자체 삭제
+                    manifest.unlink()
+                else:
+                    data["pmids"] = pmids
+                    with open(manifest, "w") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+
 # ── App Factory ──
 
 def create_app(
@@ -355,6 +386,10 @@ def create_app(
         results_dir = pmid_path.parent
         shutil.rmtree(pmid_path)
         _cleanup_pmid_references(pmid, results_dir)
+        # nf-core 산출물도 삭제
+        _cleanup_nfcore_data(pmid, results_dir)
+        # .queues 매니페스트에서 PMID 제거
+        _cleanup_queue_manifests(pmid, results_dir)
         scanner.scan()
         return {"status": "deleted", "pmid": pmid}
 
@@ -388,6 +423,7 @@ def create_app(
                 shutil.rmtree(pmid_path)
                 if source_dir:
                     _cleanup_pmid_references(pmid, source_dir)
+                    _cleanup_nfcore_data(pmid, source_dir)
                 deleted_pmids.append(pmid)
         # queue manifest 삭제
         if source_dir:
