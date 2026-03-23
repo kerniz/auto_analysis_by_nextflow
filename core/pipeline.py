@@ -1192,7 +1192,7 @@ class AsyncPipeline:
                     "recommendation", "EVALUATE",
                 )
 
-                if eval_recommendation in ("SKIP_EVALUATION", "NO_DATA"):
+                if eval_recommendation in ("NO_DATA",):
                     logger.warning(
                         "PMID %s: evaluability=%s — LLM/토론 건너뜀",
                         pmid, eval_level,
@@ -1223,7 +1223,7 @@ class AsyncPipeline:
                     pass
 
                 # Stage 6+7: LLM 분석 및 토론 (세마포어로 동시 요청 방지)
-                if eval_recommendation not in ("SKIP_EVALUATION", "NO_DATA"):
+                if eval_recommendation not in ("NO_DATA",):
                   async with self._llm_semaphore:
                     # Stage 6: LLM 멀티 합의 분석
                     self._emit(

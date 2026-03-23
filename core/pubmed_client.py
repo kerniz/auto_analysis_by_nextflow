@@ -454,9 +454,8 @@ class PubMedClient:
             "available_count": available_count,
             "recommendation": (
                 "EVALUATE" if level in ("FULL", "SUFFICIENT")
-                else "EVALUATE_WITH_CAVEAT" if level == "TEXT_ONLY"
-                else "SKIP_EVALUATION" if level == "MINIMAL"
-                else "NO_DATA"
+                else "EVALUATE_WITH_CAVEAT" if level in ("TEXT_ONLY", "MINIMAL")
+                else "NO_DATA"  # INSUFFICIENT만 스킵
             ),
         }
 
