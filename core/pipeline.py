@@ -1749,9 +1749,11 @@ echo "=== DONE ==="
             message=f"nf-core Slurm Job {job_id} 제출됨 — 완료 대기 중...",
         )
 
-        # 완료 대기 (최대 6시간)
-        wait_result = client.wait_for_job(
-            job_id, poll_interval=30, timeout=21600,
+        # 완료 대기 (최대 6시간) — run_in_executor로 이벤트 루프 블록 방지
+        loop = asyncio.get_event_loop()
+        wait_result = await loop.run_in_executor(
+            None,
+            lambda: client.wait_for_job(job_id, poll_interval=30, timeout=21600),
         )
         state = wait_result.get("state", "UNKNOWN")
 

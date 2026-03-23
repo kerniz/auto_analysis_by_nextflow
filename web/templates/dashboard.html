@@ -549,6 +549,7 @@
     <div class="run-panel">
         <input type="text" id="pmid-input" placeholder="PMIDs (comma or space separated, e.g. 33564749 32416070)">
         <button id="run-btn" onclick="startPipeline()">Run Pipeline</button>
+        <button id="stop-btn" onclick="stopPipeline()" style="display:none; background:#c0392b; color:#fff; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; margin-left:8px;">⏹ Stop</button>
     </div>
 
     <script>
@@ -630,6 +631,24 @@
             logPanel.scrollTop = logPanel.scrollHeight;
 
             document.getElementById('run-btn').disabled = state.running;
+            document.getElementById('stop-btn').style.display = state.running ? 'inline-block' : 'none';
+        }
+
+        // ── Stop Pipeline ──
+        async function stopPipeline() {
+            if (!confirm('실행 중인 파이프라인을 중지하시겠습니까?')) return;
+            try {
+                const resp = await fetch('/api/stop', {method: 'POST'});
+                const result = await resp.json();
+                if (resp.ok) {
+                    document.getElementById('stop-btn').style.display = 'none';
+                    document.getElementById('run-btn').disabled = false;
+                } else {
+                    alert(result.error || 'Stop failed');
+                }
+            } catch (e) {
+                alert('Connection error');
+            }
         }
 
         // ── Start Pipeline ──

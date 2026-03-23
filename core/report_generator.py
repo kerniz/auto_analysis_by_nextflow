@@ -766,7 +766,8 @@ font-size:11px;color:#fff;text-align:center;line-height:18px">{pct:.0f}%</div>
         # nf-core 산출물 자동 스캔 (results/{PMID}/ 및 results/nfcore/ 하위)
         report_links = self._scan_pipeline_reports(pmid)
 
-        if not any([fetchngs, pipeline, downstream]) and not report_links:
+        has_reports = any(v for v in report_links.values())
+        if not any([fetchngs, pipeline, downstream]) and not has_reports:
             return """
 <section>
   <h2>Pipeline Execution</h2>
@@ -796,16 +797,26 @@ font-size:11px;color:#fff;text-align:center;line-height:18px">{pct:.0f}%</div>
                 f"{status}</span></p>"
             )
 
+        # STAR mapping 통계
+        if pmid:
+            star_summary = self._star_mapping_summary(pmid)
+            if star_summary:
+                parts.append(star_summary)
+
+        # 카테고리별 링크
         if report_links:
-            link_items = "".join(
-                f'<li><a href="{path}" target="_blank">{name}</a>'
-                f' <span class="muted">({size})</span></li>'
-                for name, path, size in report_links
-            )
-            parts.append(
-                f"<h3>Pipeline Reports</h3>"
-                f"<ul class='report-list'>{link_items}</ul>"
-            )
+            for cat, items in report_links.items():
+                if not items:
+                    continue
+                link_items = "".join(
+                    f'<li><a href="{path}" target="_blank">{name}</a>'
+                    f' <span class="muted">({size})</span></li>'
+                    for name, path, size in items
+                )
+                parts.append(
+                    f"<h3>{cat}</h3>"
+                    f"<ul class='report-list'>{link_items}</ul>"
+                )
 
         return f"""
 <section>
@@ -813,67 +824,104 @@ font-size:11px;color:#fff;text-align:center;line-height:18px">{pct:.0f}%</div>
   {''.join(parts)}
 </section>"""
 
-    def _scan_pipeline_reports(self, pmid: str) -> list[tuple[str, str, str]]:
-        """results 폴더에서 nf-core 산출물 (HTML 보고서) 자동 탐색.
+    def _scan_pipeline_reports(self, pmid: str) -> dict[str, list[tuple[str, str, str]]]:
+        """results 폴더에서 nf-core 산출물 자동 탐색, 카테고리별 반환.
 
-        Returns: [(display_name, relative_path, file_size), ...]
+        Returns: {category: [(display_name, web_path, file_size), ...]}
         """
         from pathlib import Path as _Path
 
-        reports = []
-        # 탐색 대상 디렉토리들
-        search_dirs = []
-        if pmid:
-            search_dirs.append(_Path(f"results/{pmid}"))
-            search_dirs.append(_Path(f"results/nfcore/{pmid}"))
-        search_dirs.append(_Path("results/nfcore"))
+        cats: dict[str, list[tuple[str, str, str]]] = {
+            "QC Reports": [],
+            "RNA-seq Data": [],
+            "Pipeline Info": [],
+        }
 
-        # 보고서 파일 패턴
-        report_patterns = [
-            "**/*multiqc*.html",
-            "**/*report*.html",
-            "**/*fastqc*.html",
-            "**/*summary*.html",
-            "**/*pipeline_info/*.html",
-            "**/*execution_report*.html",
-            "**/*timeline*.html",
-            "**/*.pdf",
-        ]
+        nfcore_dir = _Path(f"results/nfcore/{pmid}") if pmid else None
+        if not nfcore_dir or not nfcore_dir.exists():
+            return cats
 
         seen: set[str] = set()
-        for search_dir in search_dirs:
-            if not search_dir.exists():
-                continue
-            for pattern in report_patterns:
-                for f in search_dir.glob(pattern):
-                    if not f.is_file():
-                        continue
-                    # 자체 보고서 제외
-                    if f.name.startswith("report_") and f.name.endswith(".html"):
-                        continue
-                    if f.name.startswith("final_report_"):
-                        continue
-                    abs_path = str(f.resolve())
-                    if abs_path in seen:
-                        continue
-                    seen.add(abs_path)
-                    # 파일 크기
-                    size_bytes = f.stat().st_size
-                    if size_bytes > 1_000_000:
-                        size_str = f"{size_bytes / 1_000_000:.1f} MB"
-                    else:
-                        size_str = f"{size_bytes / 1_000:.0f} KB"
-                    # 표시 이름
-                    display = f.stem.replace("_", " ").replace("-", " ").title()
-                    # 웹 서빙용 상대경로 (/pipeline-files/... 엔드포인트)
-                    try:
-                        rel_to_results = f.relative_to(_Path("results"))
-                        web_path = f"/pipeline-files/{rel_to_results}"
-                    except ValueError:
-                        web_path = f"/pipeline-files/{f.name}"
-                    reports.append((display, web_path, size_str))
 
-        return reports
+        def _add(cat: str, f: "_Path", display: str | None = None) -> None:
+            abs_path = str(f.resolve())
+            if abs_path in seen or not f.is_file():
+                return
+            seen.add(abs_path)
+            size_bytes = f.stat().st_size
+            size_str = (
+                f"{size_bytes / 1_048_576:.1f} MB"
+                if size_bytes > 1_048_576
+                else f"{size_bytes / 1_024:.0f} KB"
+            )
+            try:
+                rel = f.relative_to(_Path("results"))
+                web_path = f"/pipeline-files/{rel}"
+            except ValueError:
+                web_path = f"/pipeline-files/{f.name}"
+            name = display or f.stem.replace("_", " ").replace("-", " ").title()
+            cats[cat].append((name, web_path, size_str))
+
+        # ── QC Reports ──
+        for f in nfcore_dir.rglob("multiqc_report.html"):
+            _add("QC Reports", f, "MultiQC Report")
+        for f in sorted(nfcore_dir.rglob("*_fastqc.html")):
+            _add("QC Reports", f, f"FastQC — {f.stem.replace('_fastqc','')}")
+
+        # ── RNA-seq Data (TSV / RDS) ──
+        rna_targets = [
+            ("salmon.merged.gene_counts.tsv", "Gene Counts (merged TSV)"),
+            ("salmon.merged.gene_counts_scaled.rds", "Gene Counts Scaled (RDS)"),
+            ("salmon.merged.transcript_tpm.tsv", "Transcript TPM (TSV)"),
+            ("salmon.merged.transcript_counts.tsv", "Transcript Counts (TSV)"),
+            ("salmon.merged.gene_lengths.tsv", "Gene Lengths (TSV)"),
+            ("tx2gene.tsv", "Transcript→Gene Map (TSV)"),
+            ("quant.sf", "Salmon Quant (quant.sf)"),
+            ("quant.genes.sf", "Salmon Gene Quant (quant.genes.sf)"),
+            ("deseq2.dds.RData", "DESeq2 Dataset (RData)"),
+        ]
+        for fname, label in rna_targets:
+            for f in nfcore_dir.rglob(fname):
+                _add("RNA-seq Data", f, label)
+
+        # STAR alignment log
+        for f in nfcore_dir.rglob("*.Log.final.out"):
+            _add("RNA-seq Data", f, f"STAR Alignment Log — {f.parent.parent.name}")
+
+        # ── Pipeline Info ──
+        for f in nfcore_dir.rglob("execution_report*.html"):
+            _add("Pipeline Info", f)
+        for f in nfcore_dir.rglob("execution_timeline*.html"):
+            _add("Pipeline Info", f)
+        for f in nfcore_dir.rglob("pipeline_dag*.html"):
+            _add("Pipeline Info", f)
+
+        return cats
+
+    def _star_mapping_summary(self, pmid: str) -> str:
+        """STAR alignment 통계 한 줄 요약."""
+        from pathlib import Path as _Path
+        nfcore_dir = _Path(f"results/nfcore/{pmid}")
+        for log_f in nfcore_dir.rglob("*.Log.final.out"):
+            try:
+                text = log_f.read_text()
+                mapped_pct = ""
+                total_reads = ""
+                for line in text.splitlines():
+                    if "Uniquely mapped reads %" in line:
+                        mapped_pct = line.split("|")[-1].strip()
+                    if "Number of input reads" in line:
+                        total_reads = line.split("|")[-1].strip()
+                if mapped_pct:
+                    warn = " ⚠️" if float(mapped_pct.replace("%", "")) < 5 else ""
+                    return (
+                        f'<p class="muted" style="font-size:0.9em">'
+                        f"STAR mapping: <b>{mapped_pct}</b> uniquely mapped"
+                        f" ({total_reads} reads){warn}</p>"
+                    )
+            except Exception:
+                pass
+        return ""
 
     def _section_footer(self, data: dict) -> str:
         return f"""

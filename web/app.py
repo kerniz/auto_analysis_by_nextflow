@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,19 @@ class DashboardState:
         self.log_messages: list[dict[str, str]] = []
         self.event_bus = PipelineEventBus()
         self._sse_queues: list[asyncio.Queue] = []
+        self._bg_task: asyncio.Task | None = None  # 실행 중인 파이프라인 태스크
+
+    def stop(self) -> bool:
+        """파이프라인 강제 중지. 반환: 중지됐으면 True."""
+        if self._bg_task and not self._bg_task.done():
+            self._bg_task.cancel()
+            self._bg_task = None
+            self.running = False
+            self._add_log(
+                datetime.now().strftime("%H:%M:%S"), "warn", "파이프라인 중지됨"
+            )
+            return True
+        return False
 
     def reset(self, pmids: list[str]) -> None:
         self.running = True
@@ -222,8 +236,7 @@ def _cleanup_pmid_references(pmid: str, results_dir: Path) -> None:
 
 
 def _cleanup_nfcore_data(pmid: str, results_dir: Path) -> None:
-    """nf-core 파이프라인 산출물 삭제 (results/nfcore/{pmid}/)."""
-    import shutil
+    """nf-core 파이프라인 산출물 삭제 (results/nfcore/{pmid}/ 전체)."""
     nfcore_dir = results_dir / "nfcore" / pmid
     if nfcore_dir.exists():
         shutil.rmtree(nfcore_dir)
@@ -344,12 +357,22 @@ def create_app(
 
         dashboard_state.reset(pmids)
 
-        # 백그라운드에서 파이프라인 실행
-        asyncio.create_task(
+        # 백그라운드에서 파이프라인 실행 (task 저장 → 취소 가능)
+        task = asyncio.create_task(
             _run_pipeline_bg(dashboard_state, pmids, app.state.results_dir, config_data)
         )
+        dashboard_state._bg_task = task
 
         return {"status": "started", "pmids": pmids}
+
+    @app.post("/api/stop", response_class=JSONResponse)
+    async def api_stop():
+        """실행 중인 파이프라인 중지"""
+        dashboard_state: DashboardState = app.state.dashboard
+        if not dashboard_state.running:
+            return JSONResponse({"error": "Not running"}, status_code=400)
+        stopped = dashboard_state.stop()
+        return {"status": "stopped" if stopped else "not_running"}
 
     @app.get("/api/results/{pmid}", response_class=JSONResponse)
     async def api_results(pmid: str):
@@ -370,10 +393,16 @@ def create_app(
 
     @app.delete("/api/results/{pmid}", response_class=JSONResponse)
     async def api_delete_pmid(pmid: str):
-        """PMID 결과 폴더 + 관련 참조 깨끗이 삭제"""
-        import shutil
+        """PMID 결과 폴더 + 관련 참조 깨끗이 삭제 (실행 중이면 먼저 중지)"""
 
+        dashboard_state: DashboardState = app.state.dashboard
         scanner: ResultsScanner = app.state.scanner
+
+        # 실행 중인 파이프라인에 해당 PMID 포함되면 중지
+        if dashboard_state.running and pmid in dashboard_state.pmids:
+            dashboard_state.stop()
+            await asyncio.sleep(0.5)  # 취소 전파 대기
+
         pmid_path = scanner.resolve_pmid_path(pmid)
         if not pmid_path or not pmid_path.exists():
             return JSONResponse(
@@ -386,9 +415,7 @@ def create_app(
         results_dir = pmid_path.parent
         shutil.rmtree(pmid_path)
         _cleanup_pmid_references(pmid, results_dir)
-        # nf-core 산출물도 삭제
         _cleanup_nfcore_data(pmid, results_dir)
-        # .queues 매니페스트에서 PMID 제거
         _cleanup_queue_manifests(pmid, results_dir)
         scanner.scan()
         return {"status": "deleted", "pmid": pmid}
@@ -396,7 +423,6 @@ def create_app(
     @app.delete("/api/queues/{queue_id}", response_class=JSONResponse)
     async def api_delete_queue(queue_id: str):
         """Queue(연구 주제) 전체 삭제"""
-        import shutil
 
         scanner: ResultsScanner = app.state.scanner
         queue = scanner.get_queue(queue_id)
@@ -568,6 +594,7 @@ async def _run_pipeline_bg(
 ) -> None:
     """백그라운드 파이프라인 실행"""
     try:
+        from core.cli import _load_config
         from core.pipeline import AsyncPipeline, PipelineConfig
 
         if config_data:
@@ -575,7 +602,14 @@ async def _run_pipeline_bg(
             config.pmids = pmids
             config.results_dir = results_dir
         else:
-            config = PipelineConfig(pmids=pmids, results_dir=results_dir)
+            # config.json 로드 (CLI와 동일한 설정 사용)
+            try:
+                cfg = _load_config()
+                config = PipelineConfig.from_dict(cfg)
+            except Exception:
+                config = PipelineConfig()
+            config.pmids = pmids
+            config.results_dir = results_dir
 
         pipeline = AsyncPipeline(config)
         pipeline.event_bus = state.event_bus
