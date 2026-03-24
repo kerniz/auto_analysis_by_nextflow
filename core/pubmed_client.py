@@ -358,20 +358,25 @@ class PubMedClient:
             f"{self.base_url}/elink.fcgi"
             f"?dbfrom=pubmed&db={db}&id={pmid}&linkname={linkname}"
         )
-        try:
-            resp = httpx.get(url, timeout=30, verify=False)
-            if resp.status_code != 200:
-                return []
-            root = ElementTree.fromstring(resp.text)
-            ids = []
-            for link_id in root.iter("Id"):
-                # Skip the input Id (same as pmid)
-                if link_id.text and link_id.text != pmid:
-                    ids.append(link_id.text)
-            return ids
-        except Exception as e:
-            logger.debug("httpx elink 폴백 실패 (%s, PMID %s): %s", linkname, pmid, e)
-            return []
+        for attempt in range(2):  # 최대 2회 시도
+            try:
+                resp = httpx.get(url, timeout=30, verify=False)
+                if resp.status_code != 200:
+                    time.sleep(0.5)
+                    continue
+                root = ElementTree.fromstring(resp.text)
+                ids = []
+                for link_id in root.iter("Id"):
+                    # Skip the input Id (same as pmid)
+                    if link_id.text and link_id.text != pmid:
+                        ids.append(link_id.text)
+                if ids or attempt == 1:
+                    return ids
+                time.sleep(0.5)  # 빈 결과면 1회 재시도
+            except Exception as e:
+                logger.debug("httpx elink 폴백 실패 (%s, PMID %s, attempt %d): %s", linkname, pmid, attempt, e)
+                time.sleep(0.5)
+        return []
 
     # 하위 호환용 (기존 코드에서 직접 호출하는 경우)
     def _find_sra_links(self, pmid: str) -> list[str]:
