@@ -217,12 +217,11 @@ echo "Host: $(hostname) | Start: $(date)"
 export NXF_SINGULARITY_CACHEDIR=$HOME/containers
 
 # ~/.nextflow/config 의 잘못된 구문 우회:
-# HOME을 임시 디렉토리로 교체 → Nextflow가 $HOME/.nextflow/config 못 찾음
-_REAL_HOME=$HOME
-export HOME=$(mktemp -d /tmp/nxf_home_XXXXXX)
-export NXF_HOME=$HOME/.nextflow
-export NXF_SINGULARITY_CACHEDIR=$_REAL_HOME/containers
-trap "rm -rf $HOME" EXIT
+# JVM user.home 속성을 임시 디렉토리로 오버라이드 → ~/.nextflow/config 로딩 스킵
+_NXF_TMP=$(mktemp -d /tmp/nxf_home_XXXXXX)
+trap "rm -rf $_NXF_TMP" EXIT
+export NXF_HOME=$_NXF_TMP/.nextflow
+export NXF_OPTS="-Duser.home=$_NXF_TMP"
 
 nextflow run {pipeline} \\
     -profile {profile} \\
