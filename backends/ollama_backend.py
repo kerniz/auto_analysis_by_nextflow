@@ -207,11 +207,28 @@ class OllamaBackend(LLMBackend):
     async def _resolve_auto_model(self) -> str | None:
         """서버 모델 중 로드 가능한 가장 큰 모델 선택.
 
-        크기순으로 시도하고 첫 번째 응답 가능한 모델을 즉시 반환합니다.
+        1) /api/ps에서 이미 로드된 generation 모델을 우선 사용 (즉시 응답 가능).
+        2) 로드된 모델이 없으면 크기순으로 시도하되 최대 3개만 테스트.
         """
+        # 1) 이미 로드된 모델 확인
+        try:
+            client = await self._get_client()
+            ps_resp = await client.get(
+                f"{self.base_url}/api/ps", timeout=10,
+            )
+            if ps_resp.status_code == 200:
+                loaded = ps_resp.json().get("models", [])
+                for m in loaded:
+                    name = m.get("name", "")
+                    if name and self._is_generation_model({"name": name}):
+                        logger.info("자동 모델: 이미 로드된 모델 사용 — %s", name)
+                        return name
+        except Exception:
+            pass
+
+        # 2) 전체 모델 목록에서 크기순 탐색 (최대 3개 시도)
         models = await self._fetch_models()
 
-        # generation 모델만 크기순 정렬
         candidates = []
         for m in models:
             if not self._is_generation_model(m):
@@ -224,13 +241,11 @@ class OllamaBackend(LLMBackend):
 
         candidates.sort(key=lambda x: x[0], reverse=True)
 
-        # 크기순으로 시도, 1개 성공하면 즉시 반환
-        for size_gb, name in candidates:
+        for size_gb, name in candidates[:3]:  # 최대 3개만 시도
             logger.info("자동 모델 후보 테스트: %s (%.1f GB)", name, size_gb)
             if await self._quick_test(name):
                 logger.info(
-                    "자동 모델 선택: %s (%.1f GB) — 후보 %d개 중",
-                    name, size_gb, len(candidates),
+                    "자동 모델 선택: %s (%.1f GB)", name, size_gb,
                 )
                 return name
             logger.debug("모델 %s 응답 불가, 다음 후보 시도", name)
