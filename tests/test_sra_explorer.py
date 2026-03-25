@@ -139,39 +139,27 @@ class TestFilterPublicSra:
     @patch("os.makedirs")
     def test_public_runs(self, mock_makedirs):
         explorer = SRAExplorer()
-        metadata = {
-            "SRA001": {"Runs": [{"acc": "SRR001"}, {"acc": "SRR002"}]},
-        }
-        with patch.object(explorer, "_is_public_run", return_value=True):
-            public, controlled = explorer._filter_public_sra(metadata)
-            assert len(public) == 2
-            assert len(controlled) == 0
+        # runs는 XML 문자열 형식
+        runs_xml = '<Run acc="SRR001" is_public="true"/><Run acc="SRR002" is_public="true"/>'
+        metadata = {"SRA001": {"runs": runs_xml}}
+        public, controlled = explorer._filter_public_sra(metadata)
+        assert "SRR001" in public
+        assert "SRR002" in public
+        assert len(controlled) == 0
 
     @patch("os.makedirs")
     def test_controlled_runs(self, mock_makedirs):
         explorer = SRAExplorer()
-        metadata = {
-            "SRA001": {"Runs": [{"acc": "SRR001"}]},
-        }
-        with patch.object(explorer, "_is_public_run", return_value=False):
-            public, controlled = explorer._filter_public_sra(metadata)
-            assert len(public) == 0
-            assert len(controlled) == 1
-
-    @patch("os.makedirs")
-    def test_non_srr_prefix(self, mock_makedirs):
-        explorer = SRAExplorer()
-        metadata = {
-            "SRA001": {"Runs": [{"acc": "ERR001"}]},  # Not SRR prefix
-        }
+        runs_xml = '<Run acc="SRR001" is_public="false" cluster_name="controlled"/>'
+        metadata = {"SRA001": {"runs": runs_xml}}
         public, controlled = explorer._filter_public_sra(metadata)
-        assert public == []
-        assert controlled == []
+        assert len(public) == 0
+        assert "SRR001" in controlled
 
     @patch("os.makedirs")
     def test_empty_runs(self, mock_makedirs):
         explorer = SRAExplorer()
-        metadata = {"SRA001": {"Runs": []}}
+        metadata = {"SRA001": {"runs": ""}}
         public, controlled = explorer._filter_public_sra(metadata)
         assert public == []
         assert controlled == []
@@ -187,20 +175,13 @@ class TestFilterPublicSra:
     @patch("os.makedirs")
     def test_deduplication(self, mock_makedirs):
         explorer = SRAExplorer()
+        runs_xml = '<Run acc="SRR001" is_public="true"/>'
         metadata = {
-            "SRA001": {"Runs": [{"acc": "SRR001"}]},
-            "SRA002": {"Runs": [{"acc": "SRR001"}]},  # duplicate
+            "SRA001": {"runs": runs_xml},
+            "SRA002": {"runs": runs_xml},  # duplicate
         }
-        with patch.object(explorer, "_is_public_run", return_value=True):
-            public, controlled = explorer._filter_public_sra(metadata)
-            assert len(public) == 1
-
-
-class TestIsPublicRun:
-    @patch("os.makedirs")
-    def test_always_true(self, mock_makedirs):
-        explorer = SRAExplorer()
-        assert explorer._is_public_run("SRR001") is True
+        public, controlled = explorer._filter_public_sra(metadata)
+        assert len(public) == 1
 
 
 class TestEstimateDataSize:

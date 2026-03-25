@@ -1438,8 +1438,15 @@ class AsyncPipeline:
                 download_timeout=self.config.sra_download.timeout_minutes * 60,
             )
             sra_links = pubmed_metadata.get("sra_links", [])
+            ncbi_links = pubmed_metadata.get("ncbi_links", {})
+            geo_links = pubmed_metadata.get("geo_links", [])
+            bioproject_ids = ncbi_links.get("bioproject", [])
             result = await asyncio.to_thread(
-                explorer.explore_sra_datasets, pmid, sra_links
+                explorer.explore_sra_datasets,
+                pmid,
+                sra_links,
+                bioproject_ids=bioproject_ids,
+                geo_ids=geo_links,
             )
             if result:
                 with open(cached_file, "w") as f:

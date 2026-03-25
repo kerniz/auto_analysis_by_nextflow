@@ -516,7 +516,30 @@ class ReportGenerator:
 
         # Round details with full agent opinions
         rounds_html = ""
-        round_labels = {1: "초기 평가", 2: "교차 검토", 3: "최종 판단"}
+        if lang == "en":
+            round_labels = {1: "Initial Assessment", 2: "Cross-Examination", 3: "Final Verdict"}
+            lbl_score = "Score"
+            lbl_conf = "Confidence"
+            lbl_consensus = "Consensus score"
+            lbl_findings = "Key Findings"
+            lbl_concerns = "Concerns"
+            lbl_questions = "Questions"
+            lbl_rebuttal = "Rebuttal target"
+            lbl_agent_scores = "Per-Agent Scores"
+            lbl_agent_col = "Agent"
+            lbl_score_col = "Score"
+        else:
+            round_labels = {1: "초기 평가", 2: "교차 검토", 3: "최종 판단"}
+            lbl_score = "평가"
+            lbl_conf = "확신도"
+            lbl_consensus = "합의 점수"
+            lbl_findings = "주요 발견"
+            lbl_concerns = "우려 사항"
+            lbl_questions = "추가 질문"
+            lbl_rebuttal = "반론 대상"
+            lbl_agent_scores = "에이전트별 최종 점수"
+            lbl_agent_col = "에이전트"
+            lbl_score_col = "점수"
         for rnd in rounds:
             rnum = rnd.get("round_number", 0)
             cscore = rnd.get("consensus_score")
@@ -548,26 +571,26 @@ class ReportGenerator:
                 if rebuttal:
                     rebuttal_html = (
                         f'<p style="font-size:12px;color:#8e44ad">'
-                        f'반론 대상: {escape(str(rebuttal))}</p>'
+                        f'{lbl_rebuttal}: {escape(str(rebuttal))}</p>'
                     )
 
                 resp_items += f"""
 <div class="agent-response">
   <div class="agent-header">
     <strong>{agent_name}</strong>
-    <span>평가: {r_score:.2f} | 확신도: {r_conf:.2f}</span>
+    <span>{lbl_score}: {r_score:.2f} | {lbl_conf}: {r_conf:.2f}</span>
   </div>
   {rebuttal_html}
   <p>{assessment}</p>
-  {f'<h4 style="color:#27ae60;font-size:13px">주요 발견</h4><ul class="key-points">{kp_html}</ul>' if kp_html else ''}
-  {f'<h4 style="color:#e74c3c;font-size:13px">우려 사항</h4><ul class="concerns">{cc_html}</ul>' if cc_html else ''}
-  {f'<h4 style="color:#2980b9;font-size:13px">추가 질문</h4><ul>{q_html}</ul>' if q_html else ''}
+  {f'<h4 style="color:#27ae60;font-size:13px">{lbl_findings}</h4><ul class="key-points">{kp_html}</ul>' if kp_html else ''}
+  {f'<h4 style="color:#e74c3c;font-size:13px">{lbl_concerns}</h4><ul class="concerns">{cc_html}</ul>' if cc_html else ''}
+  {f'<h4 style="color:#2980b9;font-size:13px">{lbl_questions}</h4><ul>{q_html}</ul>' if q_html else ''}
 </div>"""
 
             cscore_str = f"{cscore:.2f}" if cscore is not None else "N/A"
             rounds_html += f"""
 <details{'open' if rnum == len(rounds) else ''}>
-  <summary>{round_label} — Round {rnum} (합의 점수: {cscore_str})</summary>
+  <summary>{round_label} — Round {rnum} ({lbl_consensus}: {cscore_str})</summary>
   {resp_items}
 </details>"""
 
@@ -579,8 +602,8 @@ class ReportGenerator:
                 for name, s in per_agent.items()
             )
             agent_html = f"""
-<h3>에이전트별 최종 점수</h3>
-<table><thead><tr><th>에이전트</th><th>점수</th></tr></thead>
+<h3>{lbl_agent_scores}</h3>
+<table><thead><tr><th>{lbl_agent_col}</th><th>{lbl_score_col}</th></tr></thead>
 <tbody>{agent_rows}</tbody></table>"""
 
         # Dissenting opinions

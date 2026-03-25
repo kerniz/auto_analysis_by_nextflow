@@ -281,35 +281,36 @@ class DebateAgent(ABC):
                     prompt_parts.append("")
 
         # --- 응답 형식 지시 ---
-        prompt_parts.append("## 응답 형식 (Response Format)")
+        prompt_parts.append("## Response Format")
         prompt_parts.append(
-            "반드시 아래 JSON 형식으로만 응답하십시오. "
-            "Respond ONLY in the following JSON format:"
+            "LANGUAGE: Write ALL text values in your JSON response in English only. "
+            "Do not use Korean or any other language in assessment, key_points, concerns, or questions."
         )
+        prompt_parts.append("Respond ONLY in the following JSON format:")
         prompt_parts.append("")
         prompt_parts.append("```json")
         prompt_parts.append(json.dumps({
-            "assessment": "종합적인 평가 내용 (Comprehensive assessment text)",
+            "assessment": "Your comprehensive assessment of this research paper in English.",
             "score": 0.75,
             "confidence": 0.85,
             "key_points": [
-                "핵심 포인트 1 (Key point 1)",
-                "핵심 포인트 2 (Key point 2)",
+                "Key strength or finding #1",
+                "Key strength or finding #2",
             ],
             "concerns": [
-                "우려 사항 1 (Concern 1)",
-                "우려 사항 2 (Concern 2)",
+                "Concern or weakness #1",
+                "Concern or weakness #2",
             ],
             "questions": [
-                "다른 에이전트에게 묻는 질문 (Question for other agents)",
+                "Question directed at other agents",
             ],
-            "rebuttal_to": "반론 대상 에이전트 이름 또는 null",
+            "rebuttal_to": "agent name or null",
         }, indent=2, ensure_ascii=False))
         prompt_parts.append("```")
         prompt_parts.append("")
         prompt_parts.append(
-            "score는 0.0(매우 낮음)~1.0(매우 높음) 사이의 값입니다. "
-            "confidence는 당신의 평가에 대한 확신도(0.0~1.0)입니다."
+            "score: 0.0 (very poor) to 1.0 (excellent). "
+            "confidence: your certainty in this assessment (0.0–1.0)."
         )
         prompt_parts.append("")
         prompt_parts.append(

@@ -41,8 +41,14 @@ class SRAExplorer:
         os.makedirs(self.raw_data_dir, exist_ok=True)
         os.makedirs(self.samplesheet_dir, exist_ok=True)
 
-    def explore_sra_datasets(self, pmid: str, sra_links: list[str]) -> dict:
-        """SRA 데이터셋 탐색"""
+    def explore_sra_datasets(
+        self,
+        pmid: str,
+        sra_links: list[str],
+        bioproject_ids: list[str] | None = None,
+        geo_ids: list[str] | None = None,
+    ) -> dict:
+        """SRA 데이터셋 탐색 (직접 SRA + BioProject + GEO 경로 모두 시도)"""
         print(f"SRA 데이터셋 탐색: PMID {pmid}")
 
         results = {
@@ -53,40 +59,157 @@ class SRAExplorer:
             "metadata": {},
             "downloadable": False,
             "total_size_gb": 0,
-            "samplesheet": ""
+            "samplesheet": "",
+            "search_sources": [],
         }
 
-        if not sra_links:
-            print("SRA 링크 없음")
+        all_uids: list[str] = list(sra_links or [])
+
+        # 1) BioProject → SRA 검색 (NCBI PRJNA + ENA PRJEB)
+        if bioproject_ids:
+            bp_uids = self.search_sra_by_bioproject(bioproject_ids)
+            if bp_uids:
+                print(f"  BioProject 검색 결과: {len(bp_uids)}개 SRA UID")
+                all_uids.extend(bp_uids)
+                results["search_sources"].append("bioproject")
+
+        # 2) GEO → SRA 검색
+        if geo_ids:
+            geo_uids = self.search_sra_by_geo(geo_ids)
+            if geo_uids:
+                print(f"  GEO 검색 결과: {len(geo_uids)}개 SRA UID")
+                all_uids.extend(geo_uids)
+                results["search_sources"].append("geo")
+
+        all_uids = list(dict.fromkeys(all_uids))  # 중복 제거, 순서 유지
+
+        if not all_uids:
+            print("SRA 링크 없음 (직접/BioProject/GEO 모두 미발견)")
             return results
 
+        if sra_links:
+            results["search_sources"].insert(0, "direct")
+
         try:
-            # SRA 메타데이터 수집
-            sra_metadata = self._fetch_sra_metadata(sra_links)
+            sra_metadata = self._fetch_sra_metadata(all_uids)
             results["metadata"] = sra_metadata
 
-            # 공개 SRR ID 필터링
             public_ids, controlled_ids = self._filter_public_sra(sra_metadata)
             results["public_sra_ids"] = public_ids
             results["controlled_sra_ids"] = controlled_ids
 
-            # 다운로드 가능 여부 확인
             if public_ids:
                 results["downloadable"] = True
-                # 데이터 크기 추정
-                results["total_size_gb"] = self._estimate_data_size(
-                    public_ids, sra_metadata,
-                )
-                # samplesheet 생성
+                results["total_size_gb"] = self._estimate_data_size(public_ids, sra_metadata)
                 samplesheet_path = self._create_samplesheet(pmid, public_ids, sra_metadata)
                 results["samplesheet"] = samplesheet_path
 
-            print(f"✅ SRA 탐색 완료: 공개 {len(public_ids)}, 제어 {len(controlled_ids)}")
+            print(
+                f"✅ SRA 탐색 완료: 공개 {len(public_ids)}, 제어 {len(controlled_ids)}"
+                f" (출처: {results['search_sources']})"
+            )
             return results
 
         except Exception as e:
             print(f"❌ SRA 탐색 실패: {e}")
             return results
+
+    # ── BioProject → SRA 검색 ──────────────────────────────────────────────
+
+    def search_sra_by_bioproject(self, bioproject_ids: list[str]) -> list[str]:
+        """BioProject 목록에서 SRA UID 수집 (NCBI + ENA)."""
+        uid_set: set[str] = set()
+        for bp_id in bioproject_ids:
+            bp_acc = self._resolve_bioproject_accession(bp_id)
+            if not bp_acc:
+                continue
+            if bp_acc.startswith("PRJEB") or bp_acc.startswith("ERP"):
+                uids = self._search_ena_runs(bp_acc)
+            else:
+                uids = self._ncbi_esearch_sra(f"{bp_acc}[bioproject]")
+            uid_set.update(uids)
+        return list(uid_set)
+
+    def search_sra_by_geo(self, geo_ids: list[str]) -> list[str]:
+        """GEO accession 목록에서 SRA UID 수집."""
+        uid_set: set[str] = set()
+        for geo_id in geo_ids:
+            # geo_id는 "200150728" 형태(숫자) 또는 "GSE150728" 형태
+            if geo_id.lstrip("0").isdigit() or geo_id.startswith("2"):
+                n = str(geo_id).lstrip("2").lstrip("0") or "0"
+                term = f"GSE{n}[accn]"
+            else:
+                term = f"{geo_id}[accn]"
+            uids = self._ncbi_esearch_sra(term)
+            uid_set.update(uids)
+        return list(uid_set)
+
+    def _resolve_bioproject_accession(self, bp_id: str) -> str:
+        """숫자 ID → BioProject accession (PRJNA/PRJEB) 변환.
+        이미 PRJNA/PRJEB 형태면 그대로 반환."""
+        if isinstance(bp_id, str) and (
+            bp_id.startswith("PRJNA") or bp_id.startswith("PRJEB")
+            or bp_id.startswith("ERP") or bp_id.startswith("SRP")
+        ):
+            return bp_id
+        # 숫자 ID → NCBI BioProject esummary로 accession 조회
+        try:
+            url = f"{self.base_url}/esummary.fcgi"
+            resp = requests.get(
+                url,
+                params={"db": "bioproject", "id": str(bp_id), "retmode": "json"},
+                timeout=self.api_timeout,
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("result", {})
+                info = data.get(str(bp_id), {})
+                acc = info.get("project_acc", "")
+                if acc:
+                    return acc
+        except Exception:
+            pass
+        return ""
+
+    def _ncbi_esearch_sra(self, term: str, retmax: int = 200) -> list[str]:
+        """NCBI esearch db=sra → SRA UID 목록."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/esearch.fcgi",
+                params={"db": "sra", "term": term, "retmax": retmax, "retmode": "json"},
+                timeout=self.api_timeout,
+            )
+            if resp.status_code == 200:
+                ids = resp.json().get("esearchresult", {}).get("idlist", [])
+                time.sleep(0.34)  # NCBI 레이트 리밋 (3 req/s)
+                return ids
+        except Exception as e:
+            print(f"  NCBI esearch 실패 ({term}): {e}")
+        return []
+
+    def _search_ena_runs(self, prjeb: str, max_runs: int = 200) -> list[str]:
+        """ENA Portal API로 PRJEB 프로젝트의 ERR run accession 수집.
+        반환값은 ERR accession 문자열 목록 (SRA UID가 아님 — ENA용)."""
+        try:
+            resp = requests.get(
+                "https://www.ebi.ac.uk/ena/portal/api/filereport",
+                params={
+                    "accession": prjeb,
+                    "result": "read_run",
+                    "fields": "run_accession,base_count,fastq_ftp",
+                    "format": "json",
+                    "limit": max_runs,
+                },
+                timeout=self.api_timeout,
+            )
+            if resp.status_code == 200:
+                rows = resp.json() or []
+                errs = [r.get("run_accession", "") for r in rows if r.get("run_accession")]
+                if errs:
+                    print(f"  ENA {prjeb}: {len(errs)}개 run ({errs[:3]}...)")
+                return errs
+        except Exception as e:
+            print(f"  ENA API 실패 ({prjeb}): {e}")
+        return []
 
     def _fetch_sra_metadata(self, sra_links: list[str]) -> dict:
         """SRA 메타데이터 수집"""
@@ -119,7 +242,7 @@ class SRAExplorer:
         return metadata
 
     def _filter_public_sra(self, metadata: dict) -> tuple[list[str], list[str]]:
-        """공개 SRR ID 필터링 (XML runs 문자열 파싱)"""
+        """공개 SRR/ERR ID 필터링 (XML runs 문자열 파싱)"""
         import re
         public_ids = []
         controlled_ids = []
@@ -128,22 +251,28 @@ class SRAExplorer:
             # NCBI esummary의 runs는 XML 문자열 (dict가 아님)
             runs_xml = meta.get("runs", meta.get("Runs", ""))
             if isinstance(runs_xml, str) and runs_xml.strip():
-                # <Run acc="SRR..." is_public="true" .../>
-                for m in re.finditer(
-                    r'<Run\s+acc="(SRR\d+)"[^>]*?'
-                    r'(?:is_public="(\w+)")?[^>]*?'
-                    r'(?:cluster_name="(\w+)")?[^>]*/?>',
-                    runs_xml,
-                ):
-                    run_id = m.group(1)
-                    is_public = m.group(2)  # "true" / "false"
-                    cluster = m.group(3)    # "public" / "controlled"
+                # 각 <Run .../> 요소 전체를 추출 후 속성을 개별 탐색
+                for run_elem in re.finditer(r'<Run\s[^>]*/>', runs_xml):
+                    elem = run_elem.group(0)
+                    acc_m = re.search(r'acc="([^"]+)"', elem)
+                    if not acc_m:
+                        continue
+                    run_id = acc_m.group(1)
+                    if not (run_id.startswith("SRR") or run_id.startswith("ERR")):
+                        continue
+                    pub_m = re.search(r'is_public="(\w+)"', elem)
+                    clu_m = re.search(r'cluster_name="(\w+)"', elem)
+                    is_public = pub_m.group(1) if pub_m else None
+                    cluster = clu_m.group(1) if clu_m else None
                     if (
                         (is_public and is_public.lower() == "true")
                         or (cluster and cluster.lower() == "public")
                     ):
                         public_ids.append(run_id)
-                    elif is_public and is_public.lower() == "false":
+                    elif (
+                        (is_public and is_public.lower() == "false")
+                        or (cluster and cluster.lower() in ("controlled", "dbgap"))
+                    ):
                         controlled_ids.append(run_id)
                     else:
                         # 명시적 표시 없으면 공개로 간주
@@ -152,7 +281,7 @@ class SRAExplorer:
                 # 리스트 형태인 경우 (이전 호환)
                 for run in runs_xml:
                     run_id = run.get("acc", "")
-                    if run_id.startswith("SRR"):
+                    if run_id.startswith("SRR") or run_id.startswith("ERR"):
                         public_ids.append(run_id)
 
             # expxml에서도 크기 정보 추출

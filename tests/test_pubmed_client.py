@@ -12,7 +12,7 @@ class TestPubMedClientInit:
     def test_default_email(self):
         with patch("core.pubmed_client.Entrez") as mock_entrez:
             PubMedClient()
-            assert mock_entrez.email == "your.email@example.com"
+            assert mock_entrez.email == "bioauto@pipeline.local"
 
     def test_custom_email(self):
         with patch("core.pubmed_client.Entrez") as mock_entrez:
