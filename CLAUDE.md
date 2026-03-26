@@ -43,7 +43,8 @@ python3 -m core.cli run <PMIDs>
 
 ## 테스트 현황
 
-- **1505 passed, 10 skipped** (chromadb 미설치 시 skip)
+- **1518 passed, 10 skipped** (chromadb 미설치 시 skip)
+- 사전 존재 실패: test_setup_wizard(51), test_tui(24), test_results_scanner(2) — tui/web 환경 의존성
 - **커버리지 ~90%**
 - asyncio_mode = "auto" (pyproject.toml)
 

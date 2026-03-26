@@ -1,6 +1,6 @@
 # bioauto Development History
 
-> 마지막 업데이트: 2026-03-23
+> 마지막 업데이트: 2026-03-26
 
 ## Project Overview
 
@@ -727,6 +727,10 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 | `09541a3` | feat: v4.3.0 — nf-core 파이프라인 확장 + 지능형 감지 |
 | `6f3d8ab` | feat: 웹 대시보드 — 멀티 results-dir + PMID/Queue 삭제 + Slurm/nf-core 탭 |
 | `11a3598` | feat: nf-core → LLM/토론 순서 재배치 + Slurm REST API 통합 |
+| `c948499` | fix: SRA Elink httpx 쿼리 2회 재시도 추가 |
+| `c80be4e` | feat: BioProject/GEO→SRA 검색 + 토론 영어 생성 수정 |
+| `a63e751` | perf: auto 모델 선택 최적화 — 이미 로드된 모델 우선 사용 |
+| `cb4d4d5` | fix: 토론 한국어 하드코딩 + 경로 시스템 기본값 + 테스트 격리 |
 
 ---
 
@@ -765,3 +769,41 @@ v4.1.5까지 결과 파일이 `results/` 루트에 flat하게 저장되어 PMID�
 - nf-core/rnaseq: completed (31m 32s, 16 processes)
 - 토론 verdict: PASS
 - 전 단계 (PM/SRA/SEQ/DATA/GSEA/LLM/토론/RAG/RPT) 완료
+
+---
+
+## v4.4.1 — BioProject/GEO→SRA + 토론 영어 + 경로 정규화
+
+**릴리스일**: 2026-03-26
+**커밋**: `c948499` ~ `cb4d4d5`
+
+### 주요 변경
+
+#### BioProject / GEO → SRA 검색 (`core/sra_explorer.py`)
+- `explore_sra_datasets()`에 `bioproject_ids`, `geo_ids` 파라미터 추가
+- `search_sra_by_bioproject()`: NCBI esearch + ENA Portal API (PRJEB → ERR runs)
+- `search_sra_by_geo()`: GEO 숫자 UID `int - 200_000_000` 정수 연산으로 GSE 변환
+- `_filter_public_sra()` 정규식 재작성 — ERR accession 지원 + 속성별 개별 파싱
+- NCBI rate limiter `finally` 블록 이동 (성공/실패 무관 0.34s)
+- `core/pipeline.py`: `_explore_sra()`에서 ncbi_links.bioproject / geo_links 자동 전달
+
+#### 토론 영어 생성 수정 (`agents/base.py`, `agents/debate_manager.py`, `core/report_generator.py`)
+- 프롬프트 JSON 예제 플레이스홀더를 영어로 변경 + LANGUAGE 지시 추가
+- consensus summary 한국어 하드코딩 제거 → 영어 생성 ("Consensus reached / No consensus")
+- `_render_debate_content()`: lang 파라미터로 "합의 도달" / "Consensus Reached" 분기
+
+#### Auto 모델 선택 최적화 (`backends/ollama_backend.py`)
+- `/api/ps`에서 이미 VRAM에 로드된 모델 우선 사용 → 초기화 hang 해소 (~0.4s)
+- fallback 후보 최대 3개로 제한 (기존: 전체 모델 순차 테스트)
+
+#### 경로 시스템 기본값 정규화
+- `pipeline.py`, `config.json`, `tests/test_pipeline.py`: `/workspace/` 하드코딩 → `./results/` 상대경로
+- `nextflow_scrnaseq.config`: `workDir`/`cacheDir` 제거 → Nextflow 기본값 (`$NXF_WORK`, `./work`)
+
+#### 테스트 격리 수정 (`tests/test_pubmed_client.py`)
+- `_fetch_elink_httpx`, `_fetch_summary_httpx`, `_fetch_abstract_httpx` 미모킹으로 실제 NCBI 호출 발생하던 문제 해결
+- 모든 외부 API 경로 완전 격리
+
+### 테스트 결과
+- 207 passed (test_pipeline + test_pubmed_client + test_sra_explorer)
+- 전체 테스트 1505 passed 유지
