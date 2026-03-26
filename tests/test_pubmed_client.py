@@ -24,7 +24,6 @@ class TestFetchPaperMetadata:
     @patch("core.pubmed_client.Entrez")
     def test_success(self, mock_entrez):
         c = PubMedClient()
-        # Mock _fetch_summary
         summary = {
             "Title": "Test Paper",
             "Authors": ["Author A"],
@@ -33,10 +32,12 @@ class TestFetchPaperMetadata:
             "DOI": "10.1234/test",
             "ArticleIds": {"doi": "10.1234/test"},
         }
-        with patch.object(c, "_fetch_summary", return_value=summary), \
+        # httpx 경로 비활성화 → Entrez/내부 메서드 모킹 적용
+        with patch.object(c, "_fetch_summary_httpx", return_value=None), \
+             patch.object(c, "_fetch_summary", return_value=summary), \
+             patch.object(c, "_fetch_abstract_httpx", return_value=""), \
              patch.object(c, "_fetch_abstract", return_value="Abstract text"), \
-             patch.object(c, "_find_sra_links", return_value=["SRR123"]), \
-             patch.object(c, "_find_geo_links", return_value=["GSE456"]), \
+             patch.object(c, "_fetch_all_ncbi_links", return_value={"sra": ["SRR123"], "gds": ["GSE456"]}), \
              patch.object(c, "_extract_keywords", return_value=["rna-seq"]):
 
             meta = c.fetch_paper_metadata("12345")
@@ -49,14 +50,16 @@ class TestFetchPaperMetadata:
     @patch("core.pubmed_client.Entrez")
     def test_summary_none(self, mock_entrez):
         c = PubMedClient()
-        with patch.object(c, "_fetch_summary", return_value=None):
+        with patch.object(c, "_fetch_summary_httpx", return_value=None), \
+             patch.object(c, "_fetch_summary", return_value=None):
             meta = c.fetch_paper_metadata("12345")
             assert meta is None
 
     @patch("core.pubmed_client.Entrez")
     def test_exception(self, mock_entrez):
         c = PubMedClient()
-        with patch.object(c, "_fetch_summary", side_effect=Exception("err")):
+        with patch.object(c, "_fetch_summary_httpx", return_value=None), \
+             patch.object(c, "_fetch_summary", side_effect=Exception("err")):
             meta = c.fetch_paper_metadata("12345")
             assert meta is None
 
@@ -164,72 +167,75 @@ class TestFindSraLinks:
     @patch("core.pubmed_client.Entrez")
     def test_success(self, mock_entrez):
         c = PubMedClient()
-        mock_handle = MagicMock()
-        mock_entrez.elink.return_value = mock_handle
-        mock_entrez.read.return_value = [
-            {"LinkSetDb": [{"Link": [{"Id": "SRR123"}, {"Id": "SRR456"}]}]}
-        ]
-
-        result = c._find_sra_links("12345")
-        assert result == ["SRR123", "SRR456"]
+        # httpx 경로 비활성화 → Entrez 폴백 사용
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_handle = MagicMock()
+            mock_entrez.elink.return_value = mock_handle
+            mock_entrez.read.return_value = [
+                {"LinkSetDb": [{"Link": [{"Id": "SRR123"}, {"Id": "SRR456"}]}]}
+            ]
+            result = c._find_sra_links("12345")
+            assert result == ["SRR123", "SRR456"]
 
     @patch("core.pubmed_client.Entrez")
     def test_no_links(self, mock_entrez):
         c = PubMedClient()
-        mock_handle = MagicMock()
-        mock_entrez.elink.return_value = mock_handle
-        mock_entrez.read.return_value = [{}]
-
-        result = c._find_sra_links("12345")
-        assert result == []
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_handle = MagicMock()
+            mock_entrez.elink.return_value = mock_handle
+            mock_entrez.read.return_value = [{}]
+            result = c._find_sra_links("12345")
+            assert result == []
 
     @patch("core.pubmed_client.Entrez")
     def test_empty_record(self, mock_entrez):
         c = PubMedClient()
-        mock_handle = MagicMock()
-        mock_entrez.elink.return_value = mock_handle
-        mock_entrez.read.return_value = []
-
-        result = c._find_sra_links("12345")
-        assert result == []
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_handle = MagicMock()
+            mock_entrez.elink.return_value = mock_handle
+            mock_entrez.read.return_value = []
+            result = c._find_sra_links("12345")
+            assert result == []
 
     @patch("core.pubmed_client.Entrez")
     def test_exception(self, mock_entrez):
         c = PubMedClient()
-        mock_entrez.elink.side_effect = Exception("err")
-        result = c._find_sra_links("12345")
-        assert result == []
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_entrez.elink.side_effect = Exception("err")
+            result = c._find_sra_links("12345")
+            assert result == []
 
 
 class TestFindGeoLinks:
     @patch("core.pubmed_client.Entrez")
     def test_success(self, mock_entrez):
         c = PubMedClient()
-        mock_handle = MagicMock()
-        mock_entrez.elink.return_value = mock_handle
-        mock_entrez.read.return_value = [
-            {"LinkSetDb": [{"Link": [{"Id": "GSE123"}]}]}
-        ]
-
-        result = c._find_geo_links("12345")
-        assert result == ["GSE123"]
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_handle = MagicMock()
+            mock_entrez.elink.return_value = mock_handle
+            mock_entrez.read.return_value = [
+                {"LinkSetDb": [{"Link": [{"Id": "GSE123"}]}]}
+            ]
+            result = c._find_geo_links("12345")
+            assert result == ["GSE123"]
 
     @patch("core.pubmed_client.Entrez")
     def test_no_links(self, mock_entrez):
         c = PubMedClient()
-        mock_handle = MagicMock()
-        mock_entrez.elink.return_value = mock_handle
-        mock_entrez.read.return_value = [{}]
-
-        result = c._find_geo_links("12345")
-        assert result == []
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_handle = MagicMock()
+            mock_entrez.elink.return_value = mock_handle
+            mock_entrez.read.return_value = [{}]
+            result = c._find_geo_links("12345")
+            assert result == []
 
     @patch("core.pubmed_client.Entrez")
     def test_exception(self, mock_entrez):
         c = PubMedClient()
-        mock_entrez.elink.side_effect = Exception("err")
-        result = c._find_geo_links("12345")
-        assert result == []
+        with patch.object(c, "_fetch_elink_httpx", return_value=[]):
+            mock_entrez.elink.side_effect = Exception("err")
+            result = c._find_geo_links("12345")
+            assert result == []
 
 
 class TestExtractKeywords:

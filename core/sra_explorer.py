@@ -134,10 +134,11 @@ class SRAExplorer:
         """GEO accession 목록에서 SRA UID 수집."""
         uid_set: set[str] = set()
         for geo_id in geo_ids:
-            # geo_id는 "200150728" 형태(숫자) 또는 "GSE150728" 형태
-            if geo_id.lstrip("0").isdigit() or geo_id.startswith("2"):
-                n = str(geo_id).lstrip("2").lstrip("0") or "0"
-                term = f"GSE{n}[accn]"
+            # geo_id는 "200150728" 형태(NCBI 숫자 UID) 또는 "GSE150728" 형태
+            if str(geo_id).isdigit():
+                # GEO 숫자 UID = 200000000 + GSE번호
+                gse_num = int(geo_id) - 200_000_000
+                term = f"GSE{gse_num if gse_num > 0 else geo_id}[accn]"
             else:
                 term = f"{geo_id}[accn]"
             uids = self._ncbi_esearch_sra(term)
@@ -179,11 +180,11 @@ class SRAExplorer:
                 timeout=self.api_timeout,
             )
             if resp.status_code == 200:
-                ids = resp.json().get("esearchresult", {}).get("idlist", [])
-                time.sleep(0.34)  # NCBI 레이트 리밋 (3 req/s)
-                return ids
+                return resp.json().get("esearchresult", {}).get("idlist", [])
         except Exception as e:
             print(f"  NCBI esearch 실패 ({term}): {e}")
+        finally:
+            time.sleep(0.34)  # NCBI 레이트 리밋 (3 req/s) — 성공/실패 무관
         return []
 
     def _search_ena_runs(self, prjeb: str, max_runs: int = 200) -> list[str]:

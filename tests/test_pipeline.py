@@ -44,8 +44,8 @@ def full_config_dict():
                 "fallback": "singularity",
             },
             "nextflow": {
-                "work_dir": "/workspace/nextflow_work",
-                "cache_dir": "/workspace/containers",
+                "work_dir": "./results/nextflow_work",
+                "cache_dir": "./results/containers",
                 "timeout_hours": {"scrnaseq": 4, "rnaseq": 3},
             },
             "sra_download": {
@@ -88,12 +88,12 @@ def full_config_dict():
             "top_genes_count": 50,
         },
         "directories": {
-            "raw_data": "/workspace/raw_data",
-            "processed_data": "/workspace/processed_data",
-            "nextflow_work": "/workspace/nextflow_work",
-            "containers": "/workspace/containers",
-            "results": "/workspace/results",
-            "logs": "/workspace/logs",
+            "raw_data": "./results/raw_data",
+            "processed_data": "./results/processed_data",
+            "nextflow_work": "./results/nextflow_work",
+            "containers": "./results/containers",
+            "results": "./results",
+            "logs": "./results/logs",
             "research_projects": "./research_projects",
         },
         "rag": {
@@ -104,7 +104,7 @@ def full_config_dict():
         },
         "execution": {
             "resume_enabled": True,
-            "progress_file": "/workspace/progress.json",
+            "progress_file": "./results/progress.json",
             "log_level": "ERROR",
             "dry_run_first": True,
             "max_concurrent": 5,

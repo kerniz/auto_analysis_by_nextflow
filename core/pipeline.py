@@ -200,12 +200,12 @@ class EnrichmentSettings:
 @dataclass
 class DirectoriesConfig:
     """Directory paths from config.json directories section"""
-    raw_data: str = "/workspace/raw_data"
-    processed_data: str = "/workspace/processed_data"
-    nextflow_work: str = "/workspace/nextflow_work"
-    containers: str = "/workspace/containers"
-    results: str = "/workspace/results"
-    logs: str = "/workspace/logs"
+    raw_data: str = "./results/raw_data"
+    processed_data: str = "./results/processed_data"
+    nextflow_work: str = "./results/nextflow_work"
+    containers: str = "./results/containers"
+    results: str = "./results"
+    logs: str = "./results/logs"
     research_projects: str = "./research_projects"
 
 
@@ -241,7 +241,7 @@ class SearchConfig:
 class ExecutionConfig:
     """Execution settings from config.json execution section"""
     resume_enabled: bool = True
-    progress_file: str = "/workspace/progress.json"
+    progress_file: str = "./results/progress.json"
     log_level: str = "ERROR"
     dry_run_first: bool = True
     max_concurrent: int = 5
@@ -408,12 +408,12 @@ class PipelineConfig:
 
         # Directories config
         directories = DirectoriesConfig(
-            raw_data=directories_data.get("raw_data", "/workspace/raw_data"),
-            processed_data=directories_data.get("processed_data", "/workspace/processed_data"),
-            nextflow_work=directories_data.get("nextflow_work", "/workspace/nextflow_work"),
-            containers=directories_data.get("containers", "/workspace/containers"),
-            results=directories_data.get("results", "/workspace/results"),
-            logs=directories_data.get("logs", "/workspace/logs"),
+            raw_data=directories_data.get("raw_data", "./results/raw_data"),
+            processed_data=directories_data.get("processed_data", "./results/processed_data"),
+            nextflow_work=directories_data.get("nextflow_work", "./results/nextflow_work"),
+            containers=directories_data.get("containers", "./results/containers"),
+            results=directories_data.get("results", "./results"),
+            logs=directories_data.get("logs", "./results/logs"),
             research_projects=directories_data.get("research_projects", "./research_projects"),
         )
 
@@ -445,7 +445,7 @@ class PipelineConfig:
         # Execution config (nested section values)
         exec_cfg = ExecutionConfig(
             resume_enabled=execution_data.get("resume_enabled", True),
-            progress_file=execution_data.get("progress_file", "/workspace/progress.json"),
+            progress_file=execution_data.get("progress_file", "./results/progress.json"),
             log_level=execution_data.get("log_level", "ERROR"),
             dry_run_first=execution_data.get("dry_run_first", True),
             max_concurrent=execution_data.get("max_concurrent", 5),

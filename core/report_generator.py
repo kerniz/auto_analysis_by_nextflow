@@ -508,9 +508,13 @@ class ReportGenerator:
         if consensus:
             summary = escape(consensus.get("summary", ""))
             achieved = consensus.get("achieved", False)
+            if lang == "en":
+                lbl_achieved = "Consensus Reached" if achieved else "No Consensus"
+            else:
+                lbl_achieved = "합의 도달" if achieved else "합의 미도달"
             consensus_html = f"""
 <div class="consensus-box {'achieved' if achieved else 'not-achieved'}">
-  <strong>{'합의 도달' if achieved else '합의 미도달'}</strong>
+  <strong>{lbl_achieved}</strong>
   <p>{summary}</p>
 </div>"""
 

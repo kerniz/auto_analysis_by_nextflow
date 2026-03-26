@@ -20,8 +20,8 @@
       "fallback": "singularity"
     },
     "nextflow": {
-      "work_dir": "/workspace/nextflow_work",
-      "cache_dir": "/workspace/containers",
+      "work_dir": "./results/nextflow_work",
+      "cache_dir": "./results/containers",
       "timeout_hours": {
         "scrnaseq": 4,
         "rnaseq": 3

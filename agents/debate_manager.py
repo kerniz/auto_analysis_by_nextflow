@@ -457,17 +457,18 @@ class DebateManager:
         unique_key_points = list(dict.fromkeys(all_key_points))
         unique_concerns = list(dict.fromkeys(all_concerns))
 
+        achieved = consensus_score >= self.config.consensus_threshold
         return {
-            "achieved": consensus_score >= self.config.consensus_threshold,
+            "achieved": achieved,
             "final_consensus_score": consensus_score,
             "mean_agent_score": round(mean_score, 4),
-            "key_points": unique_key_points[:10],  # 상위 10개
+            "key_points": unique_key_points[:10],
             "concerns": unique_concerns[:10],
             "rounds_completed": len(rounds),
             "summary": (
-                f"{'합의 도달' if consensus_score >= self.config.consensus_threshold else '합의 미도달'} "
-                f"(합의도: {consensus_score:.2f}, 평균 점수: {mean_score:.2f}, "
-                f"완료 라운드: {len(rounds)})"
+                f"{'Consensus reached' if achieved else 'No consensus'} "
+                f"(consensus: {consensus_score:.2f}, mean score: {mean_score:.2f}, "
+                f"rounds: {len(rounds)})"
             ),
         }
 
