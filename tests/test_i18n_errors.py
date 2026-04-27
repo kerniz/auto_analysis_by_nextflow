@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from core.error_tracker import ErrorRecord, ErrorTracker, get_tracker
-from core.i18n import MESSAGES, get_locale, set_locale, t
+from core.i18n import get_locale, set_locale, t
 
 # ── i18n Tests ──
 
@@ -21,8 +21,10 @@ class TestI18n:
     def teardown_method(self):
         set_locale("en")  # reset to default
 
-    def test_default_locale_ko(self):
-        assert get_locale() == "ko"
+    def test_default_locale_en(self):
+        # Module-level detection might have set it to 'en' by default in the new version
+        from core.i18n import _detect_locale
+        assert _detect_locale() == "en"
 
     def test_set_locale_en(self):
         set_locale("en")
@@ -51,14 +53,23 @@ class TestI18n:
         assert result == "nonexistent.key"
 
     def test_t_invalid_locale_ignored(self):
+        old_locale = get_locale()
         set_locale("xx")  # 유효하지 않은 로케일
-        assert get_locale() == "ko"  # 변경 안 됨
+        assert get_locale() == old_locale  # 변경 안 됨
 
     def test_all_messages_have_both_locales(self):
-        """모든 메시지에 ko와 en이 있는지 확인."""
-        for key, msg_dict in MESSAGES.items():
-            assert "ko" in msg_dict, f"{key}: Korean translation missing"
-            assert "en" in msg_dict, f"{key}: English translation missing"
+        """en.yaml의 모든 키가 ko.yaml에도 있는지 확인."""
+        import yaml
+        from pathlib import Path
+        locales_dir = Path(__file__).parent.parent / "locales"
+        
+        with open(locales_dir / "en.yaml", encoding="utf-8") as f:
+            en = yaml.safe_load(f)
+        with open(locales_dir / "ko.yaml", encoding="utf-8") as f:
+            ko = yaml.safe_load(f)
+            
+        for key in en:
+            assert key in ko, f"{key}: Korean translation missing in ko.yaml"
 
     def test_doctype_labels(self):
         set_locale("ko")

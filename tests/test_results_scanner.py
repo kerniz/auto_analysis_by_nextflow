@@ -275,7 +275,7 @@ class TestResultsScannerSummary:
             json.dumps(report), encoding="utf-8"
         )
         scanner = ResultsScanner(tmp_path)
-        summary = scanner._load_pmid_summary("555")
+        summary = scanner._load_pmid_summary("555", tmp_path)
         assert summary["title"] == "A great paper"
         assert summary["journal"] == "Nature"
         assert len(summary["authors"]) == 3  # capped at 3
@@ -285,7 +285,7 @@ class TestResultsScannerSummary:
 
     def test_load_pmid_summary_missing(self, tmp_path):
         scanner = ResultsScanner(tmp_path)
-        summary = scanner._load_pmid_summary("nonexistent")
+        summary = scanner._load_pmid_summary("nonexistent", tmp_path)
         assert summary["pmid"] == "nonexistent"
         assert summary["status"] == "unknown"
 
