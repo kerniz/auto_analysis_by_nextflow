@@ -19,7 +19,7 @@ class TestI18n:
         set_locale("ko")
 
     def teardown_method(self):
-        set_locale("ko")
+        set_locale("en")  # reset to default
 
     def test_default_locale_ko(self):
         assert get_locale() == "ko"

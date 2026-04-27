@@ -1,30 +1,36 @@
 """
-Internationalization (i18n) — 다국어 지원 모듈.
+Internationalization (i18n) — multilingual support module.
 
-사용법:
+Usage:
     from core.i18n import t
-    print(t("search.no_results"))  # 현재 로케일에 맞는 메시지 출력
+    print(t("search.no_results"))  # prints message in current locale
 
-로케일 설정:
-    config.json → "locale": "en" 또는 "ko" (기본값: "ko")
-    환경변수: BIOAUTO_LOCALE=en
+Locale configuration:
+    config.json → "locale": "en" or "ko" (default: "en")
+    env var: BIOAUTO_LOCALE=en
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 현재 로케일 (모듈 레벨에서 한번 결정)
-_current_locale: str = "ko"
+# Current locale (determined once at module level)
+_current_locale: str = "en"
 
-# ── 메시지 카탈로그 ──
+# Cached locale data from YAML files: {locale: {key: value}}
+_locale_cache: dict[str, dict[str, str]] = {}
+
+_LOCALES_DIR = Path(__file__).parent.parent / "locales"
+
+# ── Legacy MESSAGES dict (fallback for keys not in YAML) ──
 
 MESSAGES: dict[str, dict[str, str]] = {
-    # ── CLI 공통 ──
+    # ── CLI common ──
     "cli.loading_config": {
         "ko": "설정 로드 중...",
         "en": "Loading configuration...",
@@ -42,7 +48,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Do you want to continue?",
     },
 
-    # ── 검색 ──
+    # ── Search ──
     "search.no_results": {
         "ko": "검색 결과가 없습니다",
         "en": "No search results found",
@@ -64,7 +70,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "({shown}/{total} shown) Enter=next {next} / a=all / q=stop",
     },
 
-    # ── 선택 ──
+    # ── Select ──
     "select.prompt": {
         "ko": "선택",
         "en": "Select",
@@ -120,7 +126,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No papers have a PMID.",
     },
 
-    # ── 파이프라인 ──
+    # ── Pipeline ──
     "pipeline.start": {
         "ko": "파이프라인 실행 시작",
         "en": "Starting pipeline execution",
@@ -138,7 +144,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Running pipeline",
     },
 
-    # ── 상담 ──
+    # ── Consult ──
     "consult.banner_title": {
         "ko": "연구 상담 모드",
         "en": "Research Consultation Mode",
@@ -172,7 +178,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Recent interests: ",
     },
 
-    # ── 지식 DB ──
+    # ── Knowledge DB ──
     "knowledge.empty": {
         "ko": "지식 DB가 비어 있습니다",
         "en": "Knowledge DB is empty",
@@ -214,7 +220,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Knowledge DB reset ({count} items deleted)",
     },
 
-    # ── 에러 ──
+    # ── Errors ──
     "error.no_errors": {
         "ko": "기록된 에러가 없습니다.",
         "en": "No errors recorded.",
@@ -236,7 +242,7 @@ MESSAGES: dict[str, dict[str, str]] = {
               "  Install: pip install chromadb sentence-transformers",
     },
 
-    # ── 설치/제거 ──
+    # ── Uninstall ──
     "uninstall.confirm1": {
         "ko": "bioauto를 완전히 제거합니다.",
         "en": "Completely uninstall bioauto.",
@@ -246,7 +252,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Really uninstall? (results/ data will be preserved)",
     },
 
-    # ── doc_type 라벨 ──
+    # ── doc_type labels ──
     "doctype.paper_abstract": {"ko": "논문", "en": "Papers"},
     "doctype.analysis_result": {"ko": "LLM 분석", "en": "LLM Analysis"},
     "doctype.debate_report": {"ko": "토론 보고서", "en": "Debate Reports"},
@@ -257,59 +263,104 @@ MESSAGES: dict[str, dict[str, str]] = {
 }
 
 
+def _load_locale_file(locale: str) -> dict[str, str]:
+    """Load locales/{locale}.yaml. Returns empty dict if not found."""
+    if locale in _locale_cache:
+        return _locale_cache[locale]
+
+    path = _LOCALES_DIR / f"{locale}.yaml"
+    if not path.exists():
+        _locale_cache[locale] = {}
+        return {}
+
+    try:
+        import yaml  # type: ignore[import-untyped]
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        result = {k: str(v) for k, v in data.items() if v is not None}
+        _locale_cache[locale] = result
+        return result
+    except Exception as exc:
+        logger.warning("Failed to load locale file %s: %s", path, exc)
+        _locale_cache[locale] = {}
+        return {}
+
+
 def _detect_locale() -> str:
-    """로케일 자동 감지. 우선순위: 환경변수 → config.json → 기본값(ko)."""
-    # 환경변수
+    """Auto-detect locale. Priority: env var → config.json → default (en)."""
+    # Environment variable
     env_locale = os.environ.get("BIOAUTO_LOCALE", "").strip().lower()
-    if env_locale in ("en", "ko"):
+    if env_locale in ("en", "ko", "de", "ja"):
         return env_locale
 
     # config.json
     try:
         import json
-        from pathlib import Path
         for p in [Path(__file__).parent.parent / "config.json", Path.cwd() / "config.json"]:
             if p.exists():
                 with open(p) as f:
                     cfg = json.load(f)
                 locale = cfg.get("locale", "").strip().lower()
-                if locale in ("en", "ko"):
+                if locale in ("en", "ko", "de", "ja"):
                     return locale
                 break
     except Exception:
         pass
 
-    return "ko"
+    return "en"
 
 
 def set_locale(locale: str) -> None:
-    """런타임에 로케일을 변경합니다."""
+    """Change locale at runtime."""
     global _current_locale
-    if locale in ("en", "ko"):
+    if locale in ("en", "ko", "de", "ja"):
         _current_locale = locale
         logger.debug("Locale set to %s", locale)
 
 
 def get_locale() -> str:
-    """현재 로케일을 반환합니다."""
+    """Return current locale."""
     return _current_locale
 
 
 def t(key: str, **kwargs: Any) -> str:
-    """메시지 키를 현재 로케일로 번역합니다.
+    """Translate a message key to the current locale.
+
+    Lookup order:
+    1. locales/{locale}.yaml
+    2. MESSAGES dict (legacy fallback)
+    3. English fallback (locales/en.yaml or MESSAGES["en"])
+    4. Key itself
 
     Args:
-        key: 메시지 키 (예: "search.no_results")
-        **kwargs: 포맷 변수 (예: count=5)
+        key: Message key (e.g. "search.no_results")
+        **kwargs: Format variables (e.g. count=5)
 
     Returns:
-        번역된 문자열. 키가 없으면 키 자체를 반환.
+        Translated string. Returns the key itself if not found.
     """
-    msg_dict = MESSAGES.get(key)
-    if not msg_dict:
-        return key
+    # 1. Current locale YAML
+    locale_data = _load_locale_file(_current_locale)
+    msg = locale_data.get(key)
 
-    msg = msg_dict.get(_current_locale, msg_dict.get("ko", key))
+    # 2. Legacy MESSAGES dict
+    if msg is None:
+        msg_dict = MESSAGES.get(key)
+        if msg_dict:
+            msg = msg_dict.get(_current_locale)
+
+    # 3. English fallback
+    if msg is None and _current_locale != "en":
+        en_data = _load_locale_file("en")
+        msg = en_data.get(key)
+        if msg is None:
+            msg_dict = MESSAGES.get(key)
+            if msg_dict:
+                msg = msg_dict.get("en")
+
+    # 4. Key itself
+    if msg is None:
+        return key
 
     if kwargs:
         try:
@@ -320,5 +371,5 @@ def t(key: str, **kwargs: Any) -> str:
     return msg
 
 
-# 모듈 로드 시 자동 감지
+# Auto-detect on module load
 _current_locale = _detect_locale()

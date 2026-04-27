@@ -75,7 +75,7 @@ class TestDashboardState:
         )
         state.handle_event(event)
         assert len(state.log_messages) == 1
-        assert "파이프라인 시작" in state.log_messages[0]["message"]
+        assert "Pipeline started" in state.log_messages[0]["message"]
 
     def test_handle_pmid_start(self):
         state = DashboardState()
@@ -154,7 +154,7 @@ class TestDashboardState:
         event = PipelineEvent(event_type=EventType.PIPELINE_COMPLETE)
         state.handle_event(event)
         assert state.running is False
-        assert any("완료" in log["message"] for log in state.log_messages)
+        assert any("Pipeline Complete" in log["message"] for log in state.log_messages)
 
     def test_handle_log_message(self):
         state = DashboardState()

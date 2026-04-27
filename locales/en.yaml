@@ -1,0 +1,157 @@
+# BioAuto English locale
+# Primary locale — all keys must be defined here
+
+# ── CLI common ──
+cli.loading_config: "Loading configuration..."
+cli.quit: "Exiting."
+cli.cancelled: "Cancelled."
+cli.confirm_yes_no: "Do you want to continue?"
+
+# ── Search ──
+search.no_results: "No search results found"
+search.searching: "Searching papers"
+search.results_header: "Search Results"
+search.total_count: "{count} results total"
+search.page_info: "({shown}/{total} shown) Enter=next {next} / a=all / q=stop"
+
+# ── Select ──
+select.prompt: "Select"
+select.help: "Numbers: 1,3,5  |  Range: 1-10  |  All: a  |  Filter: >2023  cited>50  \"keyword\"  |  Quit: q"
+select.methods: "Selection methods:"
+select.empty_input: "No input provided."
+select.invalid_retry: "Numbers only (e.g., 1,3,5 or 1-10). {remaining} retries left"
+select.invalid_final: "Invalid input."
+select.out_of_range: "Out of range ignored: {invalid} (must be 1~{total})"
+select.no_valid: "No valid numbers. {remaining} retries left"
+select.no_pmid: "Selected papers have no PMID. Please choose different ones."
+select.all_selected: "All {count} papers selected"
+select.condition_matched: "{count} papers matched"
+select.no_condition_match: "No papers with PMID match the condition."
+select.no_pmid_all: "No papers have a PMID."
+
+# ── Pipeline ──
+pipeline.start: "Starting pipeline execution"
+pipeline.complete: "Pipeline execution complete!"
+pipeline.confirm: "Run the pipeline?"
+pipeline.running: "Running pipeline"
+
+# ── Consult ──
+consult.banner_title: "Research Consultation Mode"
+consult.llm_test: "Testing LLM backend connection"
+consult.ollama_ok: "Ollama connected"
+consult.ollama_fail: "Ollama connection failed — 10s timeout"
+consult.ready: "Consultation ready"
+consult.quit_hint: "Quit: type q then Enter"
+consult.previous_interests: "Previous research interests detected"
+consult.recent_interests: "Recent interests: "
+
+# ── Knowledge DB ──
+knowledge.empty: "Knowledge DB is empty"
+knowledge.title: "Research Knowledge DB"
+knowledge.recent_interests: "Recent research interests:"
+knowledge.searching: "Searching for \"{query}\"..."
+knowledge.no_match: "No related knowledge found."
+knowledge.deleted: "{count} items deleted"
+knowledge.reset_warn: "Reset entire knowledge DB ({count} items)"
+knowledge.reset_confirm1: "Are you sure you want to delete?"
+knowledge.reset_confirm2: "This cannot be undone. Are you certain?"
+knowledge.reset_done: "Knowledge DB reset ({count} items deleted)"
+
+# ── Errors ──
+error.no_errors: "No errors recorded."
+error.title: "Error Log"
+error.cleared: "Error log cleared ({count} items)"
+
+# ── RAG ──
+rag.not_installed: "RAG module not installed.\n  Install: pip install chromadb sentence-transformers"
+
+# ── Uninstall ──
+uninstall.confirm1: "Completely uninstall bioauto."
+uninstall.confirm2: "Really uninstall? (results/ data will be preserved)"
+
+# ── Doc types ──
+doctype.paper_abstract: "Papers"
+doctype.analysis_result: "LLM Analysis"
+doctype.debate_report: "Debate Reports"
+doctype.search_record: "Search Records"
+doctype.consult_exchange: "Consult Chats"
+doctype.enrichment_result: "Enrichment"
+doctype.pipeline_run: "Pipeline Runs"
+
+# ── Stage labels ──
+stage.pubmed: "PubMed Metadata"
+stage.sra: "SRA Exploration"
+stage.sequencing: "Sequencing Detection"
+stage.fetchngs: "SRA Download"
+stage.nfcore: "nf-core Execution"
+stage.analysis: "Downstream Analysis"
+stage.data_aggregation: "Data Aggregation"
+stage.enrichment: "Pathway Analysis"
+stage.llm_consensus: "LLM Consensus Analysis"
+stage.debate: "Multi-Agent Debate"
+stage.research_evaluation: "Research Evaluation (RES)"
+stage.meta_agent: "Meta Agent"
+stage.report: "Report Generation"
+
+# ── Web app messages ──
+web.pipeline_stopped: "Pipeline stopped"
+web.pmid_stopped: "[{pmid}] Stopped"
+web.pipeline_start: "Pipeline started ({count} PMIDs)"
+web.pmid_start: "[{pmid}] Processing started"
+web.pmid_stage: "[{pmid}] {stage} ..."
+web.pmid_done: "[{pmid}] \u2705 {stage}{extra}"
+web.pmid_error: "[{pmid}] \u274c {stage}: {message}"
+web.pmid_complete: "[{pmid}] Complete!"
+web.pmid_failed: "[{pmid}] Failed"
+web.pipeline_complete: "\u2550\u2550\u2550 Pipeline Complete \u2550\u2550\u2550"
+web.stopped_by_user: "Stopped by user"
+web.pipeline_error: "Pipeline error: {error}"
+web.slurm_api_fail: "Slurm API connection failed"
+
+# ── TUI runtime messages ──
+tui.pipeline_start: "Pipeline started ({count} PMIDs)"
+tui.pmid_start: "[{pmid}] Processing started"
+tui.pmid_stage: "[{pmid}] {stage} ..."
+tui.pmid_done: "[{pmid}] \u2705 {stage}{extra}"
+tui.pmid_error: "[{pmid}] \u274c {stage}: {message}"
+tui.pmid_complete: "[{pmid}] Complete!"
+tui.pmid_failed: "[{pmid}] Failed"
+tui.pipeline_complete: "\u2550\u2550\u2550 Pipeline Complete \u2550\u2550\u2550"
+
+# ── Setup wizard ──
+wizard.welcome_title: "BioAuto Setup Wizard"
+wizard.welcome_intro: "Initial setup for bioinformatics research automation."
+wizard.welcome_steps: "5 steps. Enter settings at each step."
+wizard.env_check_label: "Environment Check"
+wizard.env_check_btn: "Run Checks"
+wizard.llm_title: "Step 2/5: LLM Backend Configuration"
+wizard.llm_select: "Select LLM backend:"
+wizard.llm_ollama: "Ollama (Local server)"
+wizard.llm_openai: "OpenAI (API)"
+wizard.llm_anthropic: "Anthropic (API)"
+wizard.timeout_label: "Timeout (s):"
+wizard.test_btn: "Test Connection"
+wizard.testing: "Testing connection..."
+wizard.conn_ok: "Connected. Model '{model}' confirmed."
+wizard.conn_ok_no_model: "Connected. Model '{model}' not found. Available: {avail}"
+wizard.conn_server_error: "Server error: {code}"
+wizard.conn_failed: "Connection failed: {error}"
+wizard.exec_title: "Step 3/5: Execution Environment"
+wizard.container_label: "Container runtime:"
+wizard.results_dir_label: "Results directory:"
+wizard.nf_label: "Nextflow Pipeline Execution"
+wizard.nf_enabled_label: "Enable Nextflow:"
+wizard.adv_title: "Step 4/5: Advanced Settings"
+wizard.adv_hint: "If defaults are fine, just click Next."
+wizard.debate_label: "Multi-Agent Debate:"
+wizard.debate_rounds_label: "Debate rounds:"
+wizard.gsea_label: "GSEA Enrichment:"
+wizard.datasource_label: "Data Source Integration:"
+wizard.rag_label: "RAG (Vector DB):"
+wizard.summary_title: "Step 5/5: Configuration Summary"
+wizard.summary_llm: "LLM Backend"
+wizard.summary_exec: "Execution Environment"
+wizard.summary_adv: "Advanced Settings"
+wizard.save_path: "Save path: {path}"
+wizard.save_ok: "Settings saved! Press any key to exit."
+wizard.save_fail: "Save failed: {error}"

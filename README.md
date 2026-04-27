@@ -1,244 +1,242 @@
 # bioauto
 
-**하나의 주제를 넣으면 관련 논문·유전체 데이터 수집 → 모델링 → 어노테이션 → 토론 → 아이디어 검증까지 자동으로 해주는 올인원 바이오인포매틱스 연구 자동화 시스템.**
-
-연구 주제나 PMID를 입력하면, 논문 메타데이터 수집부터 시퀀싱 데이터 분석, 다중 LLM 합의, 멀티 에이전트 토론까지 전 과정을 자동 수행하고 HTML 보고서를 생성합니다.
+**One-stop bioinformatics research automation — from a topic or PMID to paper metadata collection, sequencing data analysis, multi-LLM consensus, multi-agent debate, and HTML report generation.**
 
 ---
 
-## 핵심 기능
+## Features
 
-| 명령 | 설명 |
-|------|------|
-| `bioauto run <PMIDs>` | 논문 메타데이터 + LLM 분석 + 토론 → 보고서 생성 |
-| `bioauto run <PMIDs> --execute-pipeline` | + 실제 시퀀싱 데이터 다운로드 → nf-core 분석 → R/Python 다운스트림 |
-| `bioauto search "키워드"` | 4개 소스 동시 검색 → 선택 → 파이프라인 실행 |
-| `bioauto consult` | LLM 상담 → 주제 정제 → 검색 → 파이프라인 |
-| `bioauto report --all` | 기존 결과에서 HTML 보고서 재생성 |
-| `bioauto web` | 웹 대시보드 서버 시작 (SSE 실시간 모니터링) |
-| `bioauto stop` | 실행 중인 모든 서비스 종료 |
-| `bioauto stop web` | 웹 서버만 종료 |
-| `bioauto stop pipeline` | 파이프라인만 종료 |
-| `bioauto prereqs` | 실행 환경 검증 |
-| `bioauto backends` | LLM 백엔드 상태 확인 |
-| `bioauto setup-slurm` | Slurm HPC 자동 감지 및 설정 |
-| `bioauto uninstall` | bioauto 완전 제거 (소스/결과 보존) |
+| Command | Description |
+|---------|-------------|
+| `bioauto run <PMIDs>` | Paper metadata + LLM analysis + debate → report |
+| `bioauto run <PMIDs> --execute-pipeline` | + Sequencing data download → nf-core analysis → R/Python downstream |
+| `bioauto search "keyword"` | 4-source parallel search → select → run pipeline |
+| `bioauto consult` | LLM consultation → topic refinement → search → pipeline |
+| `bioauto report --all` | Regenerate HTML reports from existing results |
+| `bioauto web` | Start web dashboard server (SSE real-time monitoring) |
+| `bioauto stop` | Stop all running services |
+| `bioauto stop web` | Stop web server only |
+| `bioauto stop pipeline` | Stop pipeline only |
+| `bioauto prereqs` | Validate execution environment |
+| `bioauto backends` | Check LLM backend status |
+| `bioauto setup-slurm` | Auto-detect and configure Slurm HPC |
+| `bioauto uninstall` | Completely remove bioauto (preserves source and results) |
 
 ---
 
-## 파이프라인 흐름
+## Pipeline Flow
 
 ```
-입력: PMID / 키워드 / 연구 주제
+Input: PMID / keyword / research topic
   │
-  ├─ Stage 1: PubMed 메타데이터 수집
-  ├─ Stage 2: SRA/GEO 메타데이터 수집
-  ├─ Stage 3: 시퀀싱 타입 자동 감지 (scRNA-seq / Bulk RNA / ATAC / ChIP)
+  ├─ Stage 1: PubMed metadata collection
+  ├─ Stage 2: SRA/GEO metadata collection
+  ├─ Stage 3: Sequencing type auto-detection (scRNA-seq / Bulk RNA / ATAC / ChIP)
   │
-  │  ┌─ --execute-pipeline 활성화 시 ─────────────────────────┐
-  │  │ Stage 3.5: nf-core/fetchngs → SRA 데이터 다운로드       │
-  │  │ Stage 3.6: nf-core 파이프라인 실행 (rnaseq/scrnaseq/...) │
-  │  │ Stage 3.7: R/Python 다운스트림 분석 (DESeq2/Seurat/...)  │
-  │  └──────────────────────────────────────────────────────────┘
+  │  ┌─ --execute-pipeline only ──────────────────────────────────────┐
+  │  │ Stage 3.5: nf-core/fetchngs → SRA data download               │
+  │  │ Stage 3.6: nf-core pipeline (rnaseq/scrnaseq/...)             │
+  │  │ Stage 3.7: R/Python downstream analysis (DESeq2/Seurat/...)   │
+  │  └────────────────────────────────────────────────────────────────┘
   │
-  ├─ Stage 4: 외부 데이터 통합 (Semantic Scholar + Europe PMC + TCGA)
-  ├─ Stage 5: 유전자 경로 분석 (GSEA/Enrichr)
-  ├─ Stage 6: LLM 다중 합의 분석 (모든 백엔드 동시 쿼리)
-  ├─ Stage 7: 멀티 에이전트 토론 (PhD · 학부생 · 일반인 3인 패널)
-  └─ Stage 8: 보고서 생성 + RAG 인덱싱
+  ├─ Stage 4: External data integration (Semantic Scholar + Europe PMC + TCGA)
+  ├─ Stage 5: Gene pathway analysis (GSEA/Enrichr)
+  ├─ Stage 6: Multi-LLM consensus analysis (all backends queried simultaneously)
+  ├─ Stage 7: Multi-agent debate (PhD · undergraduate · layperson panel)
+  └─ Stage 8: Report generation + RAG indexing
 
-출력: results/{PMID}/ 폴더에 JSON + HTML 보고서
-      2개 이상 PMID → 종합보고서 (project_report.html) 자동 생성
+Output: JSON + HTML report in results/{PMID}/
+        2+ PMIDs → combined report (project_report.html) auto-generated
 ```
 
 ---
 
-## 설치
+## Installation
 
 ```bash
-# 기본 설치
+# Basic
 git clone git@github.com:kerniz/auto_analysis_by_nextflow.git
 cd auto_analysis_by_nextflow
 pip install -e .
 
-# 개발 환경
+# Development
 pip install -e ".[dev]"
 
-# 전체 기능 (RAG + 분석)
+# Full features (RAG + analysis)
 pip install -e ".[all,analysis]"
 ```
 
-### 선택적 설치
+### Optional extras
 
 ```bash
-pip install -e ".[openai]"       # OpenAI 백엔드
-pip install -e ".[anthropic]"    # Anthropic 백엔드
-pip install -e ".[enrichment]"   # GSEA/경로 분석
+pip install -e ".[openai]"       # OpenAI backend
+pip install -e ".[anthropic]"    # Anthropic backend
+pip install -e ".[enrichment]"   # GSEA/pathway analysis
 pip install -e ".[rag]"          # ChromaDB RAG
 pip install -e ".[analysis]"     # scanpy (Python scRNA-seq)
-pip install -e ".[web]"          # 웹 대시보드 (FastAPI)
-pip install -e ".[tui]"          # TUI 대시보드 (Textual)
+pip install -e ".[web]"          # Web dashboard (FastAPI)
+pip install -e ".[tui]"          # TUI dashboard (Textual)
 ```
 
 ---
 
-## 요구 사항
+## Requirements
 
-### 필수
+### Required
 
-| 항목 | 최소 버전 |
-|------|-----------|
+| Item | Minimum Version |
+|------|----------------|
 | Python | 3.10+ |
 
-### LLM 백엔드 (하나 이상 필요)
+### LLM Backend (at least one required)
 
-| 백엔드 | 설정 |
-|--------|------|
-| Ollama (로컬, 무료) | `ollama serve` 후 `ollama pull qwen3:30b` |
+| Backend | Setup |
+|---------|-------|
+| Ollama (local, free) | `ollama serve` then `ollama pull qwen3:30b` |
 | OpenAI | `export OPENAI_API_KEY=sk-...` |
 | Anthropic | `export ANTHROPIC_API_KEY=sk-ant-...` |
 
-### 파이프라인 실행 시 추가 필요 (`--execute-pipeline`)
+### Additional requirements for `--execute-pipeline`
 
-| 항목 | 최소 버전 |
-|------|-----------|
+| Item | Minimum Version |
+|------|----------------|
 | Nextflow | 23.04+ |
 | Java | 11+ |
-| Docker / Singularity / Apptainer / Podman | - |
-| 디스크 공간 | 10GB+ (파이프라인에 따라 50-200GB 권장) |
+| Docker / Singularity / Apptainer / Podman | — |
+| Disk space | 10 GB+ (50–200 GB recommended depending on pipeline) |
 
-> **참고**: `--genome` 옵션을 지정하지 않으면 논문 메타데이터에서 organism을 자동 감지하여 genome을 매핑합니다 (15종 지원).
+> **Note**: If `--genome` is not specified, the organism is auto-detected from paper metadata and mapped to a genome (15 species supported).
 
-### 다운스트림 분석 시 추가 필요
+### Downstream analysis extras
 
-| R 패키지 | 용도 |
-|----------|------|
-| DESeq2 | Bulk RNA-seq 차등발현 |
-| Seurat | scRNA-seq 클러스터링 |
-| ggplot2, pheatmap | 시각화 |
+| R package | Purpose |
+|-----------|---------|
+| DESeq2 | Bulk RNA-seq differential expression |
+| Seurat | scRNA-seq clustering |
+| ggplot2, pheatmap | Visualization |
 
 ```bash
-bioauto prereqs   # 전체 환경 검증
+bioauto prereqs   # validate full environment
 ```
 
 ---
 
-## 사용법
+## Usage
 
-### 1. 단일 PMID 분석
+### 1. Single PMID analysis
 
 ```bash
 bioauto run 40315330
 ```
 
-→ `results/40315330/` 에 보고서 생성
+→ Report generated in `results/40315330/`
 
-### 2. 다중 PMID 분석
+### 2. Multiple PMIDs
 
 ```bash
 bioauto run 40315330 32416070 31061532
 ```
 
-→ PMID별 개별 보고서 + 종합보고서 (`results/project_report.html`) 생성
+→ Individual reports + combined report (`results/project_report.html`)
 
-### 3. 실제 파이프라인 실행 (Nextflow + R)
+### 3. Full pipeline execution (Nextflow + R)
 
 ```bash
 # Docker + GRCh38
 bioauto run 40315330 --execute-pipeline
 
-# Singularity + 마우스 게놈
+# Singularity + mouse genome
 bioauto run 40315330 --execute-pipeline --container-runtime singularity --genome mm10
 
-# 리소스 제한
+# Resource limits
 bioauto run 40315330 --execute-pipeline --max-cpus 8 --max-memory 32.GB
 ```
 
-### 4. 논문 검색 → 분석
+### 4. Paper search → analysis
 
 ```bash
-# 4개 소스 동시 검색 (PubMed, Semantic Scholar, Europe PMC, Brave)
+# 4-source parallel search (PubMed, Semantic Scholar, Europe PMC, Brave)
 bioauto search "spatial transcriptomics cancer"
 
-# 검색 후 자동 파이프라인 실행
+# Search then auto-run pipeline
 bioauto search "CRISPR screen" --auto-run
 ```
 
-### 5. 연구 상담 모드
+### 5. Research consultation mode
 
 ```bash
 bioauto consult
 ```
 
-LLM과 대화하며 연구 주제를 정제 → 검색 쿼리 생성 → 자동 검색 → 파이프라인 연결
+Chat with an LLM to refine your research topic → generate search queries → auto-search → pipeline
 
-### 6. 보고서 재생성
+### 6. Regenerate reports
 
 ```bash
-# 특정 PMID
+# Specific PMID
 bioauto report 40315330
 
-# 모든 결과
+# All results
 bioauto report --all
 ```
 
-### 7. 실행 옵션
+### 7. Run options
 
 ```bash
-# 토론 비활성화 (빠른 실행)
+# Disable debate (faster)
 bioauto run 40315330 --no-debate
 
-# 최소 실행 (토론, 농축, 데이터통합 모두 끄기)
+# Minimal run (disable debate, enrichment, and aggregation)
 bioauto run 40315330 --no-debate --no-enrichment --no-aggregate
 
-# 환경 확인
+# Environment checks
 bioauto prereqs
 bioauto backends
 ```
 
 ---
 
-## 출력 구조
+## Output Structure
 
 ```
 results/
-├── {PMID}/                        # PMID별 결과 서브폴더
-│   ├── final_report_{PMID}.json   # 최종 보고서 (JSON)
-│   ├── report_{PMID}.html         # HTML 보고서 (한국어 포함)
-│   ├── pubmed_{PMID}.json         # PubMed 캐시
-│   ├── sra_exploration_{PMID}.json# SRA 캐시
+├── {PMID}/                        # Per-PMID results subfolder
+│   ├── final_report_{PMID}.json   # Final report (JSON)
+│   ├── report_{PMID}.html         # HTML report
+│   ├── pubmed_{PMID}.json         # PubMed cache
+│   ├── sra_exploration_{PMID}.json# SRA cache
 │   │
-│   ├── fetchngs/                  # [--execute-pipeline] FASTQ
-│   ├── pipeline/                  # [--execute-pipeline] nf-core 결과
-│   └── analysis/                  # [--execute-pipeline] 다운스트림 분석
+│   ├── fetchngs/                  # [--execute-pipeline] FASTQ files
+│   ├── pipeline/                  # [--execute-pipeline] nf-core results
+│   └── analysis/                  # [--execute-pipeline] downstream analysis
 │
-├── project_report.html            # 종합보고서 (2+ PMID 시 자동 생성)
-├── execution_summary.json         # 실행 요약
-└── progress.json                  # 체크포인트 (재시작용)
+├── project_report.html            # Combined report (auto-generated for 2+ PMIDs)
+├── execution_summary.json         # Execution summary
+└── progress.json                  # Checkpoint (for resume)
 ```
 
-### 자동 감지 매핑
+### Auto-Detection Mapping
 
-| 감지된 시퀀싱 | nf-core 파이프라인 | 다운스트림 분석 | 주요 출력 |
-|--------------|-------------------|----------------|----------|
-| scRNA-seq | nf-core/scrnaseq | Seurat (R) / scanpy (Python) | UMAP, 클러스터 마커 |
-| Bulk RNA-seq | nf-core/rnaseq | DESeq2 (R) | DEG 목록, Volcano plot |
-| ATAC-seq | nf-core/atacseq | Peak analysis (R) | 차등 피크, 어노테이션 |
-| ChIP-seq | nf-core/chipseq | Peak analysis (R) | 차등 피크, 어노테이션 |
+| Detected sequencing | nf-core pipeline | Downstream analysis | Key outputs |
+|---------------------|-----------------|--------------------|-----------  |
+| scRNA-seq | nf-core/scrnaseq | Seurat (R) / scanpy (Python) | UMAP, cluster markers |
+| Bulk RNA-seq | nf-core/rnaseq | DESeq2 (R) | DEG list, Volcano plot |
+| ATAC-seq | nf-core/atacseq | Peak analysis (R) | Differential peaks, annotation |
+| ChIP-seq | nf-core/chipseq | Peak analysis (R) | Differential peaks, annotation |
 | WGS/WES | nf-core/sarek | SnpEff/VEP variant analysis | VCF, variant stats |
-| Bisulfite-seq | nf-core/methylseq | Methylation analysis (R) | CpG 통계, DMR |
-| CUT&RUN/CUT&Tag | nf-core/cutandrun | Peak analysis (R) | 차등 피크, 어노테이션 |
-| RNA-fusion | nf-core/rnafusion | Fusion gene analysis | 융합 유전자 목록 |
+| Bisulfite-seq | nf-core/methylseq | Methylation analysis (R) | CpG stats, DMR |
+| CUT&RUN/CUT&Tag | nf-core/cutandrun | Peak analysis (R) | Differential peaks, annotation |
+| RNA-fusion | nf-core/rnafusion | Fusion gene analysis | Fusion gene list |
 
 ---
 
-## 설정
+## Configuration
 
 ### config.json
 
 ```jsonc
 {
-  // LLM 서버
+  // LLM server
   "pipeline_config": {
     "llm_server": {
       "url": "http://localhost:11434",
@@ -246,14 +244,14 @@ results/
     }
   },
 
-  // Nextflow 파이프라인 실행
+  // Nextflow pipeline execution
   "nextflow_execution": {
     "enabled": false,
     "genome": "GRCh38",
     "container_runtime": "docker"
   },
 
-  // 토론 설정
+  // Debate settings
   "debate": {
     "num_rounds": 3,
     "consensus_threshold": 0.7,
@@ -266,70 +264,73 @@ results/
 }
 ```
 
-### 환경 변수
+### Environment Variables
 
-| 변수 | 용도 | 필수 |
-|------|------|------|
-| `OPENAI_API_KEY` | OpenAI 백엔드 | 선택 |
-| `ANTHROPIC_API_KEY` | Anthropic 백엔드 | 선택 |
-| `BRAVE_API_KEY` | Brave Search 웹 검색 | 선택 |
-| `NCBI_EMAIL` | PubMed API | 권장 |
+| Variable | Purpose | Required |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | OpenAI backend | Optional |
+| `ANTHROPIC_API_KEY` | Anthropic backend | Optional |
+| `BRAVE_API_KEY` | Brave Search web search | Optional |
+| `NCBI_EMAIL` | PubMed API | Recommended |
+| `BIOAUTO_LOCALE` | UI locale (`en` or `ko`) | Optional |
 
 ---
 
-## 프로젝트 구조
+## Project Structure
 
 ```
 bioauto/
-├── core/                   # 핵심 오케스트레이션
-│   ├── cli.py              #   Click CLI 진입점
-│   ├── pipeline.py         #   비동기 파이프라인 오케스트레이터
-│   ├── pubmed_client.py    #   PubMed API 클라이언트
-│   ├── sra_explorer.py     #   SRA 메타데이터 탐색
-│   ├── report_generator.py #   HTML 보고서 생성기
-│   ├── json_utils.py       #   LLM 응답 JSON 파싱
-│   └── progress_manager.py #   체크포인트/재시작
+├── core/                   # Core orchestration
+│   ├── cli.py              #   Click CLI entry point
+│   ├── pipeline.py         #   Async pipeline orchestrator
+│   ├── pubmed_client.py    #   PubMed API client
+│   ├── sra_explorer.py     #   SRA metadata exploration
+│   ├── report_generator.py #   HTML report generator
+│   ├── json_utils.py       #   LLM response JSON parser
+│   └── progress_manager.py #   Checkpoint/resume
 │
-├── backends/               # LLM 백엔드 (Ollama, OpenAI, Anthropic)
-├── plugins/                # 시퀀싱 타입 감지 플러그인
-├── agents/                 # 멀티 에이전트 토론 (PhD, 학부생, 일반인)
-├── clients/                # 외부 API 클라이언트 (SS, EPMC, TCGA)
-├── enrichment/             # GSEA 경로 분석
-├── search/                 # 논문 검색 (4소스 팬아웃)
-├── mcp/                    # Brave Search 통합
-├── rag/                    # RAG 벡터 DB (ChromaDB)
-├── nextflow/               # Nextflow 실행 레이어
-├── analysis/               # R/Python 다운스트림 분석
+├── backends/               # LLM backends (Ollama, OpenAI, Anthropic)
+├── plugins/                # Sequencing type detection plugins
+├── agents/                 # Multi-agent debate (PhD, undergraduate, layperson)
+├── clients/                # External API clients (SS, EPMC, TCGA)
+├── enrichment/             # GSEA pathway analysis
+├── search/                 # Paper search (4-source fanout)
+├── mcp/                    # Brave Search integration
+├── rag/                    # RAG vector DB (ChromaDB)
+├── nextflow/               # Nextflow execution layer
+├── analysis/               # R/Python downstream analysis
+├── locales/                # i18n locale files (en/ko/de/ja)
 │
-├── config.json             # 전역 설정
-├── pyproject.toml          # 프로젝트 메타데이터 + 의존성
-├── nextflow.config         # Nextflow 설정
-├── tests/                  # 테스트 (1505개)
-└── docs/                   # 아키텍처, 개발 이력
+├── config.json             # Global configuration
+├── pyproject.toml          # Project metadata + dependencies
+├── nextflow.config         # Nextflow configuration
+├── tests/                  # Tests (1518 passed, ~90% coverage)
+└── docs/                   # Architecture, development history
+    └── README.ko.md        # Korean README
 ```
 
 ---
 
-## 테스트
+## Testing
 
 ```bash
 pip install -e ".[dev]"
 
-# 전체 테스트
+# All tests
 python3 -m pytest tests/ -v
 
-# 특정 모듈
+# Specific module
 python3 -m pytest tests/test_pipeline.py -v
 python3 -m pytest tests/test_report_generator.py -v
 
-# 커버리지
+# Coverage
 python3 -m pytest tests/ --cov=. --cov-report=html
 
-# 린트
+# Lint
 python3 -m ruff check .
 ```
 
-현재: **1505 passed, 10 skipped** — 커버리지 90%
+Current: **1518 passed, 10 skipped** — ~90% coverage
 
 ---
 

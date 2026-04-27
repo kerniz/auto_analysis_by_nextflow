@@ -606,7 +606,7 @@
                                    ps.status === 'cancelled' ? '&#x1F6AB;' : '&#x23F3;';
                 const canStop = state.running && (ps.status === 'running' || ps.status === 'pending');
                 const stopBtn = canStop
-                    ? `<button onclick="stopPmid('${pmid}')" style="padding:2px 8px;background:transparent;color:var(--red);border:1px solid var(--red);border-radius:4px;font-family:inherit;font-size:11px;cursor:pointer;" title="이 PMID 중지">⏹</button>`
+                    ? `<button onclick="stopPmid('${pmid}')" style="padding:2px 8px;background:transparent;color:var(--red);border:1px solid var(--red);border-radius:4px;font-family:inherit;font-size:11px;cursor:pointer;" title="Stop this PMID">⏹</button>`
                     : '';
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -642,7 +642,7 @@
 
         // ── Stop Individual PMID ──
         async function stopPmid(pmid) {
-            if (!confirm(`PMID ${pmid} 처리를 중지하시겠습니까?`)) return;
+            if (!confirm(`Stop processing PMID ${pmid}?`)) return;
             try {
                 const resp = await fetch(`/api/stop/${pmid}`, {method: 'POST'});
                 const result = await resp.json();
@@ -654,7 +654,7 @@
 
         // ── Stop Pipeline ──
         async function stopPipeline() {
-            if (!confirm('실행 중인 파이프라인을 중지하시겠습니까?')) return;
+            if (!confirm('Stop the running pipeline?')) return;
             try {
                 const resp = await fetch('/api/stop', {method: 'POST'});
                 const result = await resp.json();
@@ -757,7 +757,7 @@
                 }
                 document.getElementById('slurm-error').style.display = 'none';
             } catch (e) {
-                document.getElementById('slurm-error').textContent = 'Slurm API 연결 실패: ' + e.message;
+                document.getElementById('slurm-error').textContent = 'Slurm API connection failed: ' + e.message;
                 document.getElementById('slurm-error').style.display = 'block';
             }
         }
@@ -788,7 +788,7 @@
 
         // ── Delete Functions ──
         async function deletePmid(pmid) {
-            if (!confirm(`PMID ${pmid}의 모든 결과를 삭제하시겠습니까?`)) return;
+            if (!confirm(`Delete all results for PMID ${pmid}?`)) return;
             try {
                 const resp = await fetch(`/api/results/${pmid}`, {method: 'DELETE'});
                 if (resp.ok) {
@@ -803,7 +803,7 @@
         }
 
         async function deleteQueue(queueId, queueName) {
-            if (!confirm(`"${queueName}" 연구 주제의 모든 PMID 결과를 삭제하시겠습니까?`)) return;
+            if (!confirm(`Delete all PMID results for "${queueName}"?`)) return;
             try {
                 const resp = await fetch(`/api/queues/${encodeURIComponent(queueId)}`, {method: 'DELETE'});
                 if (resp.ok) {

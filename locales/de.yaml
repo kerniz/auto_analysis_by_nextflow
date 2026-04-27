@@ -1,0 +1,23 @@
+# BioAuto German locale (stub — falls back to English)
+# Fill in translations to complete this locale
+
+# ── CLI common ──
+cli.loading_config: "Konfiguration wird geladen..."
+cli.quit: "Beenden."
+cli.cancelled: "Abgebrochen."
+cli.confirm_yes_no: "Möchten Sie fortfahren?"
+
+# ── Stage labels ──
+stage.pubmed: "PubMed Metadaten"
+stage.sra: "SRA-Erkundung"
+stage.sequencing: "Sequenzierungserkennung"
+stage.fetchngs: "SRA-Download"
+stage.nfcore: "nf-core Ausführung"
+stage.analysis: "Nachgelagerte Analyse"
+stage.data_aggregation: "Datenaggregation"
+stage.enrichment: "Pathway-Analyse"
+stage.llm_consensus: "LLM-Konsensanalyse"
+stage.debate: "Multi-Agenten-Debatte"
+stage.research_evaluation: "Forschungsbewertung (RES)"
+stage.meta_agent: "Meta-Agent"
+stage.report: "Berichtsgenerierung"

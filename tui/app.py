@@ -21,11 +21,12 @@ from textual.widgets import (
 )
 
 from core.events import (
-    STAGE_LABELS,
     EventType,
     PipelineEvent,
     PipelineEventBus,
+    get_stage_label,
 )
+from core.i18n import t
 
 # ── Custom Messages ──
 
@@ -219,28 +220,27 @@ class BioAutoTUI(App):
 
         if event.event_type == EventType.PIPELINE_START:
             log.write(
-                f"[bold green]{ts}[/] 파이프라인 시작 "
-                f"({len(self.pmids)}개 PMID)"
+                f"[bold green]{ts}[/] {t('tui.pipeline_start', count=len(self.pmids))}"
             )
 
         elif event.event_type == EventType.PMID_START:
-            log.write(f"[cyan]{ts}[/] [{event.pmid}] 처리 시작")
+            log.write(f"[cyan]{ts}[/] {t('tui.pmid_start', pmid=event.pmid)}")
             self._pmid_stages[event.pmid]["status"] = "🔄"
             self._pmid_stages[event.pmid]["start_time"] = event.timestamp
 
         elif event.event_type == EventType.PMID_STAGE_START:
-            stage_label = STAGE_LABELS.get(event.stage, event.stage)
+            stage_label = get_stage_label(event.stage)
             log.write(
-                f"[dim]{ts}[/] [{event.pmid}] {stage_label} ..."
+                f"[dim]{ts}[/] {t('tui.pmid_stage', pmid=event.pmid, stage=stage_label)}"
             )
             self._pmid_stages[event.pmid]["current_stage"] = stage_label
             self._update_table_row(table, event.pmid)
 
         elif event.event_type == EventType.PMID_STAGE_COMPLETE:
-            stage_label = STAGE_LABELS.get(event.stage, event.stage)
+            stage_label = get_stage_label(event.stage)
             extra = f" — {event.message}" if event.message else ""
             log.write(
-                f"[green]{ts}[/] [{event.pmid}] ✅ {stage_label}{extra}"
+                f"[green]{ts}[/] {t('tui.pmid_done', pmid=event.pmid, stage=stage_label, extra=extra)}"
             )
             info = self._pmid_stages[event.pmid]
             info["completed"] = info.get("completed", 0) + 1
@@ -249,10 +249,9 @@ class BioAutoTUI(App):
             self._update_table_row(table, event.pmid)
 
         elif event.event_type == EventType.PMID_STAGE_ERROR:
-            stage_label = STAGE_LABELS.get(event.stage, event.stage)
+            stage_label = get_stage_label(event.stage)
             log.write(
-                f"[red]{ts}[/] [{event.pmid}] ❌ {stage_label}: "
-                f"{event.message}"
+                f"[red]{ts}[/] {t('tui.pmid_error', pmid=event.pmid, stage=stage_label, message=event.message)}"
             )
 
         elif event.event_type == EventType.PMID_COMPLETE:
@@ -261,19 +260,19 @@ class BioAutoTUI(App):
                 self._pmid_stages[event.pmid]["status"] = "✅"
                 status_bar.completed += 1
                 log.write(
-                    f"[bold green]{ts}[/] [{event.pmid}] 완료!"
+                    f"[bold green]{ts}[/] {t('tui.pmid_complete', pmid=event.pmid)}"
                 )
             else:
                 self._pmid_stages[event.pmid]["status"] = "❌"
                 status_bar.failed += 1
                 log.write(
-                    f"[bold red]{ts}[/] [{event.pmid}] 실패"
+                    f"[bold red]{ts}[/] {t('tui.pmid_failed', pmid=event.pmid)}"
                 )
             self._update_table_row(table, event.pmid)
 
         elif event.event_type == EventType.PIPELINE_COMPLETE:
             log.write(
-                f"\n[bold green]{ts}[/] ═══ 파이프라인 완료 ═══"
+                f"\n[bold green]{ts}[/] {t('tui.pipeline_complete')}"
             )
 
         elif event.event_type == EventType.LOG_MESSAGE:

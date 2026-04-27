@@ -1,0 +1,23 @@
+# BioAuto Japanese locale (stub — falls back to English)
+# Fill in translations to complete this locale
+
+# ── CLI common ──
+cli.loading_config: "設定を読み込み中..."
+cli.quit: "終了します。"
+cli.cancelled: "キャンセルされました。"
+cli.confirm_yes_no: "続行しますか？"
+
+# ── Stage labels ──
+stage.pubmed: "PubMedメタデータ"
+stage.sra: "SRA探索"
+stage.sequencing: "シーケンス検出"
+stage.fetchngs: "SRAダウンロード"
+stage.nfcore: "nf-core実行"
+stage.analysis: "下流解析"
+stage.data_aggregation: "データ統合"
+stage.enrichment: "パスウェイ解析"
+stage.llm_consensus: "LLMコンセンサス解析"
+stage.debate: "マルチエージェント討論"
+stage.research_evaluation: "研究評価 (RES)"
+stage.meta_agent: "メタエージェント"
+stage.report: "レポート生成"

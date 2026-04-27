@@ -26,6 +26,8 @@ from textual.widgets import (
     Switch,
 )
 
+from core.i18n import t
+
 # ── Data Classes ──
 
 
@@ -349,15 +351,15 @@ class WelcomeScreen(Screen):
         yield Header()
         with ScrollableContainer(id="wizard-content"):
             yield Static(
-                "[bold cyan]BioAuto Setup Wizard[/]\n\n"
-                "바이오인포매틱스 연구 자동화 플랫폼 초기 설정을 도와드립니다.\n"
-                "5단계로 구성되어 있으며, 각 단계에서 설정을 입력합니다.\n",
+                f"[bold cyan]{t('wizard.welcome_title')}[/]\n\n"
+                f"{t('wizard.welcome_intro')}\n"
+                f"{t('wizard.welcome_steps')}\n",
                 id="welcome-text",
             )
             yield Rule()
-            yield Static("[bold]환경 체크[/]", classes="section-title")
+            yield Static(f"[bold]{t('wizard.env_check_label')}[/]", classes="section-title")
             yield Static("", id="check-results")
-            yield Button("환경 체크 실행", id="run-checks", variant="default")
+            yield Button(t("wizard.env_check_btn"), id="run-checks", variant="default")
         with Horizontal(id="nav-bar"):
             yield Button("Next →", id="next", variant="primary")
         yield Footer()
@@ -394,14 +396,14 @@ class LLMBackendScreen(Screen):
         yield Header()
         with ScrollableContainer(id="wizard-content"):
             yield Static(
-                "[bold cyan]Step 2/5: LLM 백엔드 설정[/]\n",
+                f"[bold cyan]{t('wizard.llm_title')}[/]\n",
                 classes="section-title",
             )
-            yield Static("사용할 LLM 백엔드를 선택하세요:")
+            yield Static(t("wizard.llm_select"))
             with RadioSet(id="backend-select"):
-                yield RadioButton("Ollama (로컬 서버)", id="radio-ollama")
-                yield RadioButton("OpenAI (API)", id="radio-openai")
-                yield RadioButton("Anthropic (API)", id="radio-anthropic")
+                yield RadioButton(t("wizard.llm_ollama"), id="radio-ollama")
+                yield RadioButton(t("wizard.llm_openai"), id="radio-openai")
+                yield RadioButton(t("wizard.llm_anthropic"), id="radio-anthropic")
 
             # Ollama panel
             with Vertical(id="ollama-panel"):
@@ -413,10 +415,10 @@ class LLMBackendScreen(Screen):
                 )
                 yield Label("Model:")
                 yield Input(placeholder="qwen3:30b", id="ollama-model")
-                yield Label("Timeout (초):")
+                yield Label(t("wizard.timeout_label"))
                 yield Input(placeholder="120", id="ollama-timeout")
                 yield Button(
-                    "연결 테스트", id="test-connection", variant="default"
+                    t("wizard.test_btn"), id="test-connection", variant="default"
                 )
                 yield Static("", id="connection-status")
 
@@ -528,7 +530,7 @@ class LLMBackendScreen(Screen):
         model = self.query_one("#ollama-model", Input).value
         status = self.query_one("#connection-status", Static)
         self.app.call_from_thread(
-            status.update, "[yellow]연결 테스트 중...[/]"
+            status.update, f"[yellow]{t('wizard.testing')}[/]"
         )
         try:
             import httpx
@@ -542,17 +544,14 @@ class LLMBackendScreen(Screen):
                     for n in names
                 )
                 if found:
-                    msg = f"[green]연결 성공. 모델 '{model}' 확인됨.[/]"
+                    msg = f"[green]{t('wizard.conn_ok', model=model)}[/]"
                 else:
                     avail = ", ".join(names[:5])
-                    msg = (
-                        f"[yellow]연결 성공. 모델 '{model}' 없음. "
-                        f"사용 가능: {avail}[/]"
-                    )
+                    msg = f"[yellow]{t('wizard.conn_ok_no_model', model=model, avail=avail)}[/]"
             else:
-                msg = f"[red]서버 응답 오류: {resp.status_code}[/]"
+                msg = f"[red]{t('wizard.conn_server_error', code=resp.status_code)}[/]"
         except Exception as e:
-            msg = f"[red]연결 실패: {e}[/]"
+            msg = f"[red]{t('wizard.conn_failed', error=e)}[/]"
         self.app.call_from_thread(status.update, msg)
 
 
@@ -563,23 +562,23 @@ class ExecutionScreen(Screen):
         yield Header()
         with ScrollableContainer(id="wizard-content"):
             yield Static(
-                "[bold cyan]Step 3/5: 실행 환경 설정[/]\n",
+                f"[bold cyan]{t('wizard.exec_title')}[/]\n",
                 classes="section-title",
             )
-            yield Label("컨테이너 런타임:")
+            yield Label(t("wizard.container_label"))
             with RadioSet(id="runtime-select"):
                 yield RadioButton("Docker", id="radio-docker")
                 yield RadioButton("Singularity", id="radio-singularity")
                 yield RadioButton("Apptainer", id="radio-apptainer")
 
             yield Rule()
-            yield Label("결과 저장 디렉토리:")
+            yield Label(t("wizard.results_dir_label"))
             yield Input(placeholder="./results", id="results-dir")
 
             yield Rule()
-            yield Static("[bold]Nextflow 파이프라인 실행[/]")
+            yield Static(f"[bold]{t('wizard.nf_label')}[/]")
             with Horizontal(classes="switch-row"):
-                yield Label("Nextflow 활성화:")
+                yield Label(t("wizard.nf_enabled_label"))
                 yield Switch(value=False, id="nf-switch")
 
             with Vertical(id="nf-panel"):
@@ -654,25 +653,25 @@ class AdvancedScreen(Screen):
         yield Header()
         with ScrollableContainer(id="wizard-content"):
             yield Static(
-                "[bold cyan]Step 4/5: 고급 설정[/]\n"
-                "기본값으로 충분하다면 바로 Next를 누르세요.\n",
+                f"[bold cyan]{t('wizard.adv_title')}[/]\n"
+                f"{t('wizard.adv_hint')}\n",
                 classes="section-title",
             )
             with Horizontal(classes="switch-row"):
-                yield Label("멀티 에이전트 토론:")
+                yield Label(t("wizard.debate_label"))
                 yield Switch(value=True, id="debate-switch")
-            yield Label("토론 라운드 수:")
+            yield Label(t("wizard.debate_rounds_label"))
             yield Input(placeholder="3", id="debate-rounds")
 
             yield Rule()
             with Horizontal(classes="switch-row"):
-                yield Label("GSEA 농축 분석:")
+                yield Label(t("wizard.gsea_label"))
                 yield Switch(value=True, id="enrichment-switch")
             with Horizontal(classes="switch-row"):
-                yield Label("데이터 소스 통합:")
+                yield Label(t("wizard.datasource_label"))
                 yield Switch(value=True, id="aggregation-switch")
             with Horizontal(classes="switch-row"):
-                yield Label("RAG (벡터 DB):")
+                yield Label(t("wizard.rag_label"))
                 yield Switch(value=True, id="rag-switch")
 
         with Horizontal(id="nav-bar"):
@@ -728,7 +727,7 @@ class SummaryScreen(Screen):
         yield Header()
         with ScrollableContainer(id="wizard-content"):
             yield Static(
-                "[bold cyan]Step 5/5: 설정 요약[/]\n",
+                f"[bold cyan]{t('wizard.summary_title')}[/]\n",
                 classes="section-title",
             )
             yield Static("", id="summary-text")
@@ -746,7 +745,7 @@ class SummaryScreen(Screen):
 
         lines = []
         # LLM
-        lines.append("[bold]LLM 백엔드[/]")
+        lines.append(f"[bold]{t('wizard.summary_llm')}[/]")
         if state.llm_backend_type == "ollama":
             lines.append("  Provider: Ollama")
             lines.append(f"  URL: {state.ollama_url}")
@@ -762,7 +761,7 @@ class SummaryScreen(Screen):
             lines.append(f"  API Key Env: {state.anthropic_api_key_env}")
 
         lines.append("")
-        lines.append("[bold]실행 환경[/]")
+        lines.append(f"[bold]{t('wizard.summary_exec')}[/]")
         lines.append(f"  Container: {state.container_runtime}")
         lines.append(f"  Results: {state.results_dir}")
         lines.append(f"  Nextflow: {'ON' if state.enable_nextflow else 'OFF'}")
@@ -771,7 +770,7 @@ class SummaryScreen(Screen):
             lines.append(f"  Memory: {state.max_memory}, CPUs: {state.max_cpus}")
 
         lines.append("")
-        lines.append("[bold]고급 설정[/]")
+        lines.append(f"[bold]{t('wizard.summary_adv')}[/]")
         lines.append(
             f"  Debate: {'ON' if state.enable_debate else 'OFF'}"
             f" ({state.debate_rounds} rounds)"
@@ -786,7 +785,7 @@ class SummaryScreen(Screen):
 
         self.query_one("#summary-text", Static).update("\n".join(lines))
         self.query_one("#save-path", Static).update(
-            f"[dim]저장 경로: {config_path.resolve()}[/]"
+            f"[dim]{t('wizard.save_path', path=config_path.resolve())}[/]"
         )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -799,13 +798,12 @@ class SummaryScreen(Screen):
         try:
             self.app.state.save_config(self.app.config_path)
             self.query_one("#save-status", Static).update(
-                "[bold green]설정이 저장되었습니다! "
-                "아무 키나 눌러 종료하세요.[/]"
+                f"[bold green]{t('wizard.save_ok')}[/]"
             )
             self.set_timer(1.5, self.app.exit)
         except Exception as e:
             self.query_one("#save-status", Static).update(
-                f"[red]저장 실패: {e}[/]"
+                f"[red]{t('wizard.save_fail', error=e)}[/]"
             )
 
 

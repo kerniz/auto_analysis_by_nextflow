@@ -42,20 +42,29 @@ ALL_STAGES = [
 ]
 
 STAGE_LABELS = {
-    STAGE_PUBMED: "PubMed 메타데이터",
-    STAGE_SRA: "SRA 탐색",
-    STAGE_SEQUENCING: "시퀀싱 감지",
-    STAGE_FETCHNGS: "SRA 다운로드",
-    STAGE_NFCORE: "nf-core 실행",
-    STAGE_ANALYSIS: "다운스트림 분석",
-    STAGE_DATA_AGGREGATION: "데이터 통합",
-    STAGE_ENRICHMENT: "경로 분석",
-    STAGE_LLM: "LLM 합의 분석",
-    STAGE_DEBATE: "멀티에이전트 토론",
-    STAGE_RES: "연구 평가 (RES)",
-    STAGE_META: "메타 에이전트",
-    STAGE_REPORT: "보고서 생성",
+    STAGE_PUBMED: "PubMed Metadata",
+    STAGE_SRA: "SRA Exploration",
+    STAGE_SEQUENCING: "Sequencing Detection",
+    STAGE_FETCHNGS: "SRA Download",
+    STAGE_NFCORE: "nf-core Execution",
+    STAGE_ANALYSIS: "Downstream Analysis",
+    STAGE_DATA_AGGREGATION: "Data Aggregation",
+    STAGE_ENRICHMENT: "Pathway Analysis",
+    STAGE_LLM: "LLM Consensus Analysis",
+    STAGE_DEBATE: "Multi-Agent Debate",
+    STAGE_RES: "Research Evaluation (RES)",
+    STAGE_META: "Meta Agent",
+    STAGE_REPORT: "Report Generation",
 }
+
+
+def get_stage_label(stage: str) -> str:
+    """Return the i18n stage label for the current locale."""
+    from core.i18n import t
+    key = f"stage.{stage}"
+    result = t(key)
+    # Fall back to static dict if no translation found
+    return result if result != key else STAGE_LABELS.get(stage, stage)
 
 
 @dataclass

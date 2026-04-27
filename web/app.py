@@ -16,11 +16,12 @@ from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 
 from core.events import (
-    STAGE_LABELS,
     EventType,
     PipelineEvent,
     PipelineEventBus,
+    get_stage_label,
 )
+from core.i18n import t
 from web.results_scanner import ResultsScanner
 
 # ── In-memory State ──
@@ -59,7 +60,7 @@ class DashboardState:
             self._bg_task = None
             self.running = False
             self._add_log(
-                datetime.now().strftime("%H:%M:%S"), "warn", "파이프라인 중지됨"
+                datetime.now().strftime("%H:%M:%S"), "warn", t("web.pipeline_stopped")
             )
             return True
         return False
@@ -71,12 +72,12 @@ class DashboardState:
         if task and not task.done():
             task.cancel()
             ts = datetime.now().strftime("%H:%M:%S")
-            self._add_log(ts, "warn", f"[{pmid}] 개별 중지됨")
+            self._add_log(ts, "warn", t("web.pmid_stopped", pmid=pmid))
             if pmid in self.pmid_status:
                 self.pmid_status[pmid]["status"] = "cancelled"
             self._broadcast_sse(PipelineEvent(
                 event_type=EventType.LOG_MESSAGE,
-                message=f"[{pmid}] 중지됨",
+                message=t("web.pmid_stopped", pmid=pmid),
             ))
             return True
         return False
@@ -107,32 +108,32 @@ class DashboardState:
         ts = event.timestamp.strftime("%H:%M:%S")
 
         if event.event_type == EventType.PIPELINE_START:
-            self._add_log(ts, "info", f"파이프라인 시작 ({len(self.pmids)}개 PMID)")
+            self._add_log(ts, "info", t("web.pipeline_start", count=len(self.pmids)))
 
         elif event.event_type == EventType.PMID_START:
             if event.pmid in self.pmid_status:
                 self.pmid_status[event.pmid]["status"] = "running"
                 self.pmid_status[event.pmid]["start_time"] = event.timestamp.isoformat()
-            self._add_log(ts, "info", f"[{event.pmid}] 처리 시작")
+            self._add_log(ts, "info", t("web.pmid_start", pmid=event.pmid))
 
         elif event.event_type == EventType.PMID_STAGE_START:
-            stage_label = STAGE_LABELS.get(event.stage, event.stage)
+            stage_label = get_stage_label(event.stage)
             if event.pmid in self.pmid_status:
                 self.pmid_status[event.pmid]["current_stage"] = stage_label
-            self._add_log(ts, "info", f"[{event.pmid}] {stage_label} ...")
+            self._add_log(ts, "info", t("web.pmid_stage", pmid=event.pmid, stage=stage_label))
 
         elif event.event_type == EventType.PMID_STAGE_COMPLETE:
-            stage_label = STAGE_LABELS.get(event.stage, event.stage)
+            stage_label = get_stage_label(event.stage)
             if event.pmid in self.pmid_status:
                 info = self.pmid_status[event.pmid]
                 info["completed"] = info.get("completed", 0) + 1
                 info["current_stage"] = stage_label
             extra = f" — {event.message}" if event.message else ""
-            self._add_log(ts, "success", f"[{event.pmid}] ✅ {stage_label}{extra}")
+            self._add_log(ts, "success", t("web.pmid_done", pmid=event.pmid, stage=stage_label, extra=extra))
 
         elif event.event_type == EventType.PMID_STAGE_ERROR:
-            stage_label = STAGE_LABELS.get(event.stage, event.stage)
-            self._add_log(ts, "error", f"[{event.pmid}] ❌ {stage_label}: {event.message}")
+            stage_label = get_stage_label(event.stage)
+            self._add_log(ts, "error", t("web.pmid_error", pmid=event.pmid, stage=stage_label, message=event.message))
 
         elif event.event_type == EventType.PMID_COMPLETE:
             status_val = event.data.get("status", "completed")
@@ -140,15 +141,15 @@ class DashboardState:
                 if status_val == "completed":
                     self.pmid_status[event.pmid]["status"] = "completed"
                     self.completed_count += 1
-                    self._add_log(ts, "success", f"[{event.pmid}] 완료!")
+                    self._add_log(ts, "success", t("web.pmid_complete", pmid=event.pmid))
                 else:
                     self.pmid_status[event.pmid]["status"] = "failed"
                     self.failed_count += 1
-                    self._add_log(ts, "error", f"[{event.pmid}] 실패")
+                    self._add_log(ts, "error", t("web.pmid_failed", pmid=event.pmid))
 
         elif event.event_type == EventType.PIPELINE_COMPLETE:
             self.running = False
-            self._add_log(ts, "success", "═══ 파이프라인 완료 ═══")
+            self._add_log(ts, "success", t("web.pipeline_complete"))
 
         elif event.event_type == EventType.LOG_MESSAGE:
             self._add_log(ts, "info", event.message)
