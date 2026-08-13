@@ -1,6 +1,6 @@
-# bioauto 확장 비전: 자율 연구 오픈 게재 커뮤니티 청사진 (Universal Platform Blueprint v2.2.1)
+# bioauto 확장 비전: 자율 연구 오픈 게재 커뮤니티 청사진 (Universal Platform Blueprint v2.3)
 
-> **문서 버전**: v2.2.1  
+> **문서 버전**: v2.3.0  
 > **작성일**: 2026-08-13  
 > **상태**: 최종 마스터 비전 제안서 (Master Product Blueprint)
 
@@ -40,7 +40,37 @@
 
 ---
 
-## 2. 투표 메커니즘 및 게임이론 설계 (Star & Anti-Star Game Theory)
+## 2. 브랜딩 및 플랫폼 네이밍 후보 (Brand Naming Candidates)
+
+`paperauto` 및 `autopaper`는 기존 타 프로젝트와의 중복을 피하기 위해, 플랫폼의 정체성(아이디어 + AI 검증 + 캐주얼 갤러리 + Star 추천)을 가장 잘 드러내는 브랜드 네이밍 후보군입니다:
+
+### 🏆 추천 S급 브랜드 네이밍 (Top Recommendations)
+
+1. **`IdeaForge` (아이디어포지)** ⭐ *최우수 추천*
+   - **의미**: "아이디어를 논문으로 단조(Forge)해내는 대장간"
+   - **특징**: 직관적이고 강력하며 글로벌 IT/AI 씬에서 호응도가 매우 높은 네이밍.
+
+2. **`StarPaper` (스타페이퍼)** ⭐ *최우수 추천*
+   - **의미**: "Star(추천)로 가치가 증명되는 오픈 아이디어 논문"
+   - **특징**: 본 서비스의 핵심 추천 알고리즘인 Star/Anti-Star 시스템과 직결되는 캐주얼 브랜딩.
+
+3. **`HypoPaper` (하이포페이퍼)**
+   - **의미**: Hypothesis(가설) + Paper(논문)
+   - **특징**: "모든 정식 논문은 작은 가설(Hypothesis) 하나에서 시작된다"는 오리지널 정체성 강조.
+
+4. **`PaperForge` (페이퍼포지)**
+   - **의미**: 모든 아이디어를 논문 포맷으로 단조하는 공간.
+
+5. **`SciGalleries` (싸이갤러리 / SciBoard)**
+   - **의미**: Science + Galleries
+   - **특징**: 디시인사이드/Reddit의 주제별 갤러리 감성을 드러내는 커뮤니티 중심 네이밍.
+
+6. **`ProofStar` (프루프스타)**
+   - **의미**: Proof(실증 검증) + Star(투표)
+
+---
+
+## 3. 투표 메커니즘 및 게임이론 설계 (Star & Anti-Star Game Theory)
 
 ### 🌟 Star (⭐) 투표 메커니즘
 - **방식**: **1클릭 방식 (Click-and-Go)**.
@@ -54,21 +84,12 @@
   3. **-10 Star 페널티 효과**: AI 검증 및 집단지성 컨센서스로 정식 승인된 Anti-Star 1개는 **마이너스 10개의 Star(-10 Stars)**에 상응하는 강력한 중량을 가짐.
   4. **🚫 동일 사유 중복합산 금지 (Deduplication Rule)**:
      - 이미 다른 독자/에이전트가 지적하여 승인된 동일한 내용의 반론 사유는 **단 1개의 Anti-Star(-10 Star 1회 적용)**로 통합 처리.
-     - 후속 사용자는 기존 지적 사유에 "지지/동의(Support)" 표시만 가능하며, 동일 사유에 의한 중복 스태킹 페널티(-10 × N) 중복 부과는 금지하여 공정성 유지.
-
-> **💡 게임이론적 효과**: 맹목적인 비추천/좌표찍기는 100% 차단되면서, **실제 치명적인 맹점을 지적하는 단 1개의 정밀한 Anti-Star만으로도 잘못된 아이디어를 제대로 정정(-10 Star 효과)**할 수 있고, 동일 사유 중복 공격(Dogpiling)까지 완벽 차단됩니다.
 
 ---
 
-## 3. 종합 아키텍처 및 로드맵 (Blueprint & Roadmap)
+## 4. 종합 아키텍처 및 로드맵 (Blueprint & Roadmap)
 
 - [x] **Phase 1: 코어 분석 & 토론 엔진 (`bioauto` v4.0)** (Nextflow + Multi-LLM 토론 + 1,593개 pytest)
 - [ ] **Phase 2: AI 품질 선별 & 자국어 작성-다국어 번역 엔진 (v4.5)** (High-Signal Filter + Multi-Lingual Translator)
-- [ ] **Phase 3: Anti-Star 사유명시/AI스크리닝(-10스타/동일사유1회) & 최초 게재일 인증 (v5.0)** (Deduplicated Anti-Star + SHA-256 Priority)
+- [ ] **Phase 3: Anti-Star 사유명시/AI스크리닝(-10스타/동일사유1회) & 최초 게재일 인증 (v5.0)** (-10 Star Game Theory + SHA-256 Priority)
 - [ ] **Phase 4: 웹 갤러리 UI & 1클릭 인용/졸업 축하 커뮤니티 (v5.5)** (DC/Reddit 스타일 갤러리 + 명예의 전당)
-
----
-
-## 4. 결론
-
-본 v2.2.1 청사진은 **"동일 사유 Anti-Star 중복 금지 룰"**을 추가함으로써, 억까 좌표찍기와 동일 사유 다중 공격(Dogpiling)을 완벽히 방지하는 철통같은 공정성을 완성합니다.
