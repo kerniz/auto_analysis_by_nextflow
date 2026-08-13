@@ -67,6 +67,7 @@ python3 -m core.cli run <PMIDs>
 | 문서 | 역할 | 전역 지침 매핑 |
 |------|------|----------------|
 | `docs/ARCHITECTURE.md` | 설계 철학, 시스템 구조, 데이터 흐름, 기술 스택 | 안정적, 자주 안 바뀌는 것 |
+| `docs/CITIZEN_SCIENCE_PLATFORM_VISION.md` | 자율 연구 게재 커뮤니티 & 컴퓨팅 확장 비전 문서 | 비전 및 로드맵 제안서 |
 | `docs/DEVELOPMENT_HISTORY.md` | 버전별 개발 이력, Phase별 변경사항 | `개발히스토리.md` 역할 |
 | `README.md` | 설치/실행/사용법 (간결) | 사용법 기본 문서 |
 
