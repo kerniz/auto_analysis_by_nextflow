@@ -7,6 +7,7 @@ CLI Entry Point - Bioinformatics Research Automation Platform
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -2206,7 +2207,12 @@ def doctor(json_out):
             res = subprocess.run([java_bin, "-version"], capture_output=True, text=True, timeout=5)
             out = res.stderr or res.stdout
             first_line = out.splitlines()[0] if out else "java"
-            diagnostics["java"] = {"binary": java_bin, "info": first_line, "status": "ok"}
+            match = re.search(r'"(\d+)(?:\.(\d+))?', first_line)
+            major_ver = int(match.group(1)) if match else 0
+            if major_ver == 1:  # Old format e.g. 1.8
+                major_ver = int(match.group(2)) if match and match.group(2) else 1
+            status = "ok" if major_ver >= 17 else "warn (Java 17+ required for Nextflow)"
+            diagnostics["java"] = {"binary": java_bin, "info": first_line, "major_version": major_ver, "status": status}
         except Exception as e:
             diagnostics["java"] = {"binary": java_bin, "info": str(e), "status": "warn"}
     else:

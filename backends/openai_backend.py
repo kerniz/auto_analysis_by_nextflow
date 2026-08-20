@@ -40,13 +40,18 @@ class OpenAIBackend(LLMBackend):
             config = LLMConfig(model="gpt-4")
 
         super().__init__(config)
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY") or "dummy-gateway-key"
+
+        if base_url:
+            self.api_key = api_key or os.environ.get("OPENAI_API_KEY") or "dummy-gateway-key"
+            self.default_headers = default_headers.copy() if default_headers else {}
+            if "X-Melchizedek-Client" not in self.default_headers:
+                self.default_headers["X-Melchizedek-Client"] = client_label or "bioauto/pipeline"
+        else:
+            self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+            self.default_headers = default_headers.copy() if default_headers else {}
+
         self.base_url = base_url
         self.client_label = client_label
-        self.default_headers = default_headers or {}
-        if "X-Melchizedek-Client" not in self.default_headers:
-            self.default_headers["X-Melchizedek-Client"] = self.client_label
-
         self._client = None
 
     @property

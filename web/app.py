@@ -309,7 +309,9 @@ def create_app(
     if server_token:
         @app.middleware("http")
         async def verify_server_token(request: Request, call_next):
-            if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
+            is_state_change = request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/")
+            is_protected_read = request.url.path.startswith("/pipeline-files") or request.url.path.startswith("/api/results/")
+            if is_state_change or is_protected_read:
                 auth_header = request.headers.get("X-Server-Token") or request.headers.get("Authorization", "").replace("Bearer ", "")
                 # 토큰 비교는 상수 시간으로 — 길이/접두사 누출 방지
                 if not secrets.compare_digest(auth_header, server_token):

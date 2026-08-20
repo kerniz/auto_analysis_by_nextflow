@@ -109,8 +109,10 @@ find_source() {
 # --- Create venv & install ---
 install_bioauto() {
     local venv_dir="${INSTALL_DIR}/venv"
+    local profile="${BIOAUTO_PROFILE:-full}"
 
     mkdir -p "${INSTALL_DIR}"
+    info "설치 프로필: ${profile}"
 
     # 기존 venv가 있으면 재사용
     if [[ -d "${venv_dir}" ]] && [[ -f "${venv_dir}/bin/python3" ]]; then
@@ -137,24 +139,25 @@ install_bioauto() {
     "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}" -q
     ok "bioauto 코어 설치 완료"
 
-    # RAG 지식 DB (자동 축적 시스템 — 강력 추천)
-    info "RAG 지식 DB 설치 중 (자동 연구 축적)..."
-    if "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[rag]" -q 2>/dev/null; then
-        ok "RAG 지식 DB 설치 완료 (chromadb + sentence-transformers)"
-        RAG_OK=true
-    else
-        warn "RAG 설치 실패 — 지식 자동 축적 비활성화 (나중에 수동 설치 가능)"
-        RAG_OK=false
+    if [[ "$profile" == "web" || "$profile" == "full" ]]; then
+        "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[web,tui]" -q 2>/dev/null || true
     fi
 
-    # 선택적 의존성 설치 (실패해도 무시)
-    info "선택적 의존성 설치 중 (실패해도 OK)..."
-    "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[openai,anthropic,tui,web]" -q 2>/dev/null || true
+    if [[ "$profile" == "analysis" || "$profile" == "full" ]]; then
+        # RAG 지식 DB
+        info "RAG 지식 DB 및 분석 패키지 설치 중..."
+        if "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[rag]" -q 2>/dev/null; then
+            ok "RAG 지식 DB 설치 완료 (chromadb + sentence-transformers)"
+            RAG_OK=true
+        else
+            warn "RAG 설치 실패 — 지식 자동 축적 비활성화 (나중에 수동 설치 가능)"
+            RAG_OK=false
+        fi
+        "${venv_dir}/bin/pip" install -e "${SOURCE_DIR}[openai,anthropic]" -q 2>/dev/null || true
+        "${venv_dir}/bin/pip" install biopython -q 2>/dev/null || true
+    fi
 
-    # biopython (PubMed 접근용)
-    "${venv_dir}/bin/pip" install biopython -q 2>/dev/null || true
-
-    ok "의존성 설치 완료"
+    ok "의존성 설치 완료 (${profile} 프로필)"
 }
 
 # --- Create wrapper script ---

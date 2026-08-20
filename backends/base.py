@@ -52,6 +52,7 @@ class LLMResponse:
             "latency_ms": self.latency_ms,
             "tokens_used": self.tokens_used,
             "error_message": self.error_message,
+            "raw_response": self.raw_response,
             "timestamp": self.timestamp.isoformat(),
         }
 
