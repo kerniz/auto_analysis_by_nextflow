@@ -28,8 +28,6 @@ class AtacSeqPlugin(SequencingTypePlugin):
             "transposase-accessible", "tn5 transposase",
             "chromatin landscape", "accessible chromatin",
             "atac", "transposition",
-            "single-cell atac", "scatac-seq",
-            "multiome", "10x multiome",
         ]
 
     @property
@@ -61,9 +59,14 @@ class AtacSeqPlugin(SequencingTypePlugin):
 
     @property
     def exclude_keywords(self) -> list[str]:
+        # scATAC/Multiome은 bulk nf-core/atacseq(peak calling) 대상이 아님 —
+        # 지원 전까지 unknown → safe block (RFC 0001 F3)
         return [
             "chip-seq", "rna-seq", "whole genome",
             "bisulfite", "methylation",
+            "single-cell atac", "single cell atac", "scatac",
+            "snatac", "single-nucleus atac", "single nucleus atac",
+            "multiome",
         ]
 
     def calculate_score(
@@ -105,9 +108,6 @@ class AtacSeqPlugin(SequencingTypePlugin):
             (r'(peak|peak)\s+(calling|detection)', 0.2),
             (r'(chromatin|accessibility)\s+(profile|map|landscape)', 0.2),
             (r'(regulatory|enhancer|promoter)\s+(element|region)', 0.15),
-            (r'single[- ]cell\s+atac', 0.3),
-            (r'scatac', 0.3),
-            (r'multiome', 0.25),
         ]
 
         for pattern, weight in context_patterns:

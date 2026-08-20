@@ -63,9 +63,16 @@ class ScRnaSeqPlugin(SequencingTypePlugin):
 
     @property
     def exclude_keywords(self) -> list[str]:
+        # spatial/multiome은 nf-core/scrnaseq로 실행하면 안 되므로 감지 자체를 차단
+        # (지원 전까지 unknown → safe block, RFC 0001 F1/F3)
         return [
             "bulk rna-seq", "bulk sequencing",
             "whole genome", "dna-seq", "chip-seq", "atac-seq",
+            "spatial transcriptomics", "spatially resolved transcriptom",
+            "spatial gene expression",
+            "visium", "xenium", "stereo-seq", "merfish",
+            "cosmx", "geomx", "slide-seq", "seqfish", "starmap",
+            "multiome",
         ]
 
     def calculate_score(

@@ -2186,11 +2186,76 @@ def _find_all_pids() -> dict[str, list[int]]:
 
 
 @cli.command()
-@click.option("--host", default="0.0.0.0", help="서버 호스트")
+@click.option("--json", "json_out", is_flag=True, help="JSON 형식으로 결과 출력")
+def doctor(json_out):
+    """플랫폼 환경, 런타임, 의존성 및 백엔드 상태를 진단합니다."""
+    import shutil
+    import subprocess
+    import sys
+
+    diagnostics = {}
+
+    # Python
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    diagnostics["python"] = {"version": py_ver, "status": "ok" if sys.version_info >= (3, 10) else "warn"}
+
+    # Java (requires 17+)
+    java_bin = shutil.which("java")
+    if java_bin:
+        try:
+            res = subprocess.run([java_bin, "-version"], capture_output=True, text=True, timeout=5)
+            out = res.stderr or res.stdout
+            first_line = out.splitlines()[0] if out else "java"
+            diagnostics["java"] = {"binary": java_bin, "info": first_line, "status": "ok"}
+        except Exception as e:
+            diagnostics["java"] = {"binary": java_bin, "info": str(e), "status": "warn"}
+    else:
+        diagnostics["java"] = {"binary": None, "info": "java not found (Nextflow requires Java 17+)", "status": "missing"}
+
+    # Nextflow
+    nf_bin = shutil.which("nextflow")
+    if nf_bin:
+        diagnostics["nextflow"] = {"binary": nf_bin, "status": "ok"}
+    else:
+        diagnostics["nextflow"] = {"binary": None, "status": "missing"}
+
+    # Container runtime
+    containers = [c for c in ["docker", "singularity", "apptainer", "podman"] if shutil.which(c)]
+    diagnostics["container_runtimes"] = containers
+
+    # Environment Secrets (Redacted)
+    keys_check = {}
+    for key_name in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "SEMANTIC_SCHOLAR_API_KEY", "NCBI_API_KEY"]:
+        val = os.environ.get(key_name)
+        if val:
+            keys_check[key_name] = f"{val[:4]}...***(redacted)"
+        else:
+            keys_check[key_name] = "not_set"
+    diagnostics["environment_keys"] = keys_check
+
+    if json_out:
+        click.echo(json.dumps(diagnostics, indent=2, ensure_ascii=False))
+        return
+
+    click.echo("=== BioAuto Platform Diagnostics (Doctor) ===")
+    click.echo(f"Python: {diagnostics['python']['version']} ({diagnostics['python']['status'].upper()})")
+    click.echo(f"Java: {diagnostics['java']['info']} ({diagnostics['java']['status'].upper()})")
+    click.echo(f"Nextflow: {diagnostics['nextflow']['binary'] or 'Not installed'} ({diagnostics['nextflow']['status'].upper()})")
+    click.echo(f"Containers: {', '.join(containers) if containers else 'None'}")
+    click.echo("\nEnvironment Keys:")
+    for k, v in keys_check.items():
+        click.echo(f"  {k}: {v}")
+    click.echo("=============================================")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="서버 호스트 (기본값: 127.0.0.1)")
 @click.option("--port", default=8888, type=int, help="서버 포트")
 @click.option("--results-dir", "-o", type=click.Path(), multiple=True,
               help="결과 저장 디렉토리 (여러 개 지정 가능)")
-def web(host, port, results_dir):
+@click.option("--allow-remote", is_flag=True, help="외부 네트워크 바인딩(0.0.0.0 등) 허용")
+@click.option("--server-token", help="원격 바인딩 시 인증 토큰 (미지정 시 자동 생성)")
+def web(host, port, results_dir, allow_remote, server_token):
     """웹 대시보드 서버를 시작합니다.
 
     브라우저에서 http://host:port 로 접근하여 파이프라인을 모니터링합니다.
@@ -2201,6 +2266,23 @@ def web(host, port, results_dir):
     예시: bioauto web --port 8080
     종료: bioauto stop
     """
+    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    if not is_loopback and not allow_remote:
+        click.echo(click.style(
+            f"[ERROR] Security Guard: Binding to non-loopback host '{host}' requires explicit '--allow-remote' flag.",
+            fg="red",
+        ))
+        return
+
+    if not is_loopback and allow_remote and not server_token:
+        import secrets
+        server_token = secrets.token_hex(16)
+        click.echo(click.style(
+            f"[WARNING] Remote binding enabled on host '{host}'. State-changing APIs require 'X-Server-Token' header.",
+            fg="yellow",
+        ))
+        click.echo(f"Generated Server Token: {server_token}\n")
+
     try:
         import uvicorn
 
@@ -2226,7 +2308,7 @@ def web(host, port, results_dir):
     click.echo("Stop: bioauto stop web  /  bioauto stop  /  Ctrl+C\n")
 
     try:
-        app = create_app(results_dirs=dirs)
+        app = create_app(results_dirs=dirs, server_token=server_token)
         uvicorn.run(app, host=host, port=port)
     finally:
         pidfile.unlink(missing_ok=True)

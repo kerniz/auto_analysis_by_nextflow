@@ -1066,12 +1066,7 @@ class AsyncPipeline:
                     nfcore_result = await self._run_nfcore_via_slurm(
                         pmid, result,
                     )
-                    if nfcore_result:
-                        result.pipeline_execution = nfcore_result
-                        result.downstream_analysis = nfcore_result.get(
-                            "analysis", {},
-                        )
-                        self._mark_step_done(pmid, "nfcore_done")
+                    self._record_nfcore_result(pmid, result, nfcore_result)
                     self._emit(
                         "pmid_stage_complete", pmid=pmid, stage="nfcore",
                         message=nfcore_result.get("status", "skipped")
@@ -1625,12 +1620,52 @@ class AsyncPipeline:
                 logger.warning("메타 에이전트 판정 실패: %s", e)
                 result.debate_report["meta_verdict"] = {"error": str(e)}
 
+    def _record_nfcore_result(
+        self,
+        pmid: str,
+        result: PMIDResult,
+        nfcore_result: dict[str, Any] | None,
+    ) -> None:
+        """nf-core 실행 결과를 기록. 차단(blocked)은 완료(nfcore_done)와
+        분리해 표시한다 — 나중에 해당 타입이 지원되면 재평가되도록
+        nfcore_done checkpoint를 찍지 않는다 (RFC 0001 F13)."""
+        if not nfcore_result:
+            return
+        result.pipeline_execution = nfcore_result
+        if nfcore_result.get("status") == "blocked_unsupported_type":
+            self._mark_step_done(pmid, "nfcore_blocked")
+            return
+        result.downstream_analysis = nfcore_result.get("analysis", {})
+        self._mark_step_done(pmid, "nfcore_done")
+
     async def _run_nfcore_via_slurm(
         self,
         pmid: str,
         result: PMIDResult,
     ) -> dict[str, Any] | None:
         """Slurm REST API로 nf-core fetchngs + rnaseq 제출 및 대기."""
+        # 미지원/unknown 시퀀싱 타입은 Slurm 연결 전에 제출을 차단한다.
+        # (기존 rnaseq fallback은 spatial/multiome 등 미지원 데이터를
+        # 잘못된 파이프라인으로 실행시켰음 — RFC 0001 F8)
+        seq_type = result.sequencing_result.get("sequencing_type", "unknown")
+        # chip_seq는 map 키 오타로 실제 제출된 적이 없고, 현행 script
+        # 템플릿이 rnaseq 전용 플래그라 검증 전까지 차단 (F12/F14, B6)
+        pipeline_map = {
+            "bulk_rna_seq": ("nf-core/rnaseq", "3.14.0"),
+            "scrna_seq": ("nf-core/scrnaseq", "2.7.1"),
+            "atac_seq": ("nf-core/atacseq", "2.1.2"),
+        }
+        if seq_type not in pipeline_map:
+            logger.warning(
+                "PMID %s: 시퀀싱 타입 '%s'은 Slurm nf-core 실행 미지원 — 제출 차단",
+                pmid, seq_type,
+            )
+            return {
+                "status": "blocked_unsupported_type",
+                "sequencing_type": seq_type,
+            }
+        pipeline_name, pipeline_ver = pipeline_map[seq_type]
+
         try:
             from core.slurm_client import SlurmClient
         except ImportError:
@@ -1655,18 +1690,6 @@ class AsyncPipeline:
         ids_file = Path(nfcore_dir) / "ids.csv"
         ids_file.parent.mkdir(parents=True, exist_ok=True)
         ids_file.write_text("\n".join(public_ids) + "\n")
-
-        # 시퀀싱 타입에 따라 파이프라인 결정
-        seq_type = result.sequencing_result.get("sequencing_type", "unknown")
-        pipeline_map = {
-            "bulk_rna_seq": ("nf-core/rnaseq", "3.14.0"),
-            "scrna_seq": ("nf-core/scrnaseq", "2.7.1"),
-            "atac_seq": ("nf-core/atacseq", "2.1.2"),
-            "chipseq": ("nf-core/chipseq", "2.0.0"),
-        }
-        pipeline_name, pipeline_ver = pipeline_map.get(
-            seq_type, ("nf-core/rnaseq", "3.14.0"),
-        )
 
         # Linux 경로로 변환
         linux_nfs = nfs_base.replace(

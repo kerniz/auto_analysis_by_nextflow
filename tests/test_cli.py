@@ -615,3 +615,33 @@ class TestLoadConfig:
         assert result == {}
 
 
+class TestDoctorCommand:
+    """doctor 명령 테스트"""
+
+    def test_doctor_text_output(self):
+        from click.testing import CliRunner
+
+        from core.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor"])
+        assert result.exit_code == 0
+        assert "BioAuto Platform Diagnostics" in result.output
+        assert "Python:" in result.output
+
+    def test_doctor_json_output(self):
+        import json
+
+        from click.testing import CliRunner
+
+        from core.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "python" in data
+        assert "environment_keys" in data
+
+
+

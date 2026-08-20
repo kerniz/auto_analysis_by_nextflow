@@ -298,10 +298,24 @@ def create_app(
     results_dir: str = "./results",
     state: DashboardState | None = None,
     results_dirs: list[str] | None = None,
+    server_token: str | None = None,
 ) -> FastAPI:
-    """FastAPI 앱 생성 (멀티 디렉토리 지원)"""
+    """FastAPI 앱 생성 (멀티 디렉토리 및 보안 토큰 지원)"""
     app = FastAPI(title="BioAuto Dashboard", version="1.0.0")
     app.state.dashboard = state or DashboardState()
+    app.state.server_token = server_token
+
+    if server_token:
+        @app.middleware("http")
+        async def verify_server_token(request: Request, call_next):
+            if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
+                auth_header = request.headers.get("X-Server-Token") or request.headers.get("Authorization", "").replace("Bearer ", "")
+                if auth_header != server_token:
+                    return JSONResponse(
+                        {"error": "Unauthorized: Invalid or missing X-Server-Token header"},
+                        status_code=401,
+                    )
+            return await call_next(request)
 
     if results_dirs:
         dirs = [Path(d) for d in results_dirs]

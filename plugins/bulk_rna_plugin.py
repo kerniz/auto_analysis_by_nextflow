@@ -63,10 +63,16 @@ class BulkRnaSeqPlugin(SequencingTypePlugin):
 
     @property
     def exclude_keywords(self) -> list[str]:
+        # spatial 데이터는 nf-core/rnaseq 대상이 아님 — scrna 배제 후
+        # bulk로 흘러오는 것을 막는다 (RFC 0001 F1)
         return [
             "single-cell", "single cell", "scrna-seq",
             "10x genomics", "cell ranger", "droplet",
             "whole genome", "wgs", "chip-seq", "atac-seq",
+            "spatial transcriptomics", "spatially resolved transcriptom",
+            "spatial gene expression",
+            "visium", "xenium", "stereo-seq", "merfish",
+            "cosmx", "geomx", "slide-seq", "seqfish", "starmap",
         ]
 
     def calculate_score(

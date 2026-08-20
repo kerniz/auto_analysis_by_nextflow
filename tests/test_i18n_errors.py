@@ -59,15 +59,16 @@ class TestI18n:
 
     def test_all_messages_have_both_locales(self):
         """en.yaml의 모든 키가 ko.yaml에도 있는지 확인."""
-        import yaml
         from pathlib import Path
+
+        import yaml
         locales_dir = Path(__file__).parent.parent / "locales"
-        
+
         with open(locales_dir / "en.yaml", encoding="utf-8") as f:
             en = yaml.safe_load(f)
         with open(locales_dir / "ko.yaml", encoding="utf-8") as f:
             ko = yaml.safe_load(f)
-            
+
         for key in en:
             assert key in ko, f"{key}: Korean translation missing in ko.yaml"
 

@@ -664,3 +664,31 @@ class TestMultiDirApp:
         assert resp.status_code == 200
         assert "deletePmid" in resp.text
         assert "deleteQueue" in resp.text
+
+
+class TestServerTokenAuth:
+    """SEC-001 원격 토큰 인증 테스트"""
+
+    def test_token_auth_blocks_unauthorized_post(self, tmp_path):
+        app = create_app(results_dirs=[str(tmp_path)], server_token="secret-token-123")
+        client = TestClient(app)
+        # 토큰 없는 POST 거부 (401)
+        resp = client.post("/api/run", json={"pmids": ["111"]})
+        assert resp.status_code == 401
+        assert "Unauthorized" in resp.json()["error"]
+
+        # 잘못된 토큰 거부 (401)
+        resp = client.post("/api/run", json={"pmids": ["111"]}, headers={"X-Server-Token": "wrong-token"})
+        assert resp.status_code == 401
+
+        # 올바른 토큰 허용
+        resp = client.post("/api/run", json={"pmids": ["111"]}, headers={"X-Server-Token": "secret-token-123"})
+        assert resp.status_code == 200
+
+    def test_token_auth_allows_read_only_get(self, tmp_path):
+        app = create_app(results_dirs=[str(tmp_path)], server_token="secret-token-123")
+        client = TestClient(app)
+        # GET 요청은 토큰 없이도 허용
+        resp = client.get("/api/status")
+        assert resp.status_code == 200
+

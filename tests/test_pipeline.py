@@ -2735,3 +2735,112 @@ class TestInitializeMultiProvider:
             await pipeline.initialize()
             mock_ollama.assert_called_once()
             await pipeline.shutdown()
+
+
+# ============================================================
+# TestSlurmUnsupportedTypeBlock (RFC 0001 F8)
+# ============================================================
+
+class TestSlurmUnsupportedTypeBlock:
+    """미지원/unknown 시퀀싱 타입은 Slurm nf-core 제출 전에 차단된다.
+    (기존 rnaseq fallback 제거 검증 — 차단은 SlurmClient 연결 전에 발생)"""
+
+    def _make_result(self, seq_type):
+        return PMIDResult(
+            pmid="99999",
+            status=PipelineStatus.RUNNING,
+            sra_results={"public_sra_ids": ["SRR0000001"]},
+            sequencing_result={"sequencing_type": seq_type},
+        )
+
+    @pytest.mark.asyncio
+    async def test_unknown_type_blocked_before_submit(self, tmp_path):
+        config = PipelineConfig(pmids=["99999"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        result = await pipeline._run_nfcore_via_slurm(
+            "99999", self._make_result("unknown"),
+        )
+        assert result == {
+            "status": "blocked_unsupported_type",
+            "sequencing_type": "unknown",
+        }
+
+    @pytest.mark.asyncio
+    async def test_unregistered_type_blocked_not_rnaseq_fallback(self, tmp_path):
+        config = PipelineConfig(pmids=["99999"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        # chip_seq: script 템플릿이 rnaseq 전용이라 검증 전까지 차단 (F14)
+        for seq_type in (
+            "methyl_seq", "sarek", "cutandrun", "rna_fusion", "chip_seq",
+        ):
+            result = await pipeline._run_nfcore_via_slurm(
+                "99999", self._make_result(seq_type),
+            )
+            assert result is not None
+            assert result["status"] == "blocked_unsupported_type"
+            assert result["sequencing_type"] == seq_type
+
+    @pytest.mark.asyncio
+    async def test_missing_sequencing_result_blocked(self, tmp_path):
+        config = PipelineConfig(pmids=["99999"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+
+        pmid_result = PMIDResult(
+            pmid="99999",
+            status=PipelineStatus.RUNNING,
+            sra_results={"public_sra_ids": ["SRR0000001"]},
+        )
+        result = await pipeline._run_nfcore_via_slurm("99999", pmid_result)
+        assert result["status"] == "blocked_unsupported_type"
+
+
+class TestRecordNfcoreResult:
+    """blocked 결과는 nfcore_done checkpoint를 찍지 않는다 (RFC 0001 F13).
+    타입 지원이 추가되면 resume 시 재평가되어야 한다."""
+
+    def _pipeline_with_progress(self, tmp_path):
+        config = PipelineConfig(pmids=["99999"], results_dir=tmp_path)
+        pipeline = AsyncPipeline(config)
+        pipeline.progress = MagicMock()
+        return pipeline
+
+    def test_blocked_marks_nfcore_blocked_not_done(self, tmp_path):
+        pipeline = self._pipeline_with_progress(tmp_path)
+        result = PMIDResult(pmid="99999", status=PipelineStatus.RUNNING)
+
+        pipeline._record_nfcore_result(
+            "99999", result,
+            {"status": "blocked_unsupported_type", "sequencing_type": "unknown"},
+        )
+
+        assert result.pipeline_execution["status"] == "blocked_unsupported_type"
+        assert result.downstream_analysis == {}
+        pipeline.progress.mark_pmid_step_completed.assert_called_once_with(
+            "99999", "nfcore_blocked",
+        )
+
+    def test_success_marks_nfcore_done(self, tmp_path):
+        pipeline = self._pipeline_with_progress(tmp_path)
+        result = PMIDResult(pmid="99999", status=PipelineStatus.RUNNING)
+
+        pipeline._record_nfcore_result(
+            "99999", result,
+            {"status": "completed", "analysis": {"deg_count": 5}},
+        )
+
+        assert result.pipeline_execution["status"] == "completed"
+        assert result.downstream_analysis == {"deg_count": 5}
+        pipeline.progress.mark_pmid_step_completed.assert_called_once_with(
+            "99999", "nfcore_done",
+        )
+
+    def test_none_result_records_nothing(self, tmp_path):
+        pipeline = self._pipeline_with_progress(tmp_path)
+        result = PMIDResult(pmid="99999", status=PipelineStatus.RUNNING)
+
+        pipeline._record_nfcore_result("99999", result, None)
+
+        assert result.pipeline_execution == {}
+        pipeline.progress.mark_pmid_step_completed.assert_not_called()

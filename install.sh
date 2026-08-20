@@ -8,7 +8,7 @@
 #
 set -euo pipefail
 
-REPO_URL="https://github.com/your-org/bioauto.git"  # TODO: 실제 URL로 변경
+REPO_URL="https://github.com/kerniz/auto_analysis_by_nextflow.git"
 INSTALL_DIR="${BIOAUTO_HOME:-$HOME/.bioauto}"
 BIN_DIR="${BIOAUTO_BIN:-$HOME/.local/bin}"
 MIN_PYTHON="3.10"
