@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -310,7 +311,8 @@ def create_app(
         async def verify_server_token(request: Request, call_next):
             if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
                 auth_header = request.headers.get("X-Server-Token") or request.headers.get("Authorization", "").replace("Bearer ", "")
-                if auth_header != server_token:
+                # 토큰 비교는 상수 시간으로 — 길이/접두사 누출 방지
+                if not secrets.compare_digest(auth_header, server_token):
                     return JSONResponse(
                         {"error": "Unauthorized: Invalid or missing X-Server-Token header"},
                         status_code=401,

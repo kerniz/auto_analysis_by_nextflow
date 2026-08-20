@@ -82,12 +82,15 @@ class SpatialManifest:
         if "modality" not in data:
             raise SpatialManifestValidationError("Missing required field 'modality'")
 
-        license_val = data.get("license", "CC-BY-4.0")
-        source_url_val = data.get("source_url", "https://example.com/source")
-        if not license_val or not str(license_val).strip():
-            raise SpatialManifestValidationError("Missing or empty required field 'license'")
-        if not source_url_val or not str(source_url_val).strip():
-            raise SpatialManifestValidationError("Missing or empty required field 'source_url'")
+        # RFC 수용기준 1 / grok F23: license·source_url은 검증 대상이므로
+        # 기본값으로 채우면 안 된다. 기본값을 먼저 넣으면 '누락'이 통과해버린다.
+        for req_field in ("license", "source_url"):
+            value = data.get(req_field)
+            if value is None or not str(value).strip():
+                raise SpatialManifestValidationError(
+                    f"Missing or empty required field '{req_field}' — "
+                    f"manifest must record provenance before execution."
+                )
 
         components = data.get("components", {})
         for req in ["matrix", "image", "spatial_positions", "scalefactors"]:
@@ -117,8 +120,8 @@ class SpatialManifest:
             dataset_accession=data.get("dataset_accession", data["experiment_id"]),
             modality=data["modality"],
             platform=data.get("platform", "Visium"),
-            license=data.get("license", "CC-BY-4.0"),
-            source_url=data.get("source_url", ""),
+            license=data["license"],
+            source_url=data["source_url"],
             components=components,
             pmid=data.get("pmid"),
             preservation=data.get("preservation", "FFPE"),

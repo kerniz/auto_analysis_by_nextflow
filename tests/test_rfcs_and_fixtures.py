@@ -105,6 +105,8 @@ def test_dry_run_separates_archive_from_extracted_file():
         "schema_version": "0.1",
         "experiment_id": "exp-hd-001",
         "modality": "spatial_transcriptomics",
+        "license": "CC-BY-4.0",
+        "source_url": "https://www.10xgenomics.com/datasets/test",
         "components": {
             "matrix": {
                 "format": "h5",
@@ -140,6 +142,8 @@ def test_content_length_mismatch_blocks_execution(tmp_path):
         "schema_version": "0.1",
         "experiment_id": "exp-001",
         "modality": "spatial_transcriptomics",
+        "license": "CC-BY-4.0",
+        "source_url": "https://www.10xgenomics.com/datasets/test",
         "components": {
             "matrix": {"format": "h5", "path": "matrix.h5", "content_length": 999},
             "image": {"hires": "hires.png"},
@@ -156,6 +160,8 @@ def test_content_length_mismatch_blocks_execution(tmp_path):
         "schema_version": "0.1",
         "experiment_id": "exp-002",
         "modality": "spatial_transcriptomics",
+        "license": "CC-BY-4.0",
+        "source_url": "https://www.10xgenomics.com/datasets/test",
         "components": {
             "matrix": {
                 "format": "h5", "path": "matrix.h5",
@@ -177,6 +183,8 @@ def test_missing_image_file_is_detected(tmp_path):
         "schema_version": "0.1",
         "experiment_id": "exp-003",
         "modality": "spatial_transcriptomics",
+        "license": "CC-BY-4.0",
+        "source_url": "https://www.10xgenomics.com/datasets/test",
         "components": {
             "matrix": {"format": "h5", "path": "matrix.h5"},
             "image": {"hires": "missing_hires.png"},
@@ -237,6 +245,8 @@ def test_invalid_spatial_manifest_raises_error():
             "schema_version": "0.1",
             "experiment_id": "exp-001",
             "modality": "spatial_transcriptomics",
+            "license": "CC-BY-4.0",
+            "source_url": "https://www.10xgenomics.com/datasets/test",
             "components": {"image": {"hires": "hires.png"}},
         })
 
@@ -261,6 +271,8 @@ def test_f23_empty_license_or_source_url_raises_validation_error():
         "schema_version": "0.1",
         "experiment_id": "exp-001",
         "modality": "spatial_transcriptomics",
+        "license": "CC-BY-4.0",
+        "source_url": "https://www.10xgenomics.com/datasets/test",
         "components": {
             "matrix": {"format": "h5", "path": "matrix.h5"},
             "image": {"hires": "hires.png"},
@@ -275,3 +287,34 @@ def test_f23_empty_license_or_source_url_raises_validation_error():
     with pytest.raises(SpatialManifestValidationError, match="Missing or empty required field 'source_url'"):
         SpatialManifest.from_dict({**base_data, "source_url": ""})
 
+
+
+def test_f23_missing_license_or_source_url_raises_validation_error():
+    """F23: license·source_url이 '누락'된 경우에도 차단돼야 한다.
+
+    기본값을 먼저 채우고 빈 문자열만 검사하면 누락이 통과한다 — 그 회귀를 고정한다.
+    """
+    base_data = {
+        "schema_version": "0.1",
+        "experiment_id": "exp-001",
+        "modality": "spatial_transcriptomics",
+        "components": {
+            "matrix": {"format": "h5", "path": "matrix.h5"},
+            "image": {"hires": "hires.png"},
+            "spatial_positions": {"format": "parquet", "path": "pos.parquet"},
+            "scalefactors": {"format": "json", "path": "scale.json"},
+        },
+    }
+
+    with pytest.raises(SpatialManifestValidationError, match="required field 'license'"):
+        SpatialManifest.from_dict(base_data)
+
+    with pytest.raises(SpatialManifestValidationError, match="required field 'source_url'"):
+        SpatialManifest.from_dict({**base_data, "license": "CC-BY-4.0"})
+
+
+def test_web_token_comparison_is_constant_time():
+    """G3: 서버 토큰 비교가 secrets.compare_digest를 쓰는지 (타이밍 누출 방지)."""
+    source = Path("web/app.py").read_text(encoding="utf-8")
+    assert "secrets.compare_digest" in source, "토큰 비교가 상수 시간이 아님"
+    assert "!= server_token" not in source, "단순 문자열 비교가 남아 있음"
