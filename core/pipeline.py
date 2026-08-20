@@ -115,7 +115,8 @@ class LLMBackendConfig:
     url: str = ""                   # Ollama 전용
     failover_url: str | None = None  # Ollama failover URL
     api_key_env: str = ""           # OpenAI/Anthropic
-    base_url: str | None = None     # OpenAI (Azure 호환)
+    base_url: str | None = None     # OpenAI (Azure 호환) / Melchizedek gateway
+    client_label: str = ""          # Melchizedek 요청 라벨 (G9)
 
 
 @dataclass
@@ -327,6 +328,7 @@ class PipelineConfig:
                     failover_url=bcfg.get("failover_url"),
                     api_key_env=bcfg.get("api_key_env", ""),
                     base_url=bcfg.get("base_url"),
+                    client_label=bcfg.get("client_label", ""),
                 )
             router_data = llm_providers_data.get("router", {})
             router_settings = LLMRouterSettings(
@@ -584,7 +586,21 @@ class AsyncPipeline:
                     timeout=bcfg.timeout,
                     max_retries=bcfg.max_retries,
                 )
-                if provider_name == "ollama":
+                if provider_name == "melchizedek":
+                    # G8: 논문 분석은 gateway 우선. OpenAI 호환 표면이라
+                    # 별도 백엔드 클래스 없이 OpenAIBackend를 재사용한다.
+                    # base_url이 없으면 gateway가 아니므로 건너뛴다 (G1: 조용한 대체 금지).
+                    if not bcfg.base_url:
+                        logger.warning(
+                            "melchizedek enabled but base_url not set, skipping",
+                        )
+                        continue
+                    backends.append(OpenAIBackend(
+                        config=llm_config,
+                        base_url=bcfg.base_url,
+                        client_label=bcfg.client_label or "bioauto/pipeline",
+                    ))
+                elif provider_name == "ollama":
                     backends.append(OllamaBackend(
                         base_url=bcfg.url or "http://localhost:11434",
                         config=llm_config,

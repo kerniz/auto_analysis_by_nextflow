@@ -12,9 +12,9 @@
 | CFG-001 | P0 | versioned config schema & precedence | 없음 | `CLI > env > project > user > default` 강제; redaction 마스킹 검증 | **ready** |
 | SEC-001 | P0 | web 기본 바인딩 127.0.0.1 제한 및 보안 가드 | 없음 | 기본 127.0.0.1 바인딩; `--allow-remote` 설정 시 토큰 자동생성; 상수시간 토큰 미들웨어 | **done 2026-08-20** |
 | LLM-001 | P0 | `OpenAIBackend` gateway 라우팅 및 `X-Melchizedek-Client` 헤더 | G1/G2 | `https://REDACTED-GATEWAY` 게이트웨이 파라미터화; dummy key 게이트웨이 분리 | **done 2026-08-20** |
-| LLM-002 | P0 | Gateway-first 라우터 및 단계별 프로필 | LLM-001 | gateway 라우팅 우선 사용; 이중 failover/ensemble 방지; degraded 상태 명시 | **done 2026-08-20** |
+| LLM-002 | P0 | Gateway-first 라우터 및 단계별 프로필 | LLM-001 | gateway 라우팅 우선 사용; 이중 failover/ensemble 방지; degraded 상태 명시 | **done 2026-08-20** (config.json `priority_order[0]=melchizedek`, `enable_auto_failover=false` — 계약 테스트로 고정) |
 | LLM-003 | P0 | Route provenance & 에러 분류/retry | LLM-001 | `LLMResponse.to_dict()`에 route provenance 보존; 429/503 retryable 분리 | **done 2026-08-20** |
-| LLM-004 | P0 | Gateway 테스트 스위트 및 live smoke | LLM-001 | mock 전체 검증 + live 1회 최소 chat 검증 (G6) | **done 2026-08-20** |
+| LLM-004 | P0 | Gateway 테스트 스위트 및 live smoke | LLM-001 | mock 전체 검증 + live 1회 최소 chat 검증 (G6) | **in-review** — mock/계약 테스트는 통과. **G6 live chat 1회는 미실행** (증거 없음). 실행·기록 후 done |
 | WEB-001 | P1 | Onboarding/Settings/Provider 진단 화면 | SEC-001, LLM-001 | 서버 사이드 설정 저장 및 진단; 비밀값 마스킹; gateway health/model 노출 | **ready** |
 | WEB-002 | P1 | 논문 키워드 검색/상담 UI 및 Run Preview | SEC-001 | PMID 단일 입력 외 검색/선택 지원; 예상 다운로드/disk 예산 실행 전 표시 | **ready** |
 | MOD-001 | P1 | 호환성 매트릭스 자동 검증 | UX-002 | Java 17+, Nextflow 25.10 LTS / 26.04 strict syntax v2 준비 검증 | **ready** |

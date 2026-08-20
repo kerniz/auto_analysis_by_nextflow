@@ -35,6 +35,17 @@
   },
   "llm_providers": {
     "backends": {
+      "melchizedek": {
+        "enabled": true,
+        "base_url": "https://REDACTED-GATEWAY/v1",
+        "client_label": "bioauto/pipeline",
+        "model": "auto",
+        "timeout": 300,
+        "max_retries": 3,
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "top_p": 0.9
+      },
       "ollama": {
         "enabled": true,
         "url": "http://REDACTED-HOST-X86:11434",
@@ -70,8 +81,8 @@
     },
     "router": {
       "strategy": "priority",
-      "priority_order": ["ollama", "openai", "anthropic"],
-      "enable_auto_failover": true,
+      "priority_order": ["melchizedek", "ollama", "openai", "anthropic"],
+      "enable_auto_failover": false,
       "health_check_interval": 60,
       "max_concurrent_requests": 10
     }

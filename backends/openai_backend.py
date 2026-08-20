@@ -24,7 +24,7 @@ class OpenAIBackend(LLMBackend):
         config: LLMConfig | None = None,
         base_url: str | None = None,
         default_headers: dict[str, str] | None = None,
-        client_label: str = "bioauto/general",
+        client_label: str = "bioauto/pipeline",
     ):
         """
         OpenAI 백엔드 초기화
@@ -34,7 +34,8 @@ class OpenAIBackend(LLMBackend):
             config: LLM 설정 (기본값: gpt-4)
             base_url: 커스텀 API URL (Melchizedek Gateway, Azure OpenAI 등)
             default_headers: HTTP 기본 헤더
-            client_label: Melchizedek 클라이언트 식별 라벨 (기본값: bioauto/general)
+            client_label: Melchizedek 클라이언트 식별 라벨 (G9). 호출자가
+                bioauto/pipeline|debate|report|rag|search 중 하나를 전달한다.
         """
         if config is None:
             config = LLMConfig(model="gpt-4")
@@ -45,7 +46,7 @@ class OpenAIBackend(LLMBackend):
             self.api_key = api_key or os.environ.get("OPENAI_API_KEY") or "dummy-gateway-key"
             self.default_headers = default_headers.copy() if default_headers else {}
             if "X-Melchizedek-Client" not in self.default_headers:
-                self.default_headers["X-Melchizedek-Client"] = client_label or "bioauto/pipeline"
+                self.default_headers["X-Melchizedek-Client"] = client_label
         else:
             self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
             self.default_headers = default_headers.copy() if default_headers else {}

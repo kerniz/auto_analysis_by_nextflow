@@ -3,6 +3,8 @@ name = "bioauto"
 version = "4.0.0"
 description = "Bioinformatics Research Automation Platform - 올인원 연구 자동화"
 readme = "README.md"
+# G4: base package는 core-only 범위에서 3.10 호환을 유지한다.
+# `[analysis]`/`[all]` extra는 Python 3.12+가 필요하다 (scanpy 1.12 제약).
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
@@ -41,9 +43,12 @@ rag = [
     "chromadb>=0.4.0",
     "sentence-transformers>=2.2.0",
 ]
+# G4: modern analysis 스택은 Python 3.12+를 요구한다.
+# scanpy 1.12는 Requires-Python >=3.12, anndata는 >=3.11 (2026-08-20 실측).
+# core(base)는 3.10 호환을 유지하므로 이 extra만 상한/하한을 분리한다.
 analysis = [
-    "scanpy>=1.9.0",
-    "anndata>=0.9.0",
+    "scanpy>=1.12.0; python_version >= '3.12'",
+    "anndata>=0.12.0; python_version >= '3.12'",
     "matplotlib>=3.7.0",
     "pandas>=2.0.0",
 ]

@@ -318,3 +318,49 @@ def test_web_token_comparison_is_constant_time():
     source = Path("web/app.py").read_text(encoding="utf-8")
     assert "secrets.compare_digest" in source, "토큰 비교가 상수 시간이 아님"
     assert "!= server_token" not in source, "단순 문자열 비교가 남아 있음"
+
+
+def test_g1_g2_g8_gateway_first_routing_config():
+    """G1/G2/G8: 기본 config가 gateway 우선이고 조용한 failover가 없어야 한다."""
+    from core.pipeline import PipelineConfig
+
+    cfg = PipelineConfig.from_json("config.json")
+    router = cfg.llm_providers.router
+
+    # G8: 논문 분석은 gateway 우선
+    assert router.priority_order[0] == "melchizedek", (
+        f"gateway가 1순위가 아님: {router.priority_order}"
+    )
+    # G1: gateway 장애를 다른 provider가 조용히 가리지 않는다
+    assert router.enable_auto_failover is False, (
+        "enable_auto_failover=True면 gateway 장애가 direct provider로 조용히 대체됨"
+    )
+
+    gateway = cfg.llm_providers.backends.get("melchizedek")
+    assert gateway is not None and gateway.enabled
+    assert gateway.base_url, "gateway preset에 base_url이 없음"
+    # G9: 라벨은 승인된 5종 중 하나
+    assert gateway.client_label in {
+        "bioauto/pipeline", "bioauto/debate", "bioauto/report",
+        "bioauto/rag", "bioauto/search",
+    }
+
+
+def test_g9_gateway_headers_only_when_gateway_base_url():
+    """G9: gateway base_url일 때만 dummy key와 클라이언트 라벨을 붙인다."""
+    from backends.openai_backend import OpenAIBackend
+
+    gw = OpenAIBackend(base_url="https://gw.example/v1", client_label="bioauto/rag")
+    assert gw.default_headers["X-Melchizedek-Client"] == "bioauto/rag"
+
+    direct = OpenAIBackend(api_key="sk-real")
+    assert "X-Melchizedek-Client" not in direct.default_headers, (
+        "direct OpenAI 호출에 gateway 전용 헤더가 붙음"
+    )
+
+
+def test_g4_analysis_extra_requires_python_312():
+    """G4: analysis extra가 Python 3.12+ 조건을 명시하는지 (scanpy 1.12 제약)."""
+    content = Path("pyproject.toml").read_text(encoding="utf-8")
+    assert "scanpy>=1.12.0; python_version >= '3.12'" in content
+    assert "anndata>=0.12.0; python_version >= '3.12'" in content
