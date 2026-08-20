@@ -1,30 +1,46 @@
-# BioAuto Platform Documentation Hub
+# BioAuto 문서 색인
 
-> 바이오인포매틱스 연구 자동화 플랫폼 문서 색인 및 시스템 가이드
+> 마지막 업데이트: 2026-08-20 · 바이오인포매틱스 연구 자동화 플랫폼 문서 허브
+> 링크는 모두 **레포 상대경로**다 — GitHub·다른 머신·다른 사용자 환경에서 동일하게 동작해야 한다.
 
-## Quick Start (5분 빠른 시작)
+## 빠른 시작
 
-- **설치 가이드**: [`install.sh`](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/install.sh) 또는 `BIOAUTO_PROFILE=standard bash install.sh`
-- **초기 진단**: `bioauto doctor`
-- **빠른 실행 테스트**: `bioauto run --pmid 34567890 --dry-run`
+```bash
+BIOAUTO_PROFILE=core bash install.sh   # 프로필: core | web | analysis | full
+python3 -m core.cli doctor             # 런타임 진단 (Java/Nextflow/Python/API key)
+python3 -m core.cli web                # 대시보드 (기본 127.0.0.1)
+```
 
----
+`[analysis]`·`[full]` 프로필은 **Python 3.12+** 가 필요하다(scanpy 1.12 제약). core 전용은 3.10에서도 동작한다.
 
-## 문서 구구조 & 네비게이션
+## 문서 지도
 
-### 1. 설치 & 설정 (`getting-started/`)
-- **[Installation Guide](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/README.md#installation)**: 프로필 기반 (`core`, `standard`, `analysis`, `full`) 자동 설치
-- **[Configuration & Secrets](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/config.json)**: `config.json` 계층 구조, 환경 변수 우선순위 및 보안 토큰 관리
+| 축 | 문서 | 내용 |
+|---|---|---|
+| 현재(구조) | [ARCHITECTURE.md](ARCHITECTURE.md) | 시스템 구조·데이터 흐름·기술 스택 |
+| 미래 | [planning/ROADMAP.md](planning/ROADMAP.md) | 북극성, 릴리스 순서(PH-0 → 5.0 Spatial → 5.1 VE), 결정 기록 |
+| 실행 | [planning/BACKLOG.md](planning/BACKLOG.md) | 실행 백로그(PH-0, AUTO-*, DOC-IA-*, BL-*), 기술부채(TD-*) |
+| 과거 | [DEVELOPMENT_HISTORY.md](DEVELOPMENT_HISTORY.md) | 버전별 개발 이력 |
+| 설계 결정 | [rfcs/0001-spatial-mvp.md](rfcs/0001-spatial-mvp.md) | Spatial MVP 계약(manifest·WorkflowPlan·claim schema) |
+| 재현 데이터 | [planning/spatial-fixtures.md](planning/spatial-fixtures.md) | gold fixture URL·크기·SHA256·라이선스 |
+| 비전(별도 제품) | [CITIZEN_SCIENCE_PLATFORM_VISION.md](CITIZEN_SCIENCE_PLATFORM_VISION.md) | AutoIdeaLab — **본 로드맵과 버전 체계 독립** |
+| 사용법 | [../README.md](../README.md) · [README.ko.md](README.ko.md) | 설치·실행·CLI |
 
-### 2. 게이트웨이 & 백엔드 연동 (`integrations/`)
-- **Melchizedek Gateway**: `https://REDACTED-GATEWAY` 게이트웨이 라우팅 (`provider=auto, effort=medium, strategy=solo`) 및 Client Labeling (`X-Melchizedek-Client`)
-- **Local Fallback**: Direct Ollama / OpenAI / Anthropic 연동 및 명시적 장애 전이 (Strict Fallback)
+## LLM 게이트웨이 (Melchizedek)
 
-### 3. 기능 및 파이프라인 가이드 (`guides/`)
-- **Spatial Transcriptomics MVP**: [RFC 0001 Specification](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/docs/rfcs/0001-spatial-mvp.md) 및 [Fixtures Reference](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/docs/planning/spatial-fixtures.md)
-- **Web Dashboard**: `bioauto web` (기본 바인딩 `127.0.0.1`, `--allow-remote` 보안 미들웨어)
+- 기본 라우팅은 **게이트웨이 우선**이다: `config.json`의 `priority_order[0] = melchizedek`, `enable_auto_failover = false`.
+- 게이트웨이 장애를 다른 provider가 조용히 대체하지 않는다(G1). direct Ollama는 opt-in fallback이다(G8).
+- 모든 요청에 `X-Melchizedek-Client` 라벨이 붙는다(G9): `bioauto/pipeline` · `debate` · `report` · `rag` · `search`.
+- `model`은 `ollama/<이름>` 또는 ready provider id(`agy`·`claude`·`grok`·`codex`)여야 한다. 잘못된 값은 `model_not_allowed`(404)로 즉시 실패한다.
+- 오류는 `{request_id, code, message}` 계약을 따르며, **재시도 가능한 것은 `provider_busy`·`queue_full`·`timeout`뿐**이다. `rate_limited`는 `Retry-After`를 준수한다(`backends/base.py::classify_error`).
 
-### 4. 아키텍처 & 승인 계획 (`planning/` & `rfcs/`)
-- **[ROADMAP.md](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/docs/planning/ROADMAP.md)**: PH-0 Platform Hardening 및 Spatial MVP 로드맵
-- **[BACKLOG.md](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/docs/planning/BACKLOG.md)**: 실행 백로그 (AUTO-CFG, AUTO-INST, AUTO-SETUP, AUTO-CHK, DOC-IA 포함)
-- **[RFC 0001](file://REDACTED-NFS-PATH/10.yolo/nextflow_automation/docs/rfcs/0001-spatial-mvp.md)**: Spatial MVP 계약 및 데이터 다이어그램
+## 웹 대시보드 보안
+
+- 기본 바인딩은 `127.0.0.1`이다. 외부 바인딩은 `--allow-remote`를 명시해야 하며, 이때 서버 토큰이 자동 생성된다.
+- 원격 모드에서는 상태 변경 API와 읽기 엔드포인트(`/api/results/`, `/pipeline-files/`)가 모두 토큰을 요구한다. 토큰 비교는 상수 시간이다.
+
+## 문서 규칙
+
+- 링크는 상대경로만 쓴다(절대 `file://` 금지 — 다른 환경에서 깨진다).
+- 완료 항목은 BACKLOG에서 제거하고 `DEVELOPMENT_HISTORY.md`로 옮긴다.
+- "구현됨"은 코드·테스트 근거가 있을 때만 쓴다. 미확인은 `목표/부분/미구현`으로 표기한다.

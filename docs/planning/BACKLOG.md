@@ -13,8 +13,9 @@
 | SEC-001 | P0 | web 기본 바인딩 127.0.0.1 제한 및 보안 가드 | 없음 | 기본 127.0.0.1 바인딩; `--allow-remote` 설정 시 토큰 자동생성; 상수시간 토큰 미들웨어 | **done 2026-08-20** |
 | LLM-001 | P0 | `OpenAIBackend` gateway 라우팅 및 `X-Melchizedek-Client` 헤더 | G1/G2 | `https://REDACTED-GATEWAY` 게이트웨이 파라미터화; dummy key 게이트웨이 분리 | **done 2026-08-20** |
 | LLM-002 | P0 | Gateway-first 라우터 및 단계별 프로필 | LLM-001 | gateway 라우팅 우선 사용; 이중 failover/ensemble 방지; degraded 상태 명시 | **done 2026-08-20** (config.json 및 pipeline.py / setup_wizard.py `priority_order[0]=melchizedek`, `enable_auto_failover=false` 고정) |
-| LLM-003 | P0 | Route provenance & 에러 분류/retry | LLM-001 | `LLMResponse.to_dict()`에 route provenance 보존; 429/503 retryable 분리 | **done 2026-08-20** |
-| LLM-004 | P0 | Gateway 테스트 스위트 및 live smoke | LLM-001 | mock 전체 검증 + live 1회 최소 chat 검증 (G6) | **in-review** — mock/계약 테스트는 통과. **G6 live chat 1회는 미실행** (증거 없음). 실행·기록 후 done |
+| LLM-003 | P0 | Route provenance & 에러 분류/retry | LLM-001 | `LLMResponse.to_dict()`에 route provenance 보존; 429/503 retryable 분리 | **done 2026-08-20** (`backends/base.py::classify_error` — gateway code 우선, `Retry-After` 준수, fatal 즉시 실패. 계약 테스트 6건) |
+| LLM-004 | P0 | Gateway 테스트 스위트 및 live smoke | LLM-001 | mock 전체 검증 + live 1회 최소 chat 검증 (G6) | **done 2026-08-20** (G6 live chat 1회 실행: HTTP 200, 6.15s, `route.provider=claude`, `reason=explicit_provider_model`. 응답 전문 미저장) |
+| LLM-005 | P1 | 진짜 auto 라우팅 (`model` 생략 + `routing`) | LLM-002 | 게이트웨이 계약상 `model` 생략 시 `routing`이 결정한다. 현 백엔드는 `model`을 항상 보내 G2의 `provider=auto`가 무력화됨. `model` 생략 경로 + `routing:{provider:auto,effort:medium,strategy:solo}` extra_body 전달 | **ready** |
 | WEB-001 | P1 | Onboarding/Settings/Provider 진단 화면 | SEC-001, LLM-001 | 서버 사이드 설정 저장 및 진단; 비밀값 마스킹; gateway health/model 노출 | **ready** |
 | WEB-002 | P1 | 논문 키워드 검색/상담 UI 및 Run Preview | SEC-001 | PMID 단일 입력 외 검색/선택 지원; 예상 다운로드/disk 예산 실행 전 표시 | **ready** |
 | MOD-001 | P1 | 호환성 매트릭스 자동 검증 | UX-002 | Java 17+, Nextflow 25.10 LTS / 26.04 strict syntax v2 준비 검증 | **ready** |
@@ -44,6 +45,7 @@
 | DOC-IA-003 | P0 | 설치/설정/gateway/security 문서 분리 | DOC-IA-002 | 코드 option과 예제가 테스트되며 G1–G9/remote auth/secret 정책 반영 | **ready** |
 | DOC-IA-004 | P0 | Planning status 정합화 | DOC-IA-002 | 완료/부분/ready/blocked 상태를 코드와 일치; 폐기된 문구 제거 | **done 2026-08-20** |
 | DOC-IA-007 | P1 | 문서 링크/명령 자동 검증 CI | DOC-IA-003 | markdown links, CLI snippets, README 요구 version을 CI에서 검사 | **ready** |
+| DOC-IA-008 | P1 | 문서 링크 상대경로 규약 및 검증 | DOC-IA-002 | `docs/` 내 모든 링크가 상대경로(절대 `file://` 금지); 링크 유효성 자동 검증 | **부분** — `docs/index.md`는 2026-08-20 상대경로로 교정, 자동 검증 미구현 |
 
 ## Completed / Approved Foundation Tasks
 

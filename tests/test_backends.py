@@ -17,7 +17,7 @@ from backends import (
     OllamaBackend,
     OpenAIBackend,
 )
-from backends.base import BackendStatus
+from backends.base import BackendStatus, ErrorClass, classify_error
 from backends.router import RouterConfig, RouterMetrics
 
 
@@ -1280,3 +1280,72 @@ class TestLLMRouter:
         assert router.metrics.successful_requests == 1
         assert router.metrics.last_request_time is not None
         assert router.metrics.backend_usage.get("backend1", 0) == 1
+
+
+class TestErrorTaxonomy:
+    """LLM-003: gateway 오류 계약(llms.txt §4) 기반 재시도 분류."""
+
+    @staticmethod
+    def _err(code=None, status=None, retry_after=None):
+        class _Resp:
+            pass
+        e = _Resp()
+        if code is not None:
+            e.code = code
+        if status is not None:
+            e.status_code = status
+        e.headers = {"retry-after": str(retry_after)} if retry_after else {}
+        return e
+
+    def test_only_three_codes_are_retryable(self):
+        """재시도해도 되는 것은 provider_busy·queue_full·timeout뿐."""
+        for code in ("provider_busy", "queue_full", "timeout"):
+            cls, _ = classify_error(self._err(code=code))
+            assert cls is ErrorClass.RETRYABLE, code
+
+    def test_rate_limited_honours_retry_after(self):
+        cls, wait = classify_error(self._err(code="rate_limited", status=429, retry_after=7))
+        assert cls is ErrorClass.RATE_LIMITED
+        assert wait == 7.0
+
+    def test_auth_and_invalid_request_are_fatal(self):
+        for code in ("auth_failed", "invalid_request", "model_not_allowed",
+                     "provider_not_authenticated", "routing_unavailable"):
+            cls, _ = classify_error(self._err(code=code))
+            assert cls is ErrorClass.FATAL, code
+
+    def test_status_fallback_when_no_code(self):
+        assert classify_error(self._err(status=401))[0] is ErrorClass.FATAL
+        assert classify_error(self._err(status=503))[0] is ErrorClass.RETRYABLE
+        assert classify_error(self._err(status=429))[0] is ErrorClass.RATE_LIMITED
+
+    def test_unknown_error_defaults_to_retryable(self):
+        assert classify_error(ConnectionError("reset"))[0] is ErrorClass.RETRYABLE
+
+    async def test_fatal_error_is_not_retried(self):
+        """인증 오류를 max_retries만큼 재시도하면 설정 오류가 가려진다."""
+        calls = []
+
+        class _Backend(LLMBackend):
+            @property
+            def name(self):
+                return "t"
+
+            async def health_check(self):
+                return True
+
+            async def generate(self, prompt, system_prompt=None, **kwargs):
+                calls.append(1)
+                raise TestErrorTaxonomy._fatal()
+
+        b = _Backend(LLMConfig(model="m", max_retries=3))
+        resp = await b.generate_with_retry("hi")
+        assert resp.success is False
+        assert len(calls) == 1, f"fatal 오류가 {len(calls)}회 재시도됨"
+        assert resp.raw_response.get("error_class") == "fatal"
+
+    @staticmethod
+    def _fatal():
+        class AuthFailedError(Exception):
+            code = "auth_failed"
+        return AuthFailedError("auth failed")

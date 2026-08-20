@@ -18,6 +18,93 @@ class BackendStatus(Enum):
     UNKNOWN = "unknown"
 
 
+class ErrorClass(Enum):
+    """오류 재시도 분류 (LLM-003)"""
+    RETRYABLE = "retryable"      # 잠시 후 재시도하면 달라질 수 있음
+    RATE_LIMITED = "rate_limited"  # 시간이 지나야 풀림 — Retry-After 준수
+    FATAL = "fatal"              # 재시도해도 같음 — 즉시 실패
+
+
+# Melchizedek gateway 오류 계약 (llms.txt §4).
+# "재시도해도 되는 것은 provider_busy·queue_full·timeout뿐이다."
+_RETRYABLE_CODES = frozenset({"provider_busy", "queue_full", "timeout"})
+_RATE_LIMITED_CODES = frozenset({"rate_limited"})
+_FATAL_CODES = frozenset({
+    "invalid_request", "unsupported_field", "invalid_routing_combination",
+    "auth_failed", "model_not_allowed", "run_not_found", "input_too_large",
+    "invalid_host", "provider_not_authenticated", "failover_exhausted",
+    "routing_unavailable", "not_configured",
+})
+
+# gateway가 아닌 provider를 위한 HTTP status 기반 분류
+_FATAL_STATUS = frozenset({400, 401, 403, 404, 413, 421, 422})
+_RETRYABLE_STATUS = frozenset({408, 409, 425, 500, 502, 503, 504})
+
+
+def _extract(error: Any, *names: str) -> Any:
+    """error 또는 error.response에서 첫 번째로 발견되는 속성을 반환."""
+    for target in (error, getattr(error, "response", None)):
+        if target is None:
+            continue
+        for name in names:
+            value = getattr(target, name, None)
+            if value is not None:
+                return value
+    return None
+
+
+def classify_error(error: Any) -> tuple[ErrorClass, float | None]:
+    """오류를 재시도 분류와 대기 시간(초)으로 변환한다 (LLM-003).
+
+    gateway는 `{"request_id","code","message"}` JSON을 주므로 **code를 우선**
+    본다(llms.txt §4: message는 사람용이라 바뀔 수 있다). code가 없으면
+    HTTP status로 판정하고, 그것도 없으면 네트워크 오류로 보아 재시도한다.
+
+    Returns:
+        (분류, retry_after 초 또는 None)
+    """
+    code = _extract(error, "code")
+    if not isinstance(code, str):
+        body = _extract(error, "body", "json")
+        if isinstance(body, dict):
+            code = body.get("code")
+
+    status = _extract(error, "status_code", "status")
+
+    retry_after: float | None = None
+    headers = _extract(error, "headers")
+    if headers is not None:
+        raw = None
+        try:
+            raw = headers.get("retry-after") or headers.get("Retry-After")
+        except AttributeError:
+            raw = None
+        if raw is not None:
+            try:
+                retry_after = float(raw)
+            except (TypeError, ValueError):
+                retry_after = None
+
+    if isinstance(code, str):
+        if code in _RATE_LIMITED_CODES:
+            return ErrorClass.RATE_LIMITED, retry_after
+        if code in _RETRYABLE_CODES:
+            return ErrorClass.RETRYABLE, retry_after
+        if code in _FATAL_CODES:
+            return ErrorClass.FATAL, None
+
+    if isinstance(status, int):
+        if status == 429:
+            return ErrorClass.RATE_LIMITED, retry_after
+        if status in _FATAL_STATUS:
+            return ErrorClass.FATAL, None
+        if status in _RETRYABLE_STATUS:
+            return ErrorClass.RETRYABLE, retry_after
+
+    # 분류 불가(연결 끊김 등)는 일시적 장애로 본다
+    return ErrorClass.RETRYABLE, retry_after
+
+
 @dataclass
 class LLMConfig:
     """LLM 백엔드 설정"""
@@ -157,9 +244,26 @@ class LLMBackend(ABC):
                 self._error_count += 1
                 last_error = e
 
+                # LLM-003: 재시도해도 같은 오류(인증·잘못된 요청 등)는 즉시 실패.
+                # 그대로 재시도하면 설정 오류가 "모든 재시도 실패"로 가려진다.
+                error_class, retry_after = classify_error(e)
+                if error_class is ErrorClass.FATAL:
+                    return LLMResponse(
+                        content="",
+                        model=self.config.model,
+                        backend_name=self.name,
+                        success=False,
+                        latency_ms=0,
+                        error_message=f"재시도 불가 오류: {e}",
+                        raw_response={"error_class": error_class.value},
+                    )
+            else:
+                retry_after = None
+
             if attempt < self.config.max_retries - 1:
-                # 지수 백오프
-                wait_time = 2 ** attempt
+                # rate_limited는 Retry-After를 준수한다 (llms.txt §4:
+                # 즉시 재시도하면 같은 한도에 계속 걸린다).
+                wait_time = retry_after if retry_after else 2 ** attempt
                 await asyncio.sleep(wait_time)
 
         # 성공한 응답이 있으면 반환 (success=False라도)

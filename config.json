@@ -39,7 +39,7 @@
         "enabled": true,
         "base_url": "https://REDACTED-GATEWAY/v1",
         "client_label": "bioauto/pipeline",
-        "model": "auto",
+        "model": "claude",
         "timeout": 300,
         "max_retries": 3,
         "max_tokens": 4096,
