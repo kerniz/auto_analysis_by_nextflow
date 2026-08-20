@@ -12,7 +12,7 @@
 | CFG-001 | P0 | versioned config schema & precedence | 없음 | `CLI > env > project > user > default` 강제; redaction 마스킹 검증 | **ready** |
 | SEC-001 | P0 | web 기본 바인딩 127.0.0.1 제한 및 보안 가드 | 없음 | 기본 127.0.0.1 바인딩; `--allow-remote` 설정 시 토큰 자동생성; 상수시간 토큰 미들웨어 | **done 2026-08-20** |
 | LLM-001 | P0 | `OpenAIBackend` gateway 라우팅 및 `X-Melchizedek-Client` 헤더 | G1/G2 | `https://REDACTED-GATEWAY` 게이트웨이 파라미터화; dummy key 게이트웨이 분리 | **done 2026-08-20** |
-| LLM-002 | P0 | Gateway-first 라우터 및 단계별 프로필 | LLM-001 | gateway 라우팅 우선 사용; 이중 failover/ensemble 방지; degraded 상태 명시 | **done 2026-08-20** (config.json `priority_order[0]=melchizedek`, `enable_auto_failover=false` — 계약 테스트로 고정) |
+| LLM-002 | P0 | Gateway-first 라우터 및 단계별 프로필 | LLM-001 | gateway 라우팅 우선 사용; 이중 failover/ensemble 방지; degraded 상태 명시 | **done 2026-08-20** (config.json 및 pipeline.py / setup_wizard.py `priority_order[0]=melchizedek`, `enable_auto_failover=false` 고정) |
 | LLM-003 | P0 | Route provenance & 에러 분류/retry | LLM-001 | `LLMResponse.to_dict()`에 route provenance 보존; 429/503 retryable 분리 | **done 2026-08-20** |
 | LLM-004 | P0 | Gateway 테스트 스위트 및 live smoke | LLM-001 | mock 전체 검증 + live 1회 최소 chat 검증 (G6) | **in-review** — mock/계약 테스트는 통과. **G6 live chat 1회는 미실행** (증거 없음). 실행·기록 후 done |
 | WEB-001 | P1 | Onboarding/Settings/Provider 진단 화면 | SEC-001, LLM-001 | 서버 사이드 설정 저장 및 진단; 비밀값 마스킹; gateway health/model 노출 | **ready** |
@@ -20,6 +20,30 @@
 | MOD-001 | P1 | 호환성 매트릭스 자동 검증 | UX-002 | Java 17+, Nextflow 25.10 LTS / 26.04 strict syntax v2 준비 검증 | **ready** |
 | MOD-002 | P1 | `nf-core/rnaseq` 우선 승격 (3.26.0) | MOD-001 | 파이프라인 입력/출력 fixture 회귀 검증; `scrna`는 대형 migration으로 분리 | **ready** |
 | DOC-001 | P1 | 사용자 설치·운영·gateway 문서화 | UX-001~002 | fresh-user 튜토리얼 및 CLI help drift 방지 검증 | **done 2026-08-20** |
+
+## AUTO — 설치·설정 완전 자동화 (Installation & Setup Automation)
+
+| ID | 우선 | 작업 | 의존성 | Definition of Done | 상태 |
+|---|---:|---|---|---|---|
+| AUTO-CFG-001 | P0 | Pydantic 기반 versioned `BioAutoConfig` SSOT | 없음 | CLI/pipeline/TUI/Web가 동일 loader 사용; unknown/invalid field 오류 | **ready** |
+| AUTO-CFG-002 | P0 | Config 위치와 precedence | AUTO-CFG-001 | `--config > env > project > XDG user > defaults`; `bioauto config show --effective` | **ready** |
+| AUTO-CFG-003 | P0 | Atomic migration & backup | AUTO-CFG-001 | 구 config dry-run diff, backup, temp+rename 저장, 실패 시 원본 보존 | **ready** |
+| AUTO-INST-001 | P0 | `install.sh` option parser & profiles | UX-001 | `--profile`, `--yes`, `--dry-run`, `--non-interactive`, `--no-modify-path` 지원 | **done 2026-08-20** (`BIOAUTO_PROFILE` 및 profile-to-extra 지원) |
+| AUTO-INST-004 | P0 | User-space runtime bootstrap | UX-001 | pinned Nextflow/Java archive checksum 검증, cache, 재사용, sudo 없음 | **ready** |
+| AUTO-SETUP-001 | P0 | Headless setup engine | CFG-001 | UI 독립 service가 profile/gateway/results/runtime config 생성 | **ready** |
+| AUTO-SETUP-003 | P0 | Gateway auto-discovery | LLM-001 | 승인 URL→health/providers/models 확인; G1–G9 defaults 생성 | **ready** |
+| AUTO-CHK-001 | P0 | Version-aware doctor | UX-002 | Java 17+ major parsing, Nextflow, Python profile, Scanpy/AnnData 검사 | **done 2026-08-20** |
+| AUTO-CHK-003 | P0 | Offline synthetic smoke test | UX-002 | synthetic metadata→plan→mock LLM→report; network/download/LLM quota 0 | **ready** |
+
+## DOC-IA — 문서 정보구조 재구조화 (Documentation Information Architecture)
+
+| ID | 우선 | 작업 | 의존성 | Definition of Done | 상태 |
+|---|---:|---|---|---|---|
+| DOC-IA-001 | P0 | 문서 inventory/ownership/SSOT 표 | 없음 | 문서별 audience·현행/계획/역사·owner 명시; 중복 section 목록 생성 | **ready** |
+| DOC-IA-002 | P0 | Docs Index & Hub 신설 (`docs/index.md`) | DOC-IA-001 | README→install→setup→smoke를 5분 내 찾을 수 있는 네비게이션 구축 | **done 2026-08-20** |
+| DOC-IA-003 | P0 | 설치/설정/gateway/security 문서 분리 | DOC-IA-002 | 코드 option과 예제가 테스트되며 G1–G9/remote auth/secret 정책 반영 | **ready** |
+| DOC-IA-004 | P0 | Planning status 정합화 | DOC-IA-002 | 완료/부분/ready/blocked 상태를 코드와 일치; 폐기된 문구 제거 | **done 2026-08-20** |
+| DOC-IA-007 | P1 | 문서 링크/명령 자동 검증 CI | DOC-IA-003 | markdown links, CLI snippets, README 요구 version을 CI에서 검사 | **ready** |
 
 ## Completed / Approved Foundation Tasks
 
@@ -35,7 +59,7 @@
 
 | ID | 작업 | 의존성 | Definition of Done | 상태 |
 |---|---|---|---|---|
-| BL-006 | Spatial processed reader + 분석 (`analysis_type=spatial`) | BL-005, PH-0 | fixture 2개 gold endpoint + warning artifact 통과 | **ready** (PH-0 R0 게이트 통과로 착수 허용) |
+| BL-006 | Spatial processed reader + 분석 (`analysis_type=spatial`) | BL-005, PH-0 | fixture 2개 gold endpoint + warning artifact 통과 | **blocked** (G6 live chat 및 기본값 정합 검증 후 착수) |
 | BL-007 | Spatial report + release 검증 | BL-006 | 관측/문헌/가설 분리, full regression/lint, 5.0 release checklist | **blocked** |
 | BL-008 | RFC 0002 Verification Engine 초안 | BL-004와 병행 가능 | JSONL schema/state machine/validation policy 승인 | **blocked** |
 | BL-009 | Verification Engine v0 구현 | BL-007, BL-008 | independent vs internal 상태를 과장 없이 출력 | **blocked** |

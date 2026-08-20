@@ -124,9 +124,9 @@ class LLMRouterSettings:
     """Router 설정 (llm_providers.router)"""
     strategy: str = "priority"
     priority_order: list[str] = field(
-        default_factory=lambda: ["ollama", "openai", "anthropic"]
+        default_factory=lambda: ["melchizedek", "ollama", "openai", "anthropic"]
     )
-    enable_auto_failover: bool = True
+    enable_auto_failover: bool = False
     health_check_interval: int = 60
     max_concurrent_requests: int = 10
 

@@ -117,6 +117,18 @@ class WizardState:
             },
             "llm_providers": {
                 "backends": {
+                    "melchizedek": {
+                        "enabled": True,
+                        "base_url": "https://REDACTED-GATEWAY",
+                        "client_label": "bioauto/pipeline",
+                        "extra_body": {
+                            "routing": {
+                                "provider": "auto",
+                                "effort": "medium",
+                                "strategy": "solo",
+                            }
+                        },
+                    },
                     "ollama": {
                         "enabled": ollama_on,
                         "url": self.ollama_url,
@@ -151,8 +163,8 @@ class WizardState:
                 },
                 "router": {
                     "strategy": "priority",
-                    "priority_order": ["ollama", "openai", "anthropic"],
-                    "enable_auto_failover": True,
+                    "priority_order": ["melchizedek", "ollama", "openai", "anthropic"],
+                    "enable_auto_failover": False,
                     "health_check_interval": 60,
                     "max_concurrent_requests": 10,
                 },

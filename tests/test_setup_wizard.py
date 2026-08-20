@@ -196,8 +196,8 @@ class TestWizardState:
         config = WizardState().to_config_dict()
         router = config["llm_providers"]["router"]
         assert router["strategy"] == "priority"
-        assert router["enable_auto_failover"] is True
-        assert router["priority_order"] == ["ollama", "openai", "anthropic"]
+        assert router["enable_auto_failover"] is False
+        assert router["priority_order"] == ["melchizedek", "ollama", "openai", "anthropic"]
 
     def test_to_config_dict_compatible_with_pipeline_config(self):
         """PipelineConfig.from_dict()로 파싱 가능한지 확인"""
