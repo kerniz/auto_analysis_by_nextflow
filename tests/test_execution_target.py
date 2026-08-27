@@ -93,3 +93,26 @@ class TestExecutionTargetResolver:
         assert spark.has_parabricks is False, "미검증인데 도구 보유를 사실로 기록함"
         assert spark.gpu_count == 0, "미검증인데 GPU 개수를 사실로 기록함"
         assert "assumed" in spark.metadata
+
+
+def test_resolver_is_not_wired_into_execution_paths():
+    """GPU-004는 RFC 0003 승인 전까지 격리 스캐폴드여야 한다.
+
+    승인 전에 CLI/pipeline/nextflow 실행 경로에 붙으면, 미실측 노드로
+    작업이 나가는 사고(F8류)가 문서 승인 없이 발생할 수 있다.
+    """
+    from pathlib import Path
+
+    prod_dirs = ["core", "nextflow", "web", "tui", "backends", "plugins", "analysis"]
+    offenders = []
+    for d in prod_dirs:
+        for py in Path(d).rglob("*.py"):
+            if py.name == "execution_target.py":
+                continue
+            if "execution_target" in py.read_text(encoding="utf-8"):
+                offenders.append(str(py))
+
+    assert not offenders, (
+        f"execution_target이 실행 경로에 부착됨: {offenders}. "
+        "RFC 0003 승인 후 이 테스트를 갱신할 것"
+    )

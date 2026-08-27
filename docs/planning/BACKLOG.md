@@ -5,19 +5,22 @@
 
 ## GPU — 클러스터 가속 & Heterogeneous Worker Pool (NVIDIA Parabricks & BioNeMo)
 
-> 대상 노드: `REDACTED-HOST-ARM64` (DGX Spark / ARM64 GB10 - Parabricks 우선), `REDACTED-HOST-X86` (x86 GPU - BioNeMo/Ollama)
+> 대상 노드: `REDACTED-HOST-ARM64` (DGX Spark **추정** ARM64/GB10 — Parabricks 후보), `REDACTED-HOST-X86` (x86 GPU — BioNeMo/Ollama 후보)
+> **사양은 아직 실측되지 않았다.** 2026-08-27 확인: 두 노드 모두 SSH `Permission denied (publickey)`. kerniz5는 ping 정상(192.168.1.108) · 포트 22·6817(slurmctld)·6818(slurmd)·11434(Ollama) OPEN. arch/GPU/CUDA는 미확인 — GPU-001A/B로 해소.
 
 | ID | 우선 | 작업 | 의존성 | Definition of Done | 상태 |
 |---|---:|---|---|---|---|
-| GPU-001A | P0 | kerniz3 (x86 GPU) secure inventory access | SSH key/bootstrap | x86 arch·GPU·driver·CUDA·Docker·RAM·Ollama 점유 수집 | **blocked-access** |
-| GPU-001B | P0 | kerniz5 (DGX Spark ARM64) secure inventory access | SSH key/bootstrap | ARM64 arch·GB10 capability·Docker GPU 수집 | **blocked-access** |
-| GPU-004 | P0 | ExecutionTarget & WorkerCapability 추상화 (RFC 0003) | 없음 | `ExecutionTargetResolver` 안전 가드 모듈 수록 및 fail-closed 회귀 테스트 | **in-review** (`core/execution_target.py` scaffold 수록) |
+| GPU-001A | P0 | kerniz3 (x86 GPU) secure inventory access | SSH key/bootstrap | x86 arch·GPU·driver·CUDA·Docker·RAM·Ollama 점유 수집 | **blocked-access** (2026-08-27 SSH `Permission denied`; Ollama 11434는 응답 확인) |
+| GPU-001B | P0 | kerniz5 (DGX Spark ARM64) secure inventory access | SSH key/bootstrap | ARM64 arch·GB10 capability·Docker GPU 수집 | **blocked-access** (2026-08-27 SSH `Permission denied`; ping OK, 22·6817·6818·11434 OPEN) |
+| GPU-004 | P0 | ExecutionTarget & WorkerCapability 추상화 (RFC 0003 — **미작성**) | 없음 | `ExecutionTargetResolver` 안전 가드 모듈 수록 및 fail-closed 회귀 테스트 | **in-review** (`core/execution_target.py` scaffold 수록, 실행 경로 미부착 확인 2026-08-27. 승인 게이트인 RFC 0003이 아직 없으므로 먼저 작성 필요) |
 | GPU-006 | P1 | CapabilityProbe & Target Registry | GPU-004 | unavailable 노드 자동 탐지 및 사전 차단 | **ready** |
+| GPU-007 | P1 | Parabricks/BioNeMo arm64 매니페스트 확정 | GPU-001B | NGC 라벨상 `clara-parabricks`·`bionemo-framework` 모두 `containers:multiarch`. 단 multiarch가 arm64를 포함하는지는 매니페스트로 확정 필요. 부속 컨테이너(`clara-parabricks-umi-fgbio`, `-deepsap`)에는 multiarch 라벨 **없음** → arm64 미지원 가능 | **ready** |
+| GPU-008 | P1 | Slurm 통합 경로 결정 (신규 SSH vs 기존 slurmctld) | GPU-001B | kerniz5의 6817/6818(slurm) 포트가 **열려 있음**(2026-08-27 실측). 기존 `_run_nfcore_via_slurm` 경로로 흡수할지, `ExecutionTargetResolver` 별도 SSH 경로로 갈지 결정. 두 경로 병존은 F8류 사고 재발 위험 | **ready** |
 | PB-001 | P1 | Parabricks prerequisite smoke | GPU-001B | `docker --gpus all` official sample, image digest/version provenance | **blocked GPU-001B** |
-| PB-002 | P1 | fq2bam adapter & Nextflow integration | PB-001 | typed manifest/params, reference bundle validation, dry-run resource | **blocked PB-001** |
+| PB-002 | P1 | fq2bam adapter & Nextflow integration | PB-001 | typed manifest/params, reference bundle validation, dry-run resource, **process label·`accelerator` 지시자·NGC 인증 pull 정책** (TD-001 param 템플릿과 함께) | **blocked PB-001** |
 | PB-003 | P1 | Germline caller adapter (HaplotypeCaller/DeepVariant) | PB-002 | VCF QC, failure artifact 및 provenance 보존 | **blocked PB-002** |
 | BN-001A | P2 | BioNeMo x86 probe on kerniz3 | GPU-001A | official supported GPU/driver 확인, minimal import/inference | **blocked GPU-001A** |
-| BN-001B | P2 | BioNeMo ARM64 probe on kerniz5 | GPU-001B | x86-only 공식 상태를 유지하며 experimental container probe | **blocked GPU-001B** |
+| BN-001B | P2 | BioNeMo ARM64 probe on kerniz5 | GPU-001B | NGC `bionemo-framework`에 `containers:multiarch` 라벨 존재(2026-08-27 실측) — 'x86-only'로 단정하지 말 것. arm64 포함 여부를 매니페스트로 확인 후 probe (GPU-007) | **blocked GPU-001B** |
 
 ## PH-0 Platform Hardening (사용자 편의성·설치·보안·Melchizedek Gateway 구현)
 
@@ -41,10 +44,6 @@
 | VM-002 | P2 | `bioauto doctor`에 gateway/LLM 진단 없음 | UX-002 | doctor가 Java/Nextflow/Python/API key만 보고 gateway health·router 정책을 진단하지 않음. `backends`와 동일 정보를 doctor에 통합 | **ready** (2026-08-27 VM 실사용 확인) |
 | VM-003 | P2 | `python -m core.cli` 실행 시 RuntimeWarning | 없음 | `'core.cli' found in sys.modules...` 경고가 매 실행 출력됨. `core/__init__.py`가 `core.cli`를 import해 발생 — 콘솔 스크립트 진입점 사용 또는 lazy import로 해소 | **ready** (2026-08-27 VM 실사용 확인) |
 | VM-004 | P2 | 이 VM에 Java/Nextflow 미설치 | AUTO-INST-004 | `doctor` 결과 Java/Nextflow MISSING — 파이프라인 실행 불가. user-space runtime bootstrap으로 해소 예정 | **ready** (환경 이슈, 코드 결함 아님) |
-| GPU-002 | P0 | kerniz5/kerniz3 노드 사양 실측 | 없음 | SSH 접근 확보 후 `uname -m`·`nvidia-smi`·CUDA·컨테이너 런타임·Parabricks/BioNeMo 설치 여부 실측. `register_target(verified=True)`로 등록. **실측 전 GPU 워크로드 dispatch 금지** | **ready** (2026-08-27: SSH `Permission denied (publickey)` — 접근 차단 상태) |
-| GPU-003 | P1 | Parabricks/BioNeMo arm64 매니페스트 확정 | GPU-002 | NGC 라벨상 `clara-parabricks`·`bionemo-framework` 모두 `containers:multiarch`. 단 multiarch가 arm64를 포함하는지는 매니페스트로 확정 필요. 부속 컨테이너(`clara-parabricks-umi-fgbio`, `-deepsap`)에는 multiarch 라벨 **없음** → arm64 미지원 가능 | **ready** |
-| GPU-004 | P1 | Slurm 통합 경로 결정 (신규 SSH vs 기존 slurmctld) | GPU-002 | kerniz5의 6817/6818(slurm) 포트가 **열려 있음**(2026-08-27 실측). 기존 `_run_nfcore_via_slurm` 경로로 흡수할지, `ExecutionTargetResolver` 별도 SSH 경로로 갈지 결정. 두 경로 병존은 F8류 사고 재발 위험 | **ready** |
-| GPU-005 | P2 | nf-core GPU 프로세스 라벨 매핑 | GPU-003 | Parabricks/BioNeMo를 Nextflow에서 쓰려면 process label·`accelerator` 지시자·컨테이너 pull 정책(NGC 인증 포함)이 필요. TD-001(rnaseq 전용 param 템플릿)과 함께 WorkflowPlan에서 설계 | **ready** |
 
 ## AUTO — 설치·설정 완전 자동화 (Installation & Setup Automation)
 
