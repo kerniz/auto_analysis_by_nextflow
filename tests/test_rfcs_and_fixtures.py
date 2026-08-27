@@ -373,10 +373,21 @@ def test_pipeline_config_defaults_match_gateway_first_policy():
     defaults = LLMRouterSettings()
     assert defaults.priority_order[0] == "melchizedek"
     assert defaults.enable_auto_failover is False
-    cfg = PipelineConfig(pmids=["0"])
-    router = cfg.llm_providers.router if cfg.llm_providers else defaults
-    assert router.enable_auto_failover is False
-    assert router.priority_order[0] == "melchizedek"
+
+    # config.json이 실제로 로드될 때 정책이 적용되는지 (실사용 경로)
+    loaded = PipelineConfig.from_json("config.json")
+    assert loaded.llm_providers is not None
+    assert loaded.llm_providers.router.priority_order[0] == "melchizedek"
+    assert loaded.llm_providers.router.enable_auto_failover is False
+
+    # 알려진 공백(AUTO-CFG-002): config.json 없이 직접 생성하면
+    # llm_providers가 None이라 위 기본값이 도달하지 않는다.
+    # `or defaults`로 가려서 통과시키면 이 공백이 안 보인다.
+    bare = PipelineConfig(pmids=["0"])
+    assert bare.llm_providers is None, (
+        "llm_providers 기본값이 채워졌다면 AUTO-CFG-002가 해소된 것이므로 "
+        "이 테스트와 CLI 경고를 갱신할 것"
+    )
 
 
 def test_docs_index_uses_relative_links_that_exist():

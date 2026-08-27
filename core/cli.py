@@ -208,6 +208,15 @@ def run(pmids, results_dir, max_concurrent, config, debate, enrichment,
             pipeline_config = PipelineConfig.from_dict(cfg_data)
             pipeline_config.pmids = list(pmids)
         else:
+            # config.json이 없으면 llm_providers가 비어 legacy 단일 백엔드
+            # 경로로 떨어진다 — 승인된 gateway-first 정책(G1/G2/G8)이
+            # 적용되지 않으므로 조용히 넘어가지 않고 알린다 (AUTO-CFG-002).
+            click.echo(click.style(
+                "[WARN] config.json을 찾지 못했습니다. Melchizedek gateway "
+                "우선 라우팅이 적용되지 않고 legacy 백엔드로 실행됩니다.\n"
+                "       위치 확인: python3 -m core.cli config paths",
+                fg="yellow",
+            ))
             pipeline_config = PipelineConfig(pmids=list(pmids))
 
     # CLI 옵션으로 오버라이드
@@ -465,6 +474,33 @@ def backends():
                 except Exception:
                     click.echo(click.style(
                         "   Status: UNREACHABLE", fg="red"
+                    ))
+            elif bcfg.get("base_url") and not bcfg.get("api_key_env"):
+                # Melchizedek gateway: tailnet 경유는 Bearer가 불필요하므로
+                # API key 유무가 아니라 실제 도달성으로 판정한다.
+                gw_url = str(bcfg.get("base_url", "")).rstrip("/")
+                root = gw_url[:-3].rstrip("/") if gw_url.endswith("/v1") else gw_url
+                health_url = f"{root}/health"
+                try:
+                    import httpx
+                    resp = httpx.get(health_url, timeout=10)
+                    if resp.status_code == 200:
+                        info = resp.json()
+                        ready = info.get("providers_ready", "?")
+                        click.echo(click.style(
+                            f"   Status: HEALTHY (providers_ready={ready})",
+                            fg="green",
+                        ))
+                        click.echo(f"   Gateway: {gw_url}")
+                        click.echo(f"   Label: {bcfg.get('client_label', '(미설정)')}")
+                    else:
+                        click.echo(click.style(
+                            f"   Status: UNHEALTHY (HTTP {resp.status_code})",
+                            fg="red",
+                        ))
+                except Exception as e:
+                    click.echo(click.style(
+                        f"   Status: UNREACHABLE ({type(e).__name__})", fg="red"
                     ))
             else:
                 api_key_env = bcfg.get("api_key_env", "")

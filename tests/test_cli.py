@@ -694,3 +694,68 @@ class TestConfigCommand:
 
 
 
+
+
+class TestBackendsGatewayStatus:
+    """게이트웨이는 api_key_env가 없으므로 'No API key'가 아니라
+    실제 도달성으로 판정돼야 한다 (2026-08-27 VM 실사용에서 발견)."""
+
+    def test_gateway_reports_health_not_missing_api_key(self):
+        from unittest.mock import MagicMock, patch
+
+        from click.testing import CliRunner
+
+        from core.cli import cli
+
+        cfg = {
+            "llm_providers": {
+                "backends": {
+                    "melchizedek": {
+                        "enabled": True,
+                        "base_url": "https://gw.example/v1",
+                        "client_label": "bioauto/pipeline",
+                        "model": "claude",
+                    },
+                },
+                "router": {"strategy": "priority", "enable_auto_failover": False},
+            },
+        }
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"providers_ready": 5}
+
+        with patch("core.cli._load_config", return_value=cfg), \
+             patch("httpx.get", return_value=resp) as mock_get:
+            result = CliRunner().invoke(cli, ["backends"])
+
+        assert result.exit_code == 0
+        assert "No API key" not in result.output
+        assert "HEALTHY" in result.output
+        assert "providers_ready=5" in result.output
+        # /v1 접미사를 제거하고 /health로 조회해야 한다
+        assert mock_get.call_args[0][0] == "https://gw.example/health"
+
+    def test_gateway_unreachable_is_reported(self):
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from core.cli import cli
+
+        cfg = {
+            "llm_providers": {
+                "backends": {
+                    "melchizedek": {
+                        "enabled": True,
+                        "base_url": "https://gw.example/v1",
+                        "model": "claude",
+                    },
+                },
+                "router": {},
+            },
+        }
+        with patch("core.cli._load_config", return_value=cfg), \
+             patch("httpx.get", side_effect=OSError("boom")):
+            result = CliRunner().invoke(cli, ["backends"])
+
+        assert result.exit_code == 0
+        assert "UNREACHABLE" in result.output

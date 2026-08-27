@@ -21,6 +21,10 @@
 | MOD-001 | P1 | 호환성 매트릭스 자동 검증 | UX-002 | Java 17+, Nextflow 25.10 LTS / 26.04 strict syntax v2 준비 검증 | **ready** |
 | MOD-002 | P1 | `nf-core/rnaseq` 우선 승격 (3.26.0) | MOD-001 | 파이프라인 입력/출력 fixture 회귀 검증; `scrna`는 대형 migration으로 분리 | **ready** |
 | DOC-001 | P1 | 사용자 설치·운영·gateway 문서화 | UX-001~002 | fresh-user 튜토리얼 및 CLI help drift 방지 검증 | **done 2026-08-20** |
+| VM-001 | P1 | `config.json` 부재 시 gateway 정책 미적용 | AUTO-CFG-002 | config 없이 `PipelineConfig()` 생성 시 `llm_providers=None`이라 G1/G2/G8이 적용되지 않고 legacy 백엔드로 폴백. 현재는 CLI 경고만 있음 — loader가 gateway-first 기본값을 항상 구성하도록 | **ready** (2026-08-27 VM 실사용 확인) |
+| VM-002 | P2 | `bioauto doctor`에 gateway/LLM 진단 없음 | UX-002 | doctor가 Java/Nextflow/Python/API key만 보고 gateway health·router 정책을 진단하지 않음. `backends`와 동일 정보를 doctor에 통합 | **ready** (2026-08-27 VM 실사용 확인) |
+| VM-003 | P2 | `python -m core.cli` 실행 시 RuntimeWarning | 없음 | `'core.cli' found in sys.modules...` 경고가 매 실행 출력됨. `core/__init__.py`가 `core.cli`를 import해 발생 — 콘솔 스크립트 진입점 사용 또는 lazy import로 해소 | **ready** (2026-08-27 VM 실사용 확인) |
+| VM-004 | P2 | 이 VM에 Java/Nextflow 미설치 | AUTO-INST-004 | `doctor` 결과 Java/Nextflow MISSING — 파이프라인 실행 불가. user-space runtime bootstrap으로 해소 예정 | **ready** (환경 이슈, 코드 결함 아님) |
 
 ## AUTO — 설치·설정 완전 자동화 (Installation & Setup Automation)
 
