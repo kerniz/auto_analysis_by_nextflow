@@ -299,7 +299,7 @@ class SlurmDetector:
                 "/shared/", "/scratch/", "/data/",
                 "/mnt/nfs", "/mnt/shared", "/mnt/lustre",
                 "/gpfs/", "/lustre/", "/beegfs/",
-                "site-nfs",  # This project's NFS mount
+                "site-nfs",  # NFS mount pattern (site-specific)
             ]
             for pattern in shared_patterns:
                 if pattern in abs_path:

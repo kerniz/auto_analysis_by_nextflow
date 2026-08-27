@@ -368,7 +368,7 @@ bioauto/
 - PipelineConfig에 9개 설정 클래스 추가 — config.json 전 섹션 파싱
   - `LLMServerConfig`, `DebateSettings`, `EnrichmentSettings`, `DirectoriesConfig` 등
 - AsyncPipeline.initialize() 하드코딩 제거, config 값으로 대체
-- Ollama 서버 `REDACTED-HOST-X86:11435`, timeout 72시간 설정
+- Ollama 서버 `<ollama-server>:11435`, timeout 72시간 설정
 - ruff lint **1,365개 → 0개** 전량 수정
 - 테스트 **233개 → 975개** (+742), 전체 커버리지 **46% → 87%**
 - 89개 파일 변경, +11,267줄 추가

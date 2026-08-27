@@ -5,22 +5,22 @@
 
 ## GPU — 클러스터 가속 & Heterogeneous Worker Pool (NVIDIA Parabricks & BioNeMo)
 
-> 대상 노드: `REDACTED-HOST-ARM64` (DGX Spark **추정** ARM64/GB10 — Parabricks 후보), `REDACTED-HOST-X86` (x86 GPU — BioNeMo/Ollama 후보)
-> **사양은 아직 실측되지 않았다.** 2026-08-27 확인: 두 노드 모두 SSH `Permission denied (publickey)`. kerniz5는 ping 정상(192.168.1.108) · 포트 22·6817(slurmctld)·6818(slurmd)·11434(Ollama) OPEN. arch/GPU/CUDA는 미확인 — GPU-001A/B로 해소.
+> 대상 노드: `<gpu-arm64-host>` (DGX Spark **추정** ARM64/GB10 — Parabricks 후보), `<gpu-x86-host>` (x86 GPU — BioNeMo/Ollama 후보)
+> **사양은 아직 실측되지 않았다.** 2026-08-27 확인: 두 노드 모두 SSH `Permission denied (publickey)`. ARM64 노드는 ping 정상(<internal-ip>) · 포트 22·6817(slurmctld)·6818(slurmd)·11434(Ollama) OPEN. arch/GPU/CUDA는 미확인 — GPU-001A/B로 해소.
 
 | ID | 우선 | 작업 | 의존성 | Definition of Done | 상태 |
 |---|---:|---|---|---|---|
-| GPU-001A | P0 | kerniz3 (x86 GPU) secure inventory access | SSH key/bootstrap | x86 arch·GPU·driver·CUDA·Docker·RAM·Ollama 점유 수집 | **blocked-access** (2026-08-27 SSH `Permission denied`; Ollama 11434는 응답 확인) |
-| GPU-001B | P0 | kerniz5 (DGX Spark ARM64) secure inventory access | SSH key/bootstrap | ARM64 arch·GB10 capability·Docker GPU 수집 | **blocked-access** (2026-08-27 SSH `Permission denied`; ping OK, 22·6817·6818·11434 OPEN) |
+| GPU-001A | P0 | x86 GPU Worker secure inventory access | SSH key/bootstrap | x86 arch·GPU·driver·CUDA·Docker·RAM·Ollama 점유 수집 | **blocked-access** (2026-08-27 SSH `Permission denied`; Ollama 11434는 응답 확인) |
+| GPU-001B | P0 | GPU ARM64 Spark Worker secure inventory access | SSH key/bootstrap | ARM64 arch·GB10 capability·Docker GPU 수집 | **blocked-access** (2026-08-27 SSH `Permission denied`; ping OK, 22·6817·6818·11434 OPEN) |
 | GPU-004 | P0 | ExecutionTarget & WorkerCapability 추상화 (RFC 0003 — **미작성**) | 없음 | `ExecutionTargetResolver` 안전 가드 모듈 수록 및 fail-closed 회귀 테스트 | **in-review** (`core/execution_target.py` scaffold 수록, 실행 경로 미부착 확인 2026-08-27. 승인 게이트인 RFC 0003이 아직 없으므로 먼저 작성 필요) |
 | GPU-006 | P1 | CapabilityProbe & Target Registry | GPU-004 | unavailable 노드 자동 탐지 및 사전 차단 | **ready** |
 | GPU-007 | P1 | Parabricks/BioNeMo arm64 매니페스트 확정 | GPU-001B | NGC 라벨상 `clara-parabricks`·`bionemo-framework` 모두 `containers:multiarch`. 단 multiarch가 arm64를 포함하는지는 매니페스트로 확정 필요. 부속 컨테이너(`clara-parabricks-umi-fgbio`, `-deepsap`)에는 multiarch 라벨 **없음** → arm64 미지원 가능 | **ready** |
-| GPU-008 | P1 | Slurm 통합 경로 결정 (신규 SSH vs 기존 slurmctld) | GPU-001B | kerniz5의 6817/6818(slurm) 포트가 **열려 있음**(2026-08-27 실측). 기존 `_run_nfcore_via_slurm` 경로로 흡수할지, `ExecutionTargetResolver` 별도 SSH 경로로 갈지 결정. 두 경로 병존은 F8류 사고 재발 위험 | **ready** |
+| GPU-008 | P1 | Slurm 통합 경로 결정 (신규 SSH vs 기존 slurmctld) | GPU-001B | ARM64 노드의 6817/6818(slurm) 포트가 **열려 있음**(2026-08-27 실측). 기존 `_run_nfcore_via_slurm` 경로로 흡수할지, `ExecutionTargetResolver` 별도 SSH 경로로 갈지 결정. 두 경로 병존은 F8류 사고 재발 위험 | **ready** |
 | PB-001 | P1 | Parabricks prerequisite smoke | GPU-001B | `docker --gpus all` official sample, image digest/version provenance | **blocked GPU-001B** |
 | PB-002 | P1 | fq2bam adapter & Nextflow integration | PB-001 | typed manifest/params, reference bundle validation, dry-run resource, **process label·`accelerator` 지시자·NGC 인증 pull 정책** (TD-001 param 템플릿과 함께) | **blocked PB-001** |
 | PB-003 | P1 | Germline caller adapter (HaplotypeCaller/DeepVariant) | PB-002 | VCF QC, failure artifact 및 provenance 보존 | **blocked PB-002** |
-| BN-001A | P2 | BioNeMo x86 probe on kerniz3 | GPU-001A | official supported GPU/driver 확인, minimal import/inference | **blocked GPU-001A** |
-| BN-001B | P2 | BioNeMo ARM64 probe on kerniz5 | GPU-001B | NGC `bionemo-framework`에 `containers:multiarch` 라벨 존재(2026-08-27 실측) — 'x86-only'로 단정하지 말 것. arm64 포함 여부를 매니페스트로 확인 후 probe (GPU-007) | **blocked GPU-001B** |
+| BN-001A | P2 | BioNeMo x86 probe on x86 GPU Worker | GPU-001A | official supported GPU/driver 확인, minimal import/inference | **blocked GPU-001A** |
+| BN-001B | P2 | BioNeMo ARM64 probe on GPU ARM64 Spark Worker | GPU-001B | NGC `bionemo-framework`에 `containers:multiarch` 라벨 존재(2026-08-27 실측) — 'x86-only'로 단정하지 말 것. arm64 포함 여부를 매니페스트로 확인 후 probe (GPU-007) | **blocked GPU-001B** |
 
 ## PH-0 Platform Hardening (사용자 편의성·설치·보안·Melchizedek Gateway 구현)
 
@@ -30,7 +30,7 @@
 | UX-002 | P0 | `bioauto doctor` 및 `--json` 진단 CLI | UX-001 | Java 17+/Nextflow/Container/Python/API key 마스킹 진단; 단위 테스트 통과 | **done 2026-08-20** |
 | CFG-001 | P0 | versioned config schema & precedence | 없음 | `CLI > env > project > user > default` 강제; redaction 마스킹 검증 | **ready** |
 | SEC-001 | P0 | web 기본 바인딩 127.0.0.1 제한 및 보안 가드 | 없음 | 기본 127.0.0.1 바인딩; `--allow-remote` 설정 시 토큰 자동생성; 상수시간 토큰 미들웨어 | **done 2026-08-20** |
-| LLM-001 | P0 | `OpenAIBackend` gateway 라우팅 및 `X-Melchizedek-Client` 헤더 | G1/G2 | `https://REDACTED-GATEWAY` 게이트웨이 파라미터화; dummy key 게이트웨이 분리 | **done 2026-08-20** |
+| LLM-001 | P0 | `OpenAIBackend` gateway 라우팅 및 `X-Melchizedek-Client` 헤더 | G1/G2 | `<llm-gateway-host>` 게이트웨이 파라미터화; dummy key 게이트웨이 분리 | **done 2026-08-20** |
 | LLM-002 | P0 | Gateway-first 라우터 및 단계별 프로필 | LLM-001 | gateway 라우팅 우선 사용; 이중 failover/ensemble 방지; degraded 상태 명시 | **done 2026-08-20** (config.json 및 pipeline.py / setup_wizard.py `priority_order[0]=melchizedek`, `enable_auto_failover=false` 고정) |
 | LLM-003 | P0 | Route provenance & 에러 분류/retry | LLM-001 | `LLMResponse.to_dict()`에 route provenance 보존; 429/503 retryable 분리 | **done 2026-08-20** (`backends/base.py::classify_error` — gateway code 우선, `Retry-After` 준수, fatal 즉시 실패. 계약 테스트 6건) |
 | LLM-004 | P0 | Gateway 테스트 스위트 및 live smoke | LLM-001 | mock 전체 검증 + live 1회 최소 chat 검증 (G6) | **done 2026-08-20** (G6 live chat 1회 실행: HTTP 200, 6.15s, `route.provider=claude`, `reason=explicit_provider_model`. 응답 전문 미저장) |

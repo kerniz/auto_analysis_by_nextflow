@@ -1707,21 +1707,18 @@ class AsyncPipeline:
         ids_file.parent.mkdir(parents=True, exist_ok=True)
         ids_file.write_text("\n".join(public_ids) + "\n")
 
-        # Linux 경로로 변환
-        linux_nfs = nfs_base.replace(
-            "REDACTED-NFS-PATH",
-            "REDACTED-NFS-PATH",
-        )
+        # Configurable Linux-side NFS path for Slurm compute nodes
+        linux_nfs = os.environ.get("SLURM_LINUX_NFS_BASE", nfs_base)
         linux_nfcore = f"{linux_nfs}/nfcore/{pmid}"
 
         script = f"""#!/bin/bash
 set -euo pipefail
-eval "$(REDACTED-CONDA-PATH/bin/conda shell.bash hook)"
+eval "$(${"{CONDA_HOME:-$HOME/miniconda3}"}/bin/conda shell.bash hook)"
 conda activate nf-core
-export NXF_HOME=REDACTED-NXF-PATH
-export NXF_SINGULARITY_CACHEDIR=REDACTED-CONTAINERS-PATH
+export NXF_HOME=${"${NXF_HOME:-$HOME/.nextflow}"}
+export NXF_SINGULARITY_CACHEDIR=${"${NXF_SINGULARITY_CACHEDIR:-$HOME/containers}"}
 export APPTAINER_BIND="/etc/resolv.conf"
-mkdir -p REDACTED-CONTAINERS-PATH {linux_nfcore}
+mkdir -p ${"${NXF_SINGULARITY_CACHEDIR:-$HOME/containers}"} {linux_nfcore}
 
 echo "=== fetchngs ==="
 nextflow run nf-core/fetchngs -r 1.12.0 \\
@@ -1759,23 +1756,26 @@ echo "=== DONE ==="
             capture_output=True, text=True,
         )
         jwt = _r.stdout.strip()
+        _slurm_user = os.environ.get("SLURM_USER", os.environ.get("USER", ""))
         headers = {
-            "X-SLURM-USER-NAME": cluster-user,
+            "X-SLURM-USER-NAME": _slurm_user,
             "X-SLURM-USER-TOKEN": jwt,
             "Content-Type": "application/json",
         }
+        _conda_home = os.environ.get("CONDA_HOME", str(Path.home() / "miniconda3"))
+        _local_bin = os.environ.get("SLURM_LOCAL_BIN", str(Path.home() / ".local/bin"))
         data = {
             "script": script,
             "job": {
                 "name": f"nfcore_{pmid}",
                 "partition": "cpu",
                 "qos": "high",
-                "current_working_directory": "REDACTED-HOME",
+                "current_working_directory": os.environ.get("SLURM_WORK_DIR", str(Path.home())),
                 "standard_output": f"{linux_nfcore}/slurm_nfcore.out",
                 "standard_error": f"{linux_nfcore}/slurm_nfcore.err",
                 "environment": [
-                    "PATH=REDACTED-CONDA-PATH/envs/nf-core/bin"
-                    ":REDACTED-LOCAL-BIN:/usr/local/bin:/usr/bin:/bin"
+                    f"PATH={_conda_home}/envs/nf-core/bin"
+                    f":{_local_bin}:/usr/local/bin:/usr/bin:/bin"
                 ],
             },
         }

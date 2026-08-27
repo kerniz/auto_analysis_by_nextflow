@@ -1,20 +1,27 @@
 """
 Execution Target Abstraction & Capability Resolver for Heterogeneous Cluster Nodes
-DGX Spark (kerniz5), x86 GPU Worker (kerniz3), Slurm HPC, and Local CPU Targets.
+GPU ARM64 Spark Worker, x86 GPU Worker, Slurm HPC, and Local CPU Targets.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+# Host addresses resolved once at import time from environment variables.
+# Set GPU_X86_WORKER_HOST / GPU_ARM64_SPARK_HOST in the environment to point
+# to site-specific nodes; defaults are generic placeholder names.
+_GPU_X86_HOST = os.environ.get("GPU_X86_WORKER_HOST", "gpu-worker.local")
+_GPU_ARM64_HOST = os.environ.get("GPU_ARM64_SPARK_HOST", "gpu-spark.local")
 
 
 class TargetType(str, Enum):
     CPU_LOCAL = "cpu-local"
     SLURM_HPC = "slurm-hpc"
-    KERNIZ3_X86_GPU = "kerniz3-x86-gpu"
-    KERNIZ5_ARM64_SPARK = "kerniz5-arm64-spark"
+    GPU_X86_WORKER = "gpu-x86-worker"
+    GPU_ARM64_SPARK = "gpu-arm64-spark"
 
 
 @dataclass
@@ -91,15 +98,15 @@ class TargetAssignment:
 _ROUTING_RULES: list[tuple[tuple[str, ...], TargetType, str, str]] = [
     (
         ("parabricks", "fq2bam", "variant_call"),
-        TargetType.KERNIZ5_ARM64_SPARK,
-        "REDACTED-HOST-ARM64",
-        "Assigned to DGX Spark (kerniz5) for Parabricks GPU acceleration",
+        TargetType.GPU_ARM64_SPARK,
+        _GPU_ARM64_HOST,
+        "Assigned to GPU ARM64 Spark Worker for Parabricks GPU acceleration",
     ),
     (
         ("bionemo", "geneformer", "esm", "evo"),
-        TargetType.KERNIZ3_X86_GPU,
-        "REDACTED-HOST-X86",
-        "Assigned to x86 GPU Worker (kerniz3) for BioNeMo container/model execution",
+        TargetType.GPU_X86_WORKER,
+        _GPU_X86_HOST,
+        "Assigned to x86 GPU Worker for BioNeMo container/model execution",
     ),
 ]
 
@@ -127,10 +134,10 @@ class ExecutionTargetResolver:
         # 기록하지 않고 metadata의 `assumed`에만 둔다 (GPU-002).
         # 실측 후 register_target()으로 verified=True와 함께 덮어쓴다.
 
-        # 2. kerniz3 x86 GPU Worker (BioNeMo / Ollama LLM 후보)
-        self._targets[TargetType.KERNIZ3_X86_GPU] = WorkerCapability(
-            host="REDACTED-HOST-X86",
-            target_type=TargetType.KERNIZ3_X86_GPU,
+        # 2. x86 GPU Worker (BioNeMo / Ollama LLM 후보)
+        self._targets[TargetType.GPU_X86_WORKER] = WorkerCapability(
+            host=_GPU_X86_HOST,
+            target_type=TargetType.GPU_X86_WORKER,
             arch="x86_64",
             ollama_active=True,  # 11434 응답 확인됨 (2026-08-27)
             status="blocked-access",  # SSH key 등록 전
@@ -138,10 +145,10 @@ class ExecutionTargetResolver:
             metadata={"assumed": {"gpu_model": "NVIDIA RTX GPU (x86)", "has_bionemo": True}},
         )
 
-        # 3. kerniz5 DGX Spark ARM64 Worker (Parabricks 후보)
-        self._targets[TargetType.KERNIZ5_ARM64_SPARK] = WorkerCapability(
-            host="REDACTED-HOST-ARM64",
-            target_type=TargetType.KERNIZ5_ARM64_SPARK,
+        # 3. GPU ARM64 Spark Worker (Parabricks 후보)
+        self._targets[TargetType.GPU_ARM64_SPARK] = WorkerCapability(
+            host=_GPU_ARM64_HOST,
+            target_type=TargetType.GPU_ARM64_SPARK,
             status="blocked-access",  # SSH key 등록 전
             verified=False,
             metadata={"assumed": {

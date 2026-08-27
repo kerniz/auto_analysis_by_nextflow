@@ -16,18 +16,18 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_API_URL = "http://REDACTED-HOST-X86:6820"
+DEFAULT_API_URL = os.environ.get("SLURM_API_URL", "http://localhost:6820")
 API_VERSION = "v0.0.40"
 
 
 def _get_auth_headers() -> dict[str, str]:
     """환경변수에서 Slurm 인증 정보 로드."""
-    user = os.environ.get("SLURM_USER", cluster-user)
+    user = os.environ.get("SLURM_USER", os.environ.get("USER", "slurm-user"))
     jwt = os.environ.get("SLURM_JWT", "")
     if not jwt:
         # NFS 공유 토큰 파일 시도
         nfs_token = os.path.expanduser(
-            "REDACTED-NFS-PATH/7.slurm/etc/mac/jwt_token.txt"
+            os.environ.get("SLURM_JWT_TOKEN_PATH", "~/.slurm/jwt_token.txt")
         )
         try:
             jwt = open(nfs_token).read().strip()

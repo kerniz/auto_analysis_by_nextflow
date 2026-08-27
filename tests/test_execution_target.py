@@ -1,10 +1,15 @@
 """Unit tests for core/execution_target.py ExecutionTargetResolver and WorkerCapability."""
 
+import os
+
 from core.execution_target import (
     ExecutionTargetResolver,
     TargetType,
     WorkerCapability,
 )
+
+_GPU_ARM64_HOST = os.environ.get("GPU_ARM64_SPARK_HOST", "gpu-spark.local")
+_GPU_X86_HOST = os.environ.get("GPU_X86_WORKER_HOST", "gpu-worker.local")
 
 
 class TestExecutionTargetResolver:
@@ -13,21 +18,21 @@ class TestExecutionTargetResolver:
     def test_default_targets_registration(self):
         resolver = ExecutionTargetResolver()
         assert TargetType.CPU_LOCAL in resolver._targets
-        assert TargetType.KERNIZ3_X86_GPU in resolver._targets
-        assert TargetType.KERNIZ5_ARM64_SPARK in resolver._targets
+        assert TargetType.GPU_X86_WORKER in resolver._targets
+        assert TargetType.GPU_ARM64_SPARK in resolver._targets
 
     def test_resolve_parabricks_workload(self):
         resolver = ExecutionTargetResolver()
         assignment = resolver.resolve("parabricks_fq2bam")
-        assert assignment.target_type == TargetType.KERNIZ5_ARM64_SPARK
-        assert assignment.assigned_host == "REDACTED-HOST-ARM64"
+        assert assignment.target_type == TargetType.GPU_ARM64_SPARK
+        assert assignment.assigned_host == _GPU_ARM64_HOST
         assert "Parabricks" in assignment.reason
 
     def test_resolve_bionemo_workload(self):
         resolver = ExecutionTargetResolver()
         assignment = resolver.resolve("bionemo_geneformer")
-        assert assignment.target_type == TargetType.KERNIZ3_X86_GPU
-        assert assignment.assigned_host == "REDACTED-HOST-X86"
+        assert assignment.target_type == TargetType.GPU_X86_WORKER
+        assert assignment.assigned_host == _GPU_X86_HOST
         assert "BioNeMo" in assignment.reason
 
     def test_resolve_general_cpu_workload(self):
@@ -39,8 +44,8 @@ class TestExecutionTargetResolver:
     def test_custom_target_registration(self):
         resolver = ExecutionTargetResolver()
         custom_cap = WorkerCapability(
-            host="REDACTED-HOST-ARM64",
-            target_type=TargetType.KERNIZ5_ARM64_SPARK,
+            host="test-spark.local",
+            target_type=TargetType.GPU_ARM64_SPARK,
             arch="arm64",
             gpu_count=1,
             gpu_model="NVIDIA Blackwell GB10",
@@ -48,8 +53,8 @@ class TestExecutionTargetResolver:
         )
         resolver.register_target(custom_cap)
         assignment = resolver.resolve("parabricks")
-        assert assignment.target_type == TargetType.KERNIZ5_ARM64_SPARK
-        assert assignment.reason.startswith("Assigned to DGX Spark")
+        assert assignment.target_type == TargetType.GPU_ARM64_SPARK
+        assert assignment.reason.startswith("Assigned to GPU ARM64 Spark Worker")
 
     def test_unverified_target_is_blocked(self):
         """사양이 실측되지 않은 노드로는 작업을 보내지 않는다 (GPU-002).
@@ -65,8 +70,8 @@ class TestExecutionTargetResolver:
 
         # status만 online으로 바꿔도 verified가 False면 여전히 차단
         resolver.register_target(WorkerCapability(
-            host="REDACTED-HOST-ARM64",
-            target_type=TargetType.KERNIZ5_ARM64_SPARK,
+            host="test-spark.local",
+            target_type=TargetType.GPU_ARM64_SPARK,
             status="online",
         ))
         assert resolver.resolve("parabricks").blocked is True
@@ -74,8 +79,8 @@ class TestExecutionTargetResolver:
     def test_verified_online_target_is_dispatchable(self):
         resolver = ExecutionTargetResolver()
         resolver.register_target(WorkerCapability(
-            host="REDACTED-HOST-ARM64",
-            target_type=TargetType.KERNIZ5_ARM64_SPARK,
+            host="test-spark.local",
+            target_type=TargetType.GPU_ARM64_SPARK,
             arch="arm64",
             gpu_count=1,
             status="online",
@@ -88,7 +93,7 @@ class TestExecutionTargetResolver:
     def test_no_unverified_specs_presented_as_fact(self):
         """미실측 사양은 필드가 아니라 metadata['assumed']에만 있어야 한다."""
         resolver = ExecutionTargetResolver()
-        spark = resolver._targets[TargetType.KERNIZ5_ARM64_SPARK]
+        spark = resolver._targets[TargetType.GPU_ARM64_SPARK]
         assert spark.verified is False
         assert spark.has_parabricks is False, "미검증인데 도구 보유를 사실로 기록함"
         assert spark.gpu_count == 0, "미검증인데 GPU 개수를 사실로 기록함"

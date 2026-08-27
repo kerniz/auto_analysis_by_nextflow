@@ -792,7 +792,7 @@ def setup_slurm(dry_run):
             click.echo(
                 "\n컴퓨트 노드와 공유되는 경로가 있다면 입력해주세요."
             )
-            click.echo("예: /home/user/shared, /scratch/user, REDACTED-NFS-PATH/...")
+            click.echo("예: /home/user/shared, /scratch/user, /mnt/nfs/...")
             alt_path = click.prompt(
                 "공유 경로 (없으면 빈칸)",
                 default="",

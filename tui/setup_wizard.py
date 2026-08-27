@@ -119,7 +119,7 @@ class WizardState:
                 "backends": {
                     "melchizedek": {
                         "enabled": True,
-                        "base_url": "https://REDACTED-GATEWAY",
+                        "base_url": os.environ.get("BIOAUTO_GATEWAY_URL", "http://localhost:8080"),
                         "client_label": "bioauto/pipeline",
                         "extra_body": {
                             "routing": {

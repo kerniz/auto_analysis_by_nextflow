@@ -9,8 +9,8 @@
   "pipeline_config": {
     "test_pmids": ["40315330", "32416070"],
     "llm_server": {
-      "url": "http://REDACTED-HOST-X86:11434",
-      "failover_url": "http://REDACTED-HOST-X86:11435",
+      "url": "http://localhost:11434",
+      "failover_url": "http://localhost:11435",
       "model": "auto",
       "timeout": 259200,
       "max_retries": 3
@@ -37,7 +37,7 @@
     "backends": {
       "melchizedek": {
         "enabled": true,
-        "base_url": "https://REDACTED-GATEWAY/v1",
+        "base_url": "http://localhost:8080/v1",
         "client_label": "bioauto/pipeline",
         "model": "claude",
         "timeout": 300,
@@ -48,8 +48,8 @@
       },
       "ollama": {
         "enabled": true,
-        "url": "http://REDACTED-HOST-X86:11434",
-        "failover_url": "http://REDACTED-HOST-X86:11435",
+        "url": "http://localhost:11434",
+        "failover_url": "http://localhost:11435",
         "model": "auto",
         "timeout": 259200,
         "max_retries": 3,
