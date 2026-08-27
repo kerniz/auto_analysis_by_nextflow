@@ -11,7 +11,7 @@
 |---|---:|---|---|---|---|
 | GPU-001A | P0 | kerniz3 (x86 GPU) secure inventory access | SSH key/bootstrap | x86 arch·GPU·driver·CUDA·Docker·RAM·Ollama 점유 수집 | **blocked-access** |
 | GPU-001B | P0 | kerniz5 (DGX Spark ARM64) secure inventory access | SSH key/bootstrap | ARM64 arch·GB10 capability·Docker GPU 수집 | **blocked-access** |
-| GPU-004 | P0 | ExecutionTarget & WorkerCapability 추상화 | 없음 | `ExecutionTargetResolver` 모듈 및 워크로드 라우팅 단위 테스트 통과 | **done 2026-08-27** (`core/execution_target.py` 수록) |
+| GPU-004 | P0 | ExecutionTarget & WorkerCapability 추상화 (RFC 0003) | 없음 | `ExecutionTargetResolver` 안전 가드 모듈 수록 및 fail-closed 회귀 테스트 | **in-review** (`core/execution_target.py` scaffold 수록) |
 | GPU-006 | P1 | CapabilityProbe & Target Registry | GPU-004 | unavailable 노드 자동 탐지 및 사전 차단 | **ready** |
 | PB-001 | P1 | Parabricks prerequisite smoke | GPU-001B | `docker --gpus all` official sample, image digest/version provenance | **blocked GPU-001B** |
 | PB-002 | P1 | fq2bam adapter & Nextflow integration | PB-001 | typed manifest/params, reference bundle validation, dry-run resource | **blocked PB-001** |
