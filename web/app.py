@@ -64,6 +64,8 @@ class DashboardState:
                 datetime.now().strftime("%H:%M:%S"), "warn", t("web.pipeline_stopped")
             )
             return True
+        # 태스크가 없거나 이미 완료됐어도 running 플래그는 내림
+        self.running = False
         return False
 
     def stop_pmid(self, pmid: str) -> bool:
@@ -267,7 +269,7 @@ def _cleanup_nfcore_data(pmid: str, results_dir: Path) -> None:
     """nf-core 파이프라인 산출물 삭제 (results/nfcore/{pmid}/ 전체)."""
     nfcore_dir = results_dir / "nfcore" / pmid
     if nfcore_dir.exists():
-        shutil.rmtree(nfcore_dir)
+        shutil.rmtree(nfcore_dir, ignore_errors=True)
 
 
 def _cleanup_queue_manifests(pmid: str, results_dir: Path) -> None:
@@ -358,9 +360,11 @@ def create_app(
     async def api_stream(request: Request):
         """SSE 실시간 이벤트 스트림"""
         dashboard_state: DashboardState = app.state.dashboard
-        queue = dashboard_state.add_sse_queue()
 
         async def event_generator():
+            # add_sse_queue를 generator 안으로 이동 — generator가 실행되지 않으면
+            # queue가 등록되지 않아 좀비 큐 누수 방��� (agy 리뷰 #3)
+            queue = dashboard_state.add_sse_queue()
             try:
                 # 초기 상태 전송
                 yield {
@@ -695,9 +699,11 @@ async def _run_pipeline_bg(
         pipeline._process_pmid = _tracked_process  # type: ignore[method-assign]
         await pipeline.run()
     except Exception as e:
-        state.running = False
         state._add_log(
             datetime.now().strftime("%H:%M:%S"),
             "error",
             f"파이프라인 오류: {e}",
         )
+    finally:
+        # CancelledError 포함 모든 종료 경로에서 running 플래그 내림 (agy 리뷰 #4)
+        state.running = False

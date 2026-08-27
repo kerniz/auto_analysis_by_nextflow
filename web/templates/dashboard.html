@@ -553,6 +553,17 @@
     </div>
 
     <script>
+        // ── XSS 방어: HTML 이스케이프 ──
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         // ── Tab Switching ──
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -719,11 +730,11 @@
                                     state.includes('MIXED') ? 'st-running' : 'st-pending';
                     nodesDiv.innerHTML += `
                     <div class="node-card">
-                        <strong>${n.name}</strong> <span class="${stClass}">${state}</span>
+                        <strong>${escapeHtml(n.name)}</strong> <span class="${stClass}">${escapeHtml(state)}</span>
                         <div class="node-stats">
-                            <span>CPUs: <span class="val">${n.cpus}</span></span>
+                            <span>CPUs: <span class="val">${escapeHtml(n.cpus)}</span></span>
                             <span>RAM: <span class="val">${Math.round((n.memory_mb||0)/1024)} GB</span></span>
-                            <span>GPUs: <span class="val">${n.gres || 'none'}</span></span>
+                            <span>GPUs: <span class="val">${escapeHtml(n.gres || 'none')}</span></span>
                         </div>
                     </div>`;
                 }
@@ -744,12 +755,12 @@
                                  j.state === 'COMPLETED' ? '&#x2705;' :
                                  j.state === 'FAILED' ? '&#x274C;' : '';
                     tbody.innerHTML += `<tr>
-                        <td><strong>${j.job_id}</strong></td>
-                        <td>${j.name}</td>
-                        <td class="${stClass}">${icon} ${j.state}</td>
-                        <td>${j.partition}</td>
-                        <td>${j.node || '-'}</td>
-                        <td style="color:var(--text-dim)">${j.reason || ''}</td>
+                        <td><strong>${escapeHtml(j.job_id)}</strong></td>
+                        <td>${escapeHtml(j.name)}</td>
+                        <td class="${stClass}">${icon} ${escapeHtml(j.state)}</td>
+                        <td>${escapeHtml(j.partition)}</td>
+                        <td>${escapeHtml(j.node || '-')}</td>
+                        <td style="color:var(--text-dim)">${escapeHtml(j.reason || '')}</td>
                     </tr>`;
                 }
                 if (active.length === 0 && recent.length === 0) {
@@ -838,28 +849,29 @@
                                     q.status === 'partial' ? 'Partial' :
                                     q.status === 'failed' ? 'Failed' : q.status;
                 const srcTag = q.source_dir ?
-                    `<span class="source-dir-tag" title="${q.source_dir}">${q.source_dir.split('/').pop()}</span>` : '';
+                    `<span class="source-dir-tag" title="${escapeHtml(q.source_dir)}">${escapeHtml(q.source_dir.split('/').pop())}</span>` : '';
                 const escQid = q.queue_id.replace(/'/g, "\\'");
                 const escName = (q.name||'').replace(/'/g, "\\'");
 
                 let rowsHtml = '';
                 for (const pmid of q.pmids) {
                     const ps = q.pmid_summaries[pmid] || {};
-                    const title = (ps.title || '-').substring(0, 60);
+                    const title = escapeHtml((ps.title || '-').substring(0, 60));
                     const verdict = ps.debate_verdict || '';
                     const verdictHtml = verdict ?
-                        `<span class="verdict-badge verdict-${verdict}">${verdict}</span>` : '-';
+                        `<span class="verdict-badge verdict-${escapeHtml(verdict)}">${escapeHtml(verdict)}</span>` : '-';
                     const score = ps.debate_score ? ps.debate_score.toFixed(2) : '-';
+                    const safePmid = escapeHtml(pmid);
                     rowsHtml += `<tr>
-                        <td><a class="pmid-link" href="/api/results/${pmid}" target="_blank">${pmid}</a></td>
-                        <td class="pmid-title" title="${ps.title||''}">${title}</td>
-                        <td>${ps.sequencing_type||'-'}</td>
-                        <td>${ps.llm_rating||'-'}</td>
+                        <td><a class="pmid-link" href="/api/results/${safePmid}" target="_blank">${safePmid}</a></td>
+                        <td class="pmid-title" title="${escapeHtml(ps.title||'')}">${title}</td>
+                        <td>${escapeHtml(ps.sequencing_type||'-')}</td>
+                        <td>${escapeHtml(ps.llm_rating||'-')}</td>
                         <td>${verdictHtml}</td>
-                        <td>${score}</td>
+                        <td>${escapeHtml(score)}</td>
                         <td>
-                            <a class="report-btn" href="/reports/${pmid}" target="_blank">View</a>
-                            <button class="delete-btn" onclick="deletePmid('${pmid}')" title="Delete this PMID">Del</button>
+                            <a class="report-btn" href="/reports/${safePmid}" target="_blank">View</a>
+                            <button class="delete-btn" onclick="deletePmid('${safePmid}')" title="Delete this PMID">Del</button>
                         </td>
                     </tr>`;
                 }
@@ -871,12 +883,12 @@
                     <div class="queue-header" onclick="toggleQueue(this)">
                         <div class="queue-title">
                             <span class="queue-chevron">&#9654;</span>
-                            <span class="queue-name">${q.name}</span>
+                            <span class="queue-name">${escapeHtml(q.name)}</span>
                         </div>
                         <div class="queue-meta">
                             <span><span class="count">${q.pmids.length}</span> PMID(s)</span>
-                            <span>${(q.timestamp||'').substring(0,10)}</span>
-                            <span class="${statusClass}">${statusLabel}</span>
+                            <span>${escapeHtml((q.timestamp||'').substring(0,10))}</span>
+                            <span class="${statusClass}">${escapeHtml(statusLabel)}</span>
                             ${srcTag}
                             <button class="delete-queue-btn" onclick="event.stopPropagation(); deleteQueue('${escQid}', '${escName}')" title="Delete this topic">Del</button>
                         </div>
