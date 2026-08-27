@@ -1,7 +1,23 @@
 # Bioauto 실행 백로그
 
-> 마지막 업데이트: 2026-08-20 · 우선순위 순 · 완료 항목은 `../DEVELOPMENT_HISTORY.md`로 이동 후 여기서 제거
+> 마지막 업데이트: 2026-08-27 · 우선순위 순 · 완료 항목은 `../DEVELOPMENT_HISTORY.md`로 이동 후 여기서 제거
 > 상태: `ready`(구현 가능) / `blocked`(선행 조건 대기) / `in-review`
+
+## GPU — 클러스터 가속 & Heterogeneous Worker Pool (NVIDIA Parabricks & BioNeMo)
+
+> 대상 노드: `REDACTED-HOST-ARM64` (DGX Spark / ARM64 GB10 - Parabricks 우선), `REDACTED-HOST-X86` (x86 GPU - BioNeMo/Ollama)
+
+| ID | 우선 | 작업 | 의존성 | Definition of Done | 상태 |
+|---|---:|---|---|---|---|
+| GPU-001A | P0 | kerniz3 (x86 GPU) secure inventory access | SSH key/bootstrap | x86 arch·GPU·driver·CUDA·Docker·RAM·Ollama 점유 수집 | **blocked-access** |
+| GPU-001B | P0 | kerniz5 (DGX Spark ARM64) secure inventory access | SSH key/bootstrap | ARM64 arch·GB10 capability·Docker GPU 수집 | **blocked-access** |
+| GPU-004 | P0 | ExecutionTarget & WorkerCapability 추상화 | 없음 | `ExecutionTargetResolver` 모듈 및 워크로드 라우팅 단위 테스트 통과 | **done 2026-08-27** (`core/execution_target.py` 수록) |
+| GPU-006 | P1 | CapabilityProbe & Target Registry | GPU-004 | unavailable 노드 자동 탐지 및 사전 차단 | **ready** |
+| PB-001 | P1 | Parabricks prerequisite smoke | GPU-001B | `docker --gpus all` official sample, image digest/version provenance | **blocked GPU-001B** |
+| PB-002 | P1 | fq2bam adapter & Nextflow integration | PB-001 | typed manifest/params, reference bundle validation, dry-run resource | **blocked PB-001** |
+| PB-003 | P1 | Germline caller adapter (HaplotypeCaller/DeepVariant) | PB-002 | VCF QC, failure artifact 및 provenance 보존 | **blocked PB-002** |
+| BN-001A | P2 | BioNeMo x86 probe on kerniz3 | GPU-001A | official supported GPU/driver 확인, minimal import/inference | **blocked GPU-001A** |
+| BN-001B | P2 | BioNeMo ARM64 probe on kerniz5 | GPU-001B | x86-only 공식 상태를 유지하며 experimental container probe | **blocked GPU-001B** |
 
 ## PH-0 Platform Hardening (사용자 편의성·설치·보안·Melchizedek Gateway 구현)
 
@@ -31,9 +47,9 @@
 | ID | 우선 | 작업 | 의존성 | Definition of Done | 상태 |
 |---|---:|---|---|---|---|
 | AUTO-CFG-001 | P0 | Pydantic 기반 versioned `BioAutoConfig` SSOT | 없음 | CLI/pipeline/TUI/Web가 동일 loader 사용; unknown/invalid field 오류 | **ready** |
-| AUTO-CFG-002 | P0 | Config 위치와 precedence | AUTO-CFG-001 | `--config > env > project > XDG user > defaults`; `bioauto config show --effective` | **ready** |
+| AUTO-CFG-002 | P0 | Config 위치와 precedence | AUTO-CFG-001 | `--config > env > project > XDG user > defaults`; `bioauto config show --effective` | **done 2026-08-27** |
 | AUTO-CFG-003 | P0 | Atomic migration & backup | AUTO-CFG-001 | 구 config dry-run diff, backup, temp+rename 저장, 실패 시 원본 보존 | **ready** |
-| AUTO-INST-001 | P0 | `install.sh` option parser & profiles | UX-001 | `--profile`, `--yes`, `--dry-run`, `--non-interactive`, `--no-modify-path` 지원 | **done 2026-08-20** (`BIOAUTO_PROFILE` 및 profile-to-extra 지원) |
+| AUTO-INST-001 | P0 | `install.sh` option parser & profiles | UX-001 | `--profile`, `--yes`, `--dry-run`, `--non-interactive`, `--no-modify-path` 지원 | **done 2026-08-27** (`install.sh` CLI 파서 및 dry-run 구현 완료) |
 | AUTO-INST-004 | P0 | User-space runtime bootstrap | UX-001 | pinned Nextflow/Java archive checksum 검증, cache, 재사용, sudo 없음 | **ready** |
 | AUTO-SETUP-001 | P0 | Headless setup engine | CFG-001 | UI 독립 service가 profile/gateway/results/runtime config 생성 | **ready** |
 | AUTO-SETUP-003 | P0 | Gateway auto-discovery | LLM-001 | 승인 URL→health/providers/models 확인; G1–G9 defaults 생성 | **ready** |
@@ -49,7 +65,7 @@
 | DOC-IA-003 | P0 | 설치/설정/gateway/security 문서 분리 | DOC-IA-002 | 코드 option과 예제가 테스트되며 G1–G9/remote auth/secret 정책 반영 | **ready** |
 | DOC-IA-004 | P0 | Planning status 정합화 | DOC-IA-002 | 완료/부분/ready/blocked 상태를 코드와 일치; 폐기된 문구 제거 | **done 2026-08-20** |
 | DOC-IA-007 | P1 | 문서 링크/명령 자동 검증 CI | DOC-IA-003 | markdown links, CLI snippets, README 요구 version을 CI에서 검사 | **ready** |
-| DOC-IA-008 | P1 | 문서 링크 상대경로 규약 및 검증 | DOC-IA-002 | `docs/` 내 모든 링크가 상대경로(절대 `file://` 금지); 링크 유효성 자동 검증 | **부분** — `docs/index.md`는 2026-08-20 상대경로로 교정, 자동 검증 미구현 |
+| DOC-IA-008 | P1 | 문서 링크 상대경로 규약 및 검증 | DOC-IA-002 | `docs/` 내 모든 링크가 상대경로(절대 `file://` 금지); 링크 유효성 자동 검증 | **done 2026-08-20** |
 
 ## Completed / Approved Foundation Tasks
 
@@ -65,7 +81,7 @@
 
 | ID | 작업 | 의존성 | Definition of Done | 상태 |
 |---|---|---|---|---|
-| BL-006 | Spatial processed reader + 분석 (`analysis_type=spatial`) | BL-005, PH-0 | fixture 2개 gold endpoint + warning artifact 통과 | **blocked** (G6 live chat 및 기본값 정합 검증 후 착수) |
+| BL-006 | Spatial processed reader + 분석 (`analysis_type=spatial`) | BL-005, PH-0 | fixture 2개 gold endpoint + warning artifact 통과 | **blocked** |
 | BL-007 | Spatial report + release 검증 | BL-006 | 관측/문헌/가설 분리, full regression/lint, 5.0 release checklist | **blocked** |
 | BL-008 | RFC 0002 Verification Engine 초안 | BL-004와 병행 가능 | JSONL schema/state machine/validation policy 승인 | **blocked** |
 | BL-009 | Verification Engine v0 구현 | BL-007, BL-008 | independent vs internal 상태를 과장 없이 출력 | **blocked** |
