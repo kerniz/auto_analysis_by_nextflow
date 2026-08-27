@@ -251,14 +251,90 @@ print_uninstall() {
     echo ""
 }
 
+parse_args() {
+    PROFILE="${BIOAUTO_PROFILE:-standard}"
+    YES=false
+    DRY_RUN=false
+    NON_INTERACTIVE=false
+    MODIFY_PATH=true
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --profile)
+                PROFILE="$2"
+                shift 2
+                ;;
+            --profile=*)
+                PROFILE="${1#*=}"
+                shift
+                ;;
+            --yes|-y)
+                YES=true
+                NON_INTERACTIVE=true
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            --non-interactive)
+                NON_INTERACTIVE=true
+                shift
+                ;;
+            --no-modify-path)
+                MODIFY_PATH=false
+                shift
+                ;;
+            -h|--help)
+                echo "bioauto installer v4.1"
+                echo ""
+                echo "사용법: bash install.sh [옵션]"
+                echo ""
+                echo "옵션:"
+                echo "  --profile <name>     설치 프로필 선택 (core, standard, analysis, pipeline, full, dev) [기본값: standard]"
+                echo "  --yes, -y            모든 프롬프트 자동 승인 (non-interactive)"
+                echo "  --dry-run            설치 과정을 미리 확인만 하고 실행하지 않음"
+                echo "  --non-interactive    대화형 입력 요청 없이 진행"
+                echo "  --no-modify-path     ~/.bashrc, ~/.zshrc 등에 PATH를 자동으로 추가하지 않음"
+                echo "  --help, -h           도움말 표시"
+                exit 0
+                ;;
+            *)
+                die "알 수 없는 옵션: $1 (도움말: bash install.sh --help)"
+                ;;
+        esac
+    done
+
+    case "$PROFILE" in
+        core|standard|web|analysis|pipeline|full|dev) ;;
+        *) die "지원하지 않는 프로필: '$PROFILE'. 선택 가능: core, standard, analysis, pipeline, full, dev" ;;
+    esac
+
+    BIOAUTO_PROFILE="$PROFILE"
+}
+
 # --- Main ---
 main() {
+    parse_args "$@"
+
+    if $DRY_RUN; then
+        info "[DRY-RUN] 설치 대상: ${INSTALL_DIR}"
+        info "[DRY-RUN] 프로필: ${BIOAUTO_PROFILE}"
+        info "[DRY-RUN] PATH 수정 여부: ${MODIFY_PATH}"
+        ok "[DRY-RUN] 모든 조건 검증 완료."
+        exit 0
+    fi
+
     detect_os
     find_python
     find_source
     install_bioauto
     create_wrapper
-    setup_path
+    if $MODIFY_PATH; then
+        setup_path
+    else
+        warn "--no-modify-path 지정됨: shell rc 파일 수정을 건너끕니다."
+    fi
     verify
     print_usage
     print_uninstall

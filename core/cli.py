@@ -2254,6 +2254,60 @@ def doctor(json_out):
     click.echo("=============================================")
 
 
+@cli.group(name="config")
+def config_group():
+    """플랫폼 설정 조회 및 검증 관리"""
+    pass
+
+
+@config_group.command(name="paths")
+def config_paths():
+    """설정 파일 로드 위치 및 탐색 우선순위를 출력합니다."""
+    click.echo("=== BioAuto Config Resolution Precedence ===")
+    click.echo("1. CLI flag: --config <path>")
+    click.echo("2. Environment variable: BIOAUTO_CONFIG")
+    click.echo(f"3. Project file: {Path.cwd() / 'config.json'}")
+    click.echo(f"4. User XDG file: {Path.home() / '.config' / 'bioauto' / 'config.json'}")
+    click.echo(f"5. Default file: {Path(__file__).parent.parent / 'config.json'}")
+    click.echo("===========================================")
+
+
+@config_group.command(name="show")
+@click.option("--effective", is_flag=True, default=True, help="유효 병합 설정 표시")
+@click.option("--json", "json_out", is_flag=True, help="JSON 형식으로 출력")
+def config_show(effective, json_out):
+    """현재 로드된 유효 설정(비밀값 마스킹 처리됨)을 표시합니다."""
+    raw_cfg = _load_config()
+
+    def redact_secrets(obj):
+        if isinstance(obj, dict):
+            res = {}
+            for k, v in obj.items():
+                if any(secret_kw in k.lower() for secret_kw in ["key", "secret", "token", "password"]):
+                    if isinstance(v, str) and len(v) > 4:
+                        res[k] = f"{v[:4]}...***(redacted)"
+                    elif v:
+                        res[k] = "***(redacted)"
+                    else:
+                        res[k] = v
+                else:
+                    res[k] = redact_secrets(v)
+            return res
+        elif isinstance(obj, list):
+            return [redact_secrets(item) for item in obj]
+        return obj
+
+    safe_cfg = redact_secrets(raw_cfg)
+
+    if json_out:
+        click.echo(json.dumps(safe_cfg, indent=2, ensure_ascii=False))
+        return
+
+    click.echo("=== Effective BioAuto Configuration ===")
+    click.echo(json.dumps(safe_cfg, indent=2, ensure_ascii=False))
+    click.echo("======================================")
+
+
 @cli.command()
 @click.option("--host", default="127.0.0.1", help="서버 호스트 (기본값: 127.0.0.1)")
 @click.option("--port", default=8888, type=int, help="서버 포트")

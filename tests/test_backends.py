@@ -1322,6 +1322,13 @@ class TestErrorTaxonomy:
     def test_unknown_error_defaults_to_retryable(self):
         assert classify_error(ConnectionError("reset"))[0] is ErrorClass.RETRYABLE
 
+    def test_code_in_json_body_is_preferred_over_status(self):
+        """llms.txt: message/status보다 code가 우선이다."""
+        e = self._err(status=401)
+        e.body = {"code": "timeout", "message": "human text"}
+        cls, _ = classify_error(e)
+        assert cls is ErrorClass.RETRYABLE
+
     async def test_fatal_error_is_not_retried(self):
         """인증 오류를 max_retries만큼 재시도하면 설정 오류가 가려진다."""
         calls = []

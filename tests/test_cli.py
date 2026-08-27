@@ -644,4 +644,53 @@ class TestDoctorCommand:
         assert "environment_keys" in data
 
 
+class TestConfigCommand:
+    """config 명령 그룹 테스트"""
+
+    def test_config_paths(self):
+        from click.testing import CliRunner
+
+        from core.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "paths"])
+        assert result.exit_code == 0
+        assert "BioAuto Config Resolution Precedence" in result.output
+        assert "1. CLI flag:" in result.output
+
+    def test_config_show_json(self):
+        import json
+
+        from click.testing import CliRunner
+
+        from core.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "show", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, dict)
+
+
+    def test_doctor_redacts_secret_values(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-super-secret-value")
+        result = self._runner().invoke(cli, ["doctor", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        shown = data["environment_keys"]["OPENAI_API_KEY"]
+        assert "sk-super-secret-value" not in shown
+        assert "redacted" in shown
+
+    def test_web_rejects_non_loopback_without_allow_remote(self):
+        result = self._runner().invoke(cli, ["web", "--host", "0.0.0.0"])
+        assert "Security Guard" in result.output
+        assert "--allow-remote" in result.output
+
+    @staticmethod
+    def _runner():
+        from click.testing import CliRunner
+
+        return CliRunner()
+
+
 

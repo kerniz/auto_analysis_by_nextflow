@@ -364,3 +364,31 @@ def test_g4_analysis_extra_requires_python_312():
     content = Path("pyproject.toml").read_text(encoding="utf-8")
     assert "scanpy>=1.12.0; python_version >= '3.12'" in content
     assert "anndata>=0.12.0; python_version >= '3.12'" in content
+
+
+def test_pipeline_config_defaults_match_gateway_first_policy():
+    """config.json이 없어도 dataclass 기본값이 G1/G8을 따라야 한다."""
+    from core.pipeline import LLMRouterSettings, PipelineConfig
+
+    defaults = LLMRouterSettings()
+    assert defaults.priority_order[0] == "melchizedek"
+    assert defaults.enable_auto_failover is False
+    cfg = PipelineConfig(pmids=["0"])
+    router = cfg.llm_providers.router if cfg.llm_providers else defaults
+    assert router.enable_auto_failover is False
+    assert router.priority_order[0] == "melchizedek"
+
+
+def test_docs_index_uses_relative_links_that_exist():
+    """docs/index.md 링크는 file:// href 금지, 레포 상대경로로 실존해야 한다."""
+    index = Path("docs/index.md")
+    content = index.read_text(encoding="utf-8")
+    hrefs = re.findall(r"\[[^\]]+\]\(([^)]+)\)", content)
+    assert hrefs, "docs/index.md에 링크가 없음"
+    for target in hrefs:
+        href = target.split()[0]
+        assert not href.startswith("file:"), f"절대 file:// 링크: {href}"
+        if href.startswith(("http://", "https://", "#")):
+            continue
+        resolved = (index.parent / href).resolve()
+        assert resolved.exists(), f"깨진 상대 링크: {href}"

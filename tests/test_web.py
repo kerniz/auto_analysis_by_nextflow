@@ -685,10 +685,26 @@ class TestServerTokenAuth:
         resp = client.post("/api/run", json={"pmids": ["111"]}, headers={"X-Server-Token": "secret-token-123"})
         assert resp.status_code == 200
 
-    def test_token_auth_allows_read_only_get(self, tmp_path):
+    def test_token_auth_allows_status_get(self, tmp_path):
         app = create_app(results_dirs=[str(tmp_path)], server_token="secret-token-123")
         client = TestClient(app)
-        # GET 요청은 토큰 없이도 허용
         resp = client.get("/api/status")
         assert resp.status_code == 200
+
+    def test_token_auth_blocks_protected_reads(self, tmp_path):
+        """원격 모드에서 결과/파이프라인 파일 GET도 토큰이 필요하다."""
+        app = create_app(results_dirs=[str(tmp_path)], server_token="secret-token-123")
+        client = TestClient(app)
+
+        denied = client.get("/api/results/111")
+        assert denied.status_code == 401
+
+        denied_file = client.get("/pipeline-files/dummy.html")
+        assert denied_file.status_code == 401
+
+        allowed = client.get(
+            "/api/results/111",
+            headers={"X-Server-Token": "secret-token-123"},
+        )
+        assert allowed.status_code != 401
 
